@@ -1,0 +1,1727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Neurovance</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Michroma&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: #050505; overflow: hidden;
+    font-family: 'Inter', -apple-system, sans-serif; color: #d6d6d9;
+  }
+  body { display: flex; }
+  #app-shell { display: flex; width: 100%; height: 100vh; }
+
+  /* ---------- Auth gate ---------- */
+  #auth-gate {
+    width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center;
+  }
+  #auth-card {
+    width: 320px; display: flex; flex-direction: column; gap: 16px;
+  }
+  #brand-lockup {
+    align-self: center; margin-bottom: 8px; font-family: 'Michroma', sans-serif;
+    font-size: 20px; letter-spacing: 4px; color: #f2f3f5;
+  }
+  #brand-lockup .dot { color: #e8432c; }
+  #brand-tag {
+    font-family: 'Michroma', sans-serif; font-size: 9px; letter-spacing: 1.5px;
+    color: #4a4a50; cursor: default;
+  }
+  #auth-card h1 {
+    font-size: 14px; font-weight: 600; letter-spacing: 4px; margin: 0;
+    background: linear-gradient(180deg, #ffffff, #9a9aa2);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  #auth-card .subtitle { font-size: 9px; letter-spacing: 2px; color: #63636a; text-transform: uppercase; margin-top: 6px; margin-bottom: 8px; }
+  .auth-screen { display: flex; flex-direction: column; gap: 16px; }
+  .auth-field {
+    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
+    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 13px; padding: 0 0 8px 0;
+    outline: none; transition: border-color 0.25s ease;
+  }
+  .auth-field::placeholder { color: #4a4a50; }
+  .auth-field:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  .auth-submit {
+    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    font-size: 12px; letter-spacing: 0.5px; padding: 10px; border-radius: 3px; cursor: pointer;
+    transition: background 0.2s ease; margin-top: 4px;
+  }
+  .auth-submit:hover { background: rgba(255,255,255,0.1); }
+  .auth-toggle { font-size: 11px; color: #63636a; cursor: pointer; text-align: center; }
+  .auth-toggle span { color: #9a9aa2; text-decoration: underline; }
+  .auth-error { font-size: 11px; color: #e8432c; min-height: 14px; }
+  #logout-link {
+    font-size: 9px; letter-spacing: 1px; color: #4a4a50; cursor: pointer; text-transform: uppercase;
+    margin-top: 10px; transition: color 0.2s ease;
+  }
+  #logout-link:hover { color: #9a9aa2; }
+
+  /* ---------- Face scan — the oval Face-ID-style capture, shown as a
+     mandatory step right after password login/signup, not an alternative
+     login method ---------- */
+  #face-scan-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  #face-oval {
+    width: 300px; height: 380px; border-radius: 50% / 55%;
+    border: 1.5px solid rgba(210,230,255,0.35); overflow: hidden; position: relative;
+    background: #0a0a0c; transition: border-color 0.3s ease;
+  }
+  #face-oval.detected { border-color: rgba(127,217,154,0.8); }
+  #face-video {
+    position: absolute; top: 50%; left: 50%; width: 100%; height: 100%;
+    object-fit: cover; transform: translate(-50%, -50%) scaleX(-1); /* mirror, like a real camera/mirror */
+  }
+  /* A block of thin horizontal scan lines that sweeps down together, like a
+     barcode reader passing over the face, instead of one soft glow band. */
+  #face-scan-line {
+    position: absolute; left: 0; right: 0; height: 30%; top: -30%;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(140,145,155,0.55) 0px,
+      rgba(140,145,155,0.55) 1.5px,
+      rgba(140,145,155,0) 1.5px,
+      rgba(140,145,155,0) 7px
+    );
+    mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 45%, rgba(0,0,0,1) 55%, rgba(0,0,0,0) 100%);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 45%, rgba(0,0,0,1) 55%, rgba(0,0,0,0) 100%);
+    pointer-events: none; z-index: 2; animation: face-scan-sweep 2.4s ease-in-out infinite;
+  }
+  @keyframes face-scan-sweep {
+    0% { top: -30%; }
+    50% { top: 100%; }
+    100% { top: -30%; }
+  }
+  #face-status { font-size: 11px; color: #63636a; text-align: center; min-height: 14px; }
+
+  /* ---------- Sidebar ---------- */
+  #sidebar {
+    width: 260px; min-width: 260px; height: 100vh; z-index: 10;
+    padding: 32px 26px; display: flex; flex-direction: column;
+    border-right: 1px solid rgba(255,255,255,0.07);
+  }
+  h1 {
+    font-size: 14px; font-weight: 600; letter-spacing: 4px; margin: 0;
+    background: linear-gradient(180deg, #ffffff, #9a9aa2);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .subtitle { font-size: 9px; letter-spacing: 2px; color: #63636a; text-transform: uppercase; margin-top: 6px; }
+
+  .hero { margin-top: 56px; }
+  .hero-mood {
+    font-size: 24px; font-weight: 500; color: #eaeaec; line-height: 1.3;
+  }
+  .hero-label { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: #63636a; margin-top: 10px; }
+
+  .stat-small {
+    font-family: 'Share Tech Mono', monospace; font-size: 12px; color: #63636a;
+    margin-top: 18px; letter-spacing: 0.5px;
+  }
+
+  /* ---------- Add-memory bar — an underline, not a boxed input ---------- */
+  #add-memory { margin-top: 26px; }
+  #memory-input {
+    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
+    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
+    outline: none; transition: border-color 0.25s ease;
+    resize: none; min-height: 34px; max-height: 140px; line-height: 1.5;
+  }
+  #memory-input::placeholder { color: #4a4a50; }
+  #memory-input:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  #add-memory-hint {
+    font-size: 9px; color: #4a4a50; margin-top: 6px; letter-spacing: 0.3px;
+  }
+  #add-memory-status {
+    font-size: 10px; letter-spacing: 0.5px; color: #7fd99a; margin-top: 7px; height: 12px;
+    opacity: 0; transition: opacity 0.4s ease;
+  }
+  #add-memory-status.show { opacity: 1; }
+
+  /* ---------- Memory search ---------- */
+  #memory-search {
+    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
+    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
+    outline: none; transition: border-color 0.25s ease; margin-top: 18px;
+  }
+  #memory-search::placeholder { color: #4a4a50; }
+  #memory-search:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  #search-count { font-size: 10px; color: #63636a; margin-top: 6px; height: 12px; }
+
+  /* ---------- Selected memory readout — click a node in the sphere ---------- */
+  #selected-memory {
+    margin-top: 22px; font-size: 12px; line-height: 1.5; color: #c8c9cf;
+    max-height: 220px; overflow-y: auto; padding-right: 4px; position: relative;
+    opacity: 0; transform: translateY(-4px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  #selected-memory.show { opacity: 1; transform: translateY(0); }
+  #selected-memory .sm-label {
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px;
+  }
+  #selected-memory-close {
+    position: absolute; top: -2px; right: 0; cursor: pointer; color: #63636a;
+    font-size: 13px; line-height: 1; padding: 4px; transition: color 0.2s ease;
+  }
+  #selected-memory-close:hover { color: #d6d6d9; }
+  #selected-memory-meta {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+  }
+  .sm-tag {
+    font-size: 9px; letter-spacing: 0.5px; color: #9a9aa2; background: rgba(255,255,255,0.06);
+    border-radius: 3px; padding: 3px 7px;
+  }
+  #selected-memory-date {
+    font-size: 10px; color: #63636a; margin-top: 8px;
+  }
+
+  .legend-inline { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 40px; }
+  .legend-item { display: flex; align-items: center; gap: 9px; font-size: 11px; color: #85858c; letter-spacing: 0.3px; }
+  .swatch { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+
+  .status-active { color: #b8ffcf; }
+  .status-idle { color: #d6d6d9; }
+  .status-dormant { color: #63636a; }
+  .status-overworked { color: #e8432c; }
+
+  /* ---------- Main ---------- */
+  #main { flex: 1; display: flex; flex-direction: column; height: 100vh; min-width: 0; }
+  #content-row { display: flex; flex: 1 1 0%; min-height: 0; position: relative; }
+  #graph-wrap { position: relative; flex: 1 1 0%; min-height: 0; min-width: 0; }
+  #graph {
+    width: 100%; height: 100%; filter: brightness(1.05) contrast(1.08);
+    transition: filter 3s ease;
+  }
+  body.dormant #graph { filter: brightness(0.82) contrast(1.05) saturate(0.8); }
+  #empty {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #63636a; font-size: 13px; text-align: center; max-width: 320px;
+  }
+
+  /* ---------- Neural link — a thin pulsing line between the sphere and the
+     body, so they read as one entity instead of two separate panels ---------- */
+  #neural-link {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    pointer-events: none; z-index: 5; overflow: visible;
+  }
+  #neural-link .link-path {
+    fill: none; stroke: rgba(180, 200, 230, 0.16); stroke-width: 1.4;
+  }
+  #neural-link .link-pulse {
+    fill: #d2e6ff; filter: drop-shadow(0 0 6px rgba(180, 210, 255, 0.9));
+  }
+
+  /* ---------- Body turntable, right next to the brain sphere ---------- */
+  #body-wrap {
+    flex: 0 1 380px; min-width: 220px; position: relative;
+    overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: grab;
+  }
+  #body-wrap.dragging { cursor: grabbing; }
+  #body-wrap .frame {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    max-height: 84%; max-width: 84%; pointer-events: none;
+    opacity: 0; transition: opacity 0.9s ease-in-out;
+    mix-blend-mode: screen; /* the image's own black background vanishes into the page instead of showing as a box */
+  }
+  #body-wrap .frame.active { opacity: 1; }
+  #glow-heart, #glow-brain {
+    position: absolute; border-radius: 50%; pointer-events: none;
+    left: 50%; transform: translate(-50%, -50%); opacity: 0.3; z-index: 2;
+  }
+  #glow-heart {
+    width: 70px; height: 70px; top: 40%;
+    background: radial-gradient(circle, rgba(232,67,44,0.55) 0%, rgba(232,67,44,0) 70%);
+  }
+  #glow-brain {
+    width: 55px; height: 55px; top: 19%;
+    background: radial-gradient(circle, rgba(180,220,255,0.5) 0%, rgba(180,220,255,0) 70%);
+  }
+  #voice-status {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3;
+    color: #7fd99a; font-size: 10px; letter-spacing: 1px; text-align: center; max-width: 90%;
+    transition: color 0.3s ease;
+  }
+  #voice-status.thinking { color: #c8c9cf; }
+  #voice-status.error { color: #e8432c; }
+  #mouth-indicator {
+    position: absolute; left: 50%; top: 22%; transform: translate(-50%, -50%) scaleY(1);
+    width: 12px; height: 3px; border-radius: 3px; background: rgba(210,230,255,0.75);
+    opacity: 0; pointer-events: none; z-index: 3; transition: opacity 0.2s ease, transform 0.09s ease-out;
+  }
+  #mouth-indicator.speaking { opacity: 0.85; }
+
+  #blink-overlay {
+    position: absolute; left: 50%; top: 15.5%; transform: translate(-50%, -50%);
+    width: 32px; height: 4px; border-radius: 2px; background: #050505;
+    opacity: 0; pointer-events: none; z-index: 3; transition: opacity 0.05s ease;
+  }
+
+  /* ---------- Monitor panel — a strip of vitals, not a boxed dashboard grid ---------- */
+  #monitor-panel {
+    flex: 0 0 220px; display: flex; align-items: center; gap: 28px;
+    padding: 0 28px; min-height: 0;
+  }
+  #ecg-wrap { flex: 1 1 100px; min-width: 60px; position: relative; height: 70%; }
+  #ecg-wrap .panel-title { position: absolute; top: -22px; left: 0; margin: 0; }
+  #ecg-canvas { display: block; }
+
+  .panel-title {
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; color: #4a4a50; font-weight: 400;
+  }
+
+  #monitor-readouts { flex: 0 1 auto; display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; row-gap: 6px; }
+  .readout { display: flex; flex-direction: column; }
+  .readout-value {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 30px; font-weight: 400; line-height: 1; color: #d6d6d9;
+    font-variant-numeric: tabular-nums;
+  }
+  .readout-label {
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; color: #4a4a50; margin-top: 8px;
+  }
+  .readout-pulse .readout-value { color: #7fd99a; transition: color 0.6s ease; }
+  .readout-pulse.overworked .readout-value { color: #e8432c; }
+  .readout-status .readout-value { font-size: 18px; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+
+<div id="auth-gate">
+  <div id="auth-card">
+    <div id="brand-lockup">NEUROVANCE</div>
+    <div>
+      <h1 id="auth-title">SIGN IN</h1>
+      <div class="subtitle" id="auth-subtitle">Your Superself</div>
+    </div>
+
+    <div id="screen-login" class="auth-screen">
+      <input class="auth-field" id="login-username" type="text" placeholder="Username" autocomplete="username" />
+      <input class="auth-field" id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+      <div class="auth-error" id="login-error"></div>
+      <button class="auth-submit" id="login-submit">Sign in</button>
+      <div class="auth-toggle" id="goto-signup">Don't have an account? <span>Sign up</span></div>
+    </div>
+
+    <div id="screen-signup-email" class="auth-screen" style="display:none">
+      <input class="auth-field" id="signup-email" type="email" placeholder="Email" autocomplete="email" />
+      <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" />
+      <div class="auth-error" id="signup-email-error"></div>
+      <button class="auth-submit" id="signup-email-submit">Send code</button>
+      <div class="auth-toggle" id="goto-login">Already have an account? <span>Sign in</span></div>
+    </div>
+
+    <div id="screen-signup-code" class="auth-screen" style="display:none">
+      <div class="subtitle" id="code-sent-to"></div>
+      <input class="auth-field" id="signup-code" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" />
+      <div class="auth-error" id="signup-code-error"></div>
+      <button class="auth-submit" id="signup-code-submit">Verify</button>
+    </div>
+
+    <div id="screen-signup-username" class="auth-screen" style="display:none">
+      <input class="auth-field" id="signup-username" type="text" placeholder="Choose a username" autocomplete="username" />
+      <input class="auth-field" id="signup-displayname" type="text" placeholder="Your name" />
+      <input class="auth-field" id="signup-ainame" type="text" placeholder="What do you want to name your Superself?" />
+      <div class="auth-error" id="signup-username-error"></div>
+      <button class="auth-submit" id="signup-username-submit">Create account</button>
+    </div>
+
+    <div id="screen-face" class="auth-screen" style="display:none">
+      <div id="face-scan-wrap">
+        <div id="face-oval">
+          <video id="face-video" autoplay playsinline muted></video>
+          <div id="face-scan-line"></div>
+        </div>
+        <div id="face-status">Loading face scan…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="app-shell" style="display:none">
+<div id="sidebar">
+  <div>
+    <h1 id="app-title">ARI V2</h1>
+    <div class="subtitle" id="app-subtitle">Your Superself</div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-mood" id="hero-mood">—</div>
+    <div class="hero-label">Feeling</div>
+  </div>
+
+  <div class="stat-small" id="stat-memories-small">— memories</div>
+
+  <input id="memory-search" type="text" placeholder="Search memories…" />
+  <div id="search-count"></div>
+
+  <div id="add-memory">
+    <textarea id="memory-input" rows="2" placeholder="Tell it about you — a sentence or a whole paragraph…" maxlength="4000"></textarea>
+    <div id="add-memory-hint">Enter to save · Shift+Enter for a new line</div>
+    <div id="add-memory-status">Saved</div>
+  </div>
+
+  <div id="selected-memory">
+    <div id="selected-memory-close">✕</div>
+    <div class="sm-label">Selected memory</div>
+    <div id="selected-memory-text"></div>
+    <div id="selected-memory-meta"></div>
+    <div id="selected-memory-date"></div>
+  </div>
+
+  <div class="legend-inline">
+    <div class="legend-item"><span class="swatch" style="background:#e8432c"></span>Critical memory</div>
+    <div class="legend-item"><span class="swatch" style="background:#c8c9cf"></span>Key memory</div>
+    <div class="legend-item"><span class="swatch" style="background:#6b6c74"></span>Standard memory</div>
+    <div id="brand-tag">NEUROVANCE</div>
+    <div id="logout-link">Log out</div>
+  </div>
+</div>
+
+<div id="main">
+  <div id="content-row">
+    <svg id="neural-link"></svg>
+    <div id="graph-wrap">
+      <div id="graph"></div>
+      <div id="empty" style="display:none">No memories yet. Run a task with <code>npm start</code> and the brain will start filling this in.</div>
+    </div>
+
+    <div id="body-wrap">
+      <div id="glow-heart"></div>
+      <div id="glow-brain"></div>
+      <img id="frame-a" class="frame active" src="/turntable/angle-0.png" alt="body turntable" draggable="false" />
+      <img id="frame-b" class="frame" src="/turntable/angle-0.png" alt="body turntable" draggable="false" />
+      <div id="mouth-indicator"></div>
+      <div id="blink-overlay"></div>
+      <div id="voice-status">Clap twice to wake me up</div>
+    </div>
+  </div>
+
+  <div id="monitor-panel">
+    <div id="ecg-wrap">
+      <div class="panel-title">Vitals trace</div>
+      <canvas id="ecg-canvas"></canvas>
+    </div>
+    <div id="monitor-readouts">
+      <div class="readout readout-pulse">
+        <div class="readout-value" id="mon-pulse">—</div>
+        <div class="readout-label">Pulse bpm</div>
+      </div>
+      <div class="readout readout-health">
+        <div class="readout-value" id="mon-health">—</div>
+        <div class="readout-label">Health</div>
+      </div>
+      <div class="readout readout-status">
+        <div class="readout-value" id="mon-status">—</div>
+        <div class="readout-label">Status</div>
+      </div>
+      <div class="readout readout-age">
+        <div class="readout-value" id="mon-age">—</div>
+        <div class="readout-label">Age</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
+<script src="https://unpkg.com/three@0.150.0/build/three.min.js"></script>
+<script>
+let Graph, allNodes = [], allLinks = [], selectedId = null;
+let bodyControls = null;
+let shellMaterial = null, currentBpm = 60, displayedBpm = 60, isDormant = false, isOverworked = false, voiceActive = false;
+
+function startApp() {
+  fetch('/api/graph', { credentials: 'same-origin' })
+    .then((r) => r.json())
+    .then((data) => {
+      allNodes = data.nodes;
+      allLinks = data.links;
+
+      renderSidebarStats();
+      initECG();
+      initBodyTurntable();
+      initVoiceAssistant();
+      initNeuralLink();
+      initAddMemory();
+      initNeuronFiring();
+      initThinkingWatcher();
+      initSelectedMemoryClose();
+      initMemorySearch();
+      setInterval(renderSidebarStats, 5000); // live tick — vitals cool down in real time, no reload needed
+
+      if (allNodes.length === 0) {
+        document.getElementById('empty').style.display = 'block';
+        return;
+      }
+
+      initGraph(data);
+    });
+}
+
+// ---------- Face scan: real face-recognition (face-api.js, free, entirely
+// client-side — nothing about your face ever leaves this browser except the
+// final 128-number descriptor sent to log you in). Not hardware-secure like
+// Apple's actual Face ID (no depth sensor, no liveness check) — that's why
+// password login always stays available as a fallback.
+const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
+let faceModelsReady = false;
+let faceStream = null;
+let faceLoopHandle = null;
+
+async function loadFaceModels() {
+  if (faceModelsReady) return true;
+  try {
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL),
+      faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL),
+    ]);
+    faceModelsReady = true;
+    return true;
+  } catch (e) {
+    console.warn('Face scan models failed to load:', e);
+    return false;
+  }
+}
+
+async function startFaceStream(videoEl) {
+  faceStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 320 } });
+  videoEl.srcObject = faceStream;
+  await new Promise((resolve) => { videoEl.onloadedmetadata = resolve; });
+}
+
+function stopFaceStream() {
+  if (faceStream) {
+    faceStream.getTracks().forEach((t) => t.stop());
+    faceStream = null;
+  }
+  if (faceLoopHandle) {
+    clearTimeout(faceLoopHandle);
+    faceLoopHandle = null;
+  }
+}
+
+// Runs detection repeatedly; once the same face is found for ~600ms straight
+// (not just a single lucky frame), captures its descriptor and resolves —
+// this is what gives it the automatic "just hold still a moment" feel
+// instead of needing a manual capture button.
+const DETECTOR_OPTIONS = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.3 });
+
+function detectStableFace(videoEl, ovalEl, statusEl, onDescriptor) {
+  // Accumulates "good" time on every successful frame and only bleeds a
+  // little back off on a miss (instead of resetting to zero) — a single
+  // flaky frame (blink, tiny angle change) shouldn't undo all progress.
+  // This just needs to be good enough to recognize you, not lab-grade.
+  let goodMs = 0;
+  const TARGET_MS = 350;
+  let lastResult = null;
+  let lastTick = null;
+
+  async function tick() {
+    if (!videoEl.srcObject) return; // stream stopped, abandon this loop
+    const now = performance.now();
+    const dt = lastTick === null ? 0 : now - lastTick;
+    lastTick = now;
+
+    const result = await faceapi
+      .detectSingleFace(videoEl, DETECTOR_OPTIONS)
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    if (result) {
+      lastResult = result;
+      ovalEl.classList.add('detected');
+      goodMs = Math.min(TARGET_MS, goodMs + dt);
+      statusEl.textContent = goodMs > 150 ? 'Hold still…' : 'Face found';
+      if (goodMs >= TARGET_MS) {
+        onDescriptor(Array.from(lastResult.descriptor));
+        return; // caller decides whether to restart the loop
+      }
+    } else {
+      goodMs = Math.max(0, goodMs - dt * 2); // decays faster than it builds, but doesn't zero out instantly
+      if (goodMs === 0) {
+        ovalEl.classList.remove('detected');
+        statusEl.textContent = 'Position your face in the oval';
+      }
+    }
+    faceLoopHandle = setTimeout(tick, 120);
+  }
+  tick();
+}
+
+// Gate the whole app behind a session check — shows the login/signup card
+// until a session is both password-verified AND face-verified, then reveals
+// the real app and binds the logged-in user's own chosen name/AI-name.
+let currentIdentity = { displayName: 'there', aiName: 'Ari V2' };
+let pendingEmail = null;
+let pendingVerifiedToken = null;
+
+function applyIdentity({ displayName, aiName }) {
+  currentIdentity = { displayName, aiName };
+  document.getElementById('app-title').textContent = aiName;
+  document.getElementById('app-subtitle').textContent = `${displayName}'s Superself`;
+}
+
+function showApp(identity) {
+  applyIdentity(identity);
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('app-shell').style.display = '';
+  startApp();
+}
+
+const AUTH_SCREEN_TITLES = {
+  'screen-login': 'SIGN IN',
+  'screen-signup-email': 'CREATE ACCOUNT',
+  'screen-signup-code': 'CHECK YOUR EMAIL',
+  'screen-signup-username': 'CHOOSE A USERNAME',
+  'screen-face': 'SECOND FACTOR',
+};
+
+function goToScreen(id) {
+  document.querySelectorAll('.auth-screen').forEach((el) => { el.style.display = 'none'; });
+  document.getElementById(id).style.display = 'flex';
+  document.getElementById('auth-title').textContent = AUTH_SCREEN_TITLES[id] || 'SIGN IN';
+}
+
+function initAuthGate() {
+  const loginUsername = document.getElementById('login-username');
+  const loginPassword = document.getElementById('login-password');
+  const loginError = document.getElementById('login-error');
+  const loginSubmit = document.getElementById('login-submit');
+
+  const signupEmail = document.getElementById('signup-email');
+  const signupPassword = document.getElementById('signup-password');
+  const signupEmailError = document.getElementById('signup-email-error');
+  const signupEmailSubmit = document.getElementById('signup-email-submit');
+
+  const signupCode = document.getElementById('signup-code');
+  const signupCodeError = document.getElementById('signup-code-error');
+  const signupCodeSubmit = document.getElementById('signup-code-submit');
+  const codeSentTo = document.getElementById('code-sent-to');
+
+  const signupUsername = document.getElementById('signup-username');
+  const signupDisplayName = document.getElementById('signup-displayname');
+  const signupAiName = document.getElementById('signup-ainame');
+  const signupUsernameError = document.getElementById('signup-username-error');
+  const signupUsernameSubmit = document.getElementById('signup-username-submit');
+
+  document.getElementById('goto-signup').addEventListener('click', () => goToScreen('screen-signup-email'));
+  document.getElementById('goto-login').addEventListener('click', () => goToScreen('screen-login'));
+
+  async function doLogin() {
+    loginError.textContent = '';
+    const username = loginUsername.value.trim();
+    const password = loginPassword.value;
+    if (!username || !password) { loginError.textContent = 'Enter a username and password.'; return; }
+
+    loginSubmit.disabled = true;
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      applyIdentity(data);
+      startFaceStep(data.hasFace);
+    } catch (err) {
+      loginError.textContent = err.message;
+    } finally {
+      loginSubmit.disabled = false;
+    }
+  }
+  loginSubmit.addEventListener('click', doLogin);
+  loginPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+
+  async function doSignupStart() {
+    signupEmailError.textContent = '';
+    const email = signupEmail.value.trim();
+    const password = signupPassword.value;
+    if (!email || !password) { signupEmailError.textContent = 'Enter an email and password.'; return; }
+
+    signupEmailSubmit.disabled = true;
+    try {
+      const res = await fetch('/api/signup-start', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      pendingEmail = email;
+      codeSentTo.textContent = `Code sent to ${email}`;
+      goToScreen('screen-signup-code');
+    } catch (err) {
+      signupEmailError.textContent = err.message;
+    } finally {
+      signupEmailSubmit.disabled = false;
+    }
+  }
+  signupEmailSubmit.addEventListener('click', doSignupStart);
+  signupPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSignupStart(); });
+
+  async function doVerifyCode() {
+    signupCodeError.textContent = '';
+    const code = signupCode.value.trim();
+    if (!code) { signupCodeError.textContent = 'Enter the code from your email.'; return; }
+
+    signupCodeSubmit.disabled = true;
+    try {
+      const res = await fetch('/api/signup-verify-code', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail, code }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      pendingVerifiedToken = data.verifiedToken;
+      goToScreen('screen-signup-username');
+    } catch (err) {
+      signupCodeError.textContent = err.message;
+    } finally {
+      signupCodeSubmit.disabled = false;
+    }
+  }
+  signupCodeSubmit.addEventListener('click', doVerifyCode);
+  signupCode.addEventListener('keydown', (e) => { if (e.key === 'Enter') doVerifyCode(); });
+
+  async function doFinishSignup() {
+    signupUsernameError.textContent = '';
+    const username = signupUsername.value.trim();
+    const displayName = signupDisplayName.value.trim();
+    const aiName = signupAiName.value.trim();
+    if (!username || !displayName || !aiName) {
+      signupUsernameError.textContent = 'Fill in all three fields.';
+      return;
+    }
+
+    signupUsernameSubmit.disabled = true;
+    try {
+      const res = await fetch('/api/signup-finish', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail, verifiedToken: pendingVerifiedToken, username, displayName, aiName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      applyIdentity(data);
+      startFaceStep(data.hasFace);
+    } catch (err) {
+      signupUsernameError.textContent = err.message;
+    } finally {
+      signupUsernameSubmit.disabled = false;
+    }
+  }
+  signupUsernameSubmit.addEventListener('click', doFinishSignup);
+  signupAiName.addEventListener('keydown', (e) => { if (e.key === 'Enter') doFinishSignup(); });
+
+  document.getElementById('logout-link').addEventListener('click', async () => {
+    await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+    window.location.reload();
+  });
+}
+
+// The mandatory second factor: enrolls the face if this account doesn't
+// have one yet, otherwise requires it to match before granting real access —
+// same shape as any password + authenticator-app 2FA flow, just using a face
+// instead of a 6-digit code for the second step.
+function startFaceStep(hasFace) {
+  goToScreen('screen-face');
+  const faceVideo = document.getElementById('face-video');
+  const faceOval = document.getElementById('face-oval');
+  const faceStatus = document.getElementById('face-status');
+
+  async function onDescriptor(descriptor) {
+    stopFaceStream();
+    const endpoint = hasFace ? '/api/verify-face' : '/api/enroll-face';
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ descriptor }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        faceStatus.textContent = data.error || "That didn't work — try again.";
+        setTimeout(startScan, 1200);
+        return;
+      }
+      showApp(currentIdentity);
+    } catch (err) {
+      faceStatus.textContent = 'Something went wrong — try again.';
+      setTimeout(startScan, 1200);
+    }
+  }
+
+  async function startScan() {
+    faceStatus.textContent = hasFace ? 'Verify your face to continue' : 'Loading face scan…';
+    const ok = await loadFaceModels();
+    if (!ok) {
+      faceStatus.textContent = 'Face scan unavailable right now — refresh and try again.';
+      return;
+    }
+    try {
+      await startFaceStream(faceVideo);
+      detectStableFace(faceVideo, faceOval, faceStatus, onDescriptor);
+    } catch (e) {
+      faceStatus.textContent = 'Camera access is required to continue — allow it and refresh.';
+    }
+  }
+
+  startScan();
+}
+
+initAuthGate();
+fetch('/api/me', { credentials: 'same-origin' })
+  .then((r) => (r.ok ? r.json() : Promise.reject()))
+  .then((data) => {
+    applyIdentity(data);
+    if (data.pending) {
+      startFaceStep(data.hasFace);
+    } else {
+      showApp(data);
+    }
+  })
+  .catch(() => goToScreen('screen-login'));
+
+function initGraph(data) {
+  Graph = ForceGraph3D()(document.getElementById('graph'))
+    .graphData(data)
+    .backgroundColor('#050505')
+    .nodeLabel((n) => n.name)
+    .nodeColor((n) => (n.id === selectedId ? '#ffffff' : n.color))
+    .nodeVal((n) => n.val)
+    .nodeResolution(24)
+    .linkColor(() => 'rgba(220,220,226,0.55)')
+    .linkWidth((l) => Math.min(l.value, 1.4))
+    .linkDirectionalParticles(1)
+    .linkDirectionalParticleSpeed(0.004)
+    .linkDirectionalParticleWidth(1)
+    .linkDirectionalParticleColor(() => '#d8d8de')
+    .nodeOpacity(0.92)
+    .showNavInfo(false)
+    .onNodeClick((n) => {
+      selectedId = n.id;
+      Graph.cameraPosition({ x: n.x * 1.8, y: n.y * 1.8, z: n.z * 1.8 }, n, 900);
+      showSelectedMemory(n);
+    });
+
+  // Force the canvas to stay pinned to its actual container size. Some
+  // versions of the renderer snap to the full window on the first resize
+  // event, which visually covers the data panel below it.
+  function fitGraphToContainer() {
+    const el = document.getElementById('graph');
+    Graph.width(el.clientWidth).height(el.clientHeight);
+  }
+  window.addEventListener('resize', fitGraphToContainer);
+  fitGraphToContainer();
+  setTimeout(fitGraphToContainer, 300);
+  setTimeout(() => { fitGraphToContainer(); Graph.zoomToFit(600, 170); }, 1200);
+
+  const RADIUS = 40 + Math.cbrt(data.nodes.length) * 45;
+  function sphereForce(radius) {
+    let nodes = [];
+    function force(alpha) {
+      for (const n of nodes) {
+        const r = Math.hypot(n.x, n.y, n.z) || 0.01;
+        const k = (radius - r) * alpha * 0.12;
+        n.vx += (n.x / r) * k;
+        n.vy += (n.y / r) * k;
+        n.vz += (n.z / r) * k;
+      }
+    }
+    force.initialize = (ns) => { nodes = ns; };
+    return force;
+  }
+  Graph.d3Force('sphere', sphereForce(RADIUS));
+
+  try {
+    const shellGeo = new THREE.IcosahedronGeometry(RADIUS * 1.22, 2);
+    shellMaterial = new THREE.MeshBasicMaterial({ color: 0xa8a8b2, wireframe: true, transparent: true, opacity: 0.22 });
+    Graph.scene().add(new THREE.Mesh(shellGeo, shellMaterial));
+  } catch (e) { console.warn('Shell skipped:', e); }
+
+  Graph.controls().autoRotate = true;
+  Graph.controls().autoRotateSpeed = 0.5;
+  Graph.onEngineStop(() => Graph.zoomToFit(600, 170));
+
+  startBreathingLoop();
+}
+
+// The containment shell's opacity gently breathes in sync with the real
+// pulse rate — same heartbeat number as the sidebar, just felt in the scene.
+// displayedBpm eases toward the target (currentBpm) instead of snapping —
+// a real heart speeds up and slows down gradually, it doesn't teleport.
+function startBreathingLoop() {
+  function tick(t) {
+    displayedBpm += (currentBpm - displayedBpm) * 0.015;
+    document.getElementById('mon-pulse').textContent = Math.round(displayedBpm);
+
+    if (shellMaterial) {
+      const periodMs = (60 / displayedBpm) * 1000 * 2;
+      const phase = (t % periodMs) / periodMs;
+      const wave = (Math.sin(phase * Math.PI * 2) + 1) / 2;
+      const base = isDormant ? 0.14 : 0.2;
+      const range = isDormant ? 0.06 : 0.14;
+      shellMaterial.opacity = base + wave * range;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// Thin curved lines with a pulse traveling along them in time with the real
+// heartbeat — visual proof the sidebar, sphere, body, and vitals are all one
+// organism, not separate panels placed next to each other. Each link has its
+// own speed multiplier so they don't all pulse in obvious lockstep.
+function initNeuralLink() {
+  const svg = document.getElementById('neural-link');
+
+  const linkDefs = [
+    {
+      // mood readout -> sphere
+      from: () => {
+        const r = document.querySelector('.hero').getBoundingClientRect();
+        return { x: r.right - 4, y: r.top + r.height / 2 };
+      },
+      to: () => {
+        const r = document.getElementById('graph-wrap').getBoundingClientRect();
+        return { x: r.left + r.width * 0.18, y: r.top + r.height / 2 };
+      },
+      bow: -50, speed: 0.7, color: 'rgba(180,200,230,0.16)', pulseColor: '#d2e6ff',
+    },
+    {
+      // sphere -> body's head
+      from: () => {
+        const r = document.getElementById('graph-wrap').getBoundingClientRect();
+        return { x: r.right - 6, y: r.top + r.height / 2 };
+      },
+      to: () => {
+        const r = document.getElementById('body-wrap').getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height * 0.2 };
+      },
+      bow: -40, speed: 1, color: 'rgba(180,200,230,0.16)', pulseColor: '#d2e6ff',
+    },
+    {
+      // body's heart -> vitals trace
+      from: () => {
+        const r = document.getElementById('glow-heart').getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      },
+      to: () => {
+        const r = document.getElementById('ecg-wrap').getBoundingClientRect();
+        return { x: r.left + 14, y: r.top - 2 };
+      },
+      bow: 60, speed: 1.3, color: 'rgba(232,120,100,0.16)', pulseColor: '#ff9a80',
+    },
+  ];
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const FLOW_COUNT = 3; // small continuous particles per link, separate from the main heartbeat pulse
+
+  const links = linkDefs.map((def, i) => {
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('class', 'link-path');
+    path.style.stroke = def.color;
+    const pulse = document.createElementNS(ns, 'circle');
+    pulse.setAttribute('class', 'link-pulse');
+    pulse.setAttribute('r', '2.6');
+    pulse.setAttribute('opacity', '0');
+    pulse.style.fill = def.pulseColor;
+    pulse.style.filter = `drop-shadow(0 0 6px ${def.pulseColor})`;
+    svg.appendChild(path);
+    svg.appendChild(pulse);
+
+    const flow = Array.from({ length: FLOW_COUNT }, (_, fi) => {
+      const dot = document.createElementNS(ns, 'circle');
+      dot.setAttribute('r', '1.1');
+      dot.style.fill = def.pulseColor;
+      dot.style.opacity = '0.4';
+      svg.appendChild(dot);
+      return { dot, offset: fi / FLOW_COUNT };
+    });
+
+    return { ...def, path, pulse, flow, length: 0 };
+  });
+
+  function updatePaths() {
+    links.forEach((l) => {
+      const p1 = l.from();
+      const p2 = l.to();
+      const cx = (p1.x + p2.x) / 2;
+      const cy = (p1.y + p2.y) / 2 + l.bow;
+      l.path.setAttribute('d', `M ${p1.x} ${p1.y} Q ${cx} ${cy} ${p2.x} ${p2.y}`);
+      l.length = l.path.getTotalLength();
+    });
+  }
+
+  updatePaths();
+  window.addEventListener('resize', updatePaths);
+  setInterval(updatePaths, 4000); // catches layout drift as the sphere reframes
+
+  function tick(t) {
+    const voiceMult = voiceActive ? 0.4 : 1; // pulses run faster while it's actually speaking
+    const voiceBoost = voiceActive ? 1.15 : 1;
+    links.forEach((l) => {
+      if (l.length > 0) {
+        const periodMs = (60 / displayedBpm) * 1000 * l.speed * voiceMult;
+        const phase = (t % periodMs) / periodMs;
+        const point = l.path.getPointAtLength(phase * l.length);
+        l.pulse.setAttribute('cx', point.x);
+        l.pulse.setAttribute('cy', point.y);
+        // fade in/out at the ends so it looks like a signal firing, not a dot orbiting forever
+        const fade = Math.sin(phase * Math.PI);
+        l.pulse.setAttribute('opacity', Math.min(1, (isDormant ? 0.35 : 0.85) * fade * voiceBoost));
+
+        // a slower, dimmer, continuous stream — background data flow, not the heartbeat
+        const flowPeriodMs = 2600 * (voiceActive ? 0.5 : 1);
+        l.flow.forEach((f) => {
+          const flowPhase = ((t / flowPeriodMs) + f.offset) % 1;
+          const fp = l.path.getPointAtLength(flowPhase * l.length);
+          f.dot.setAttribute('cx', fp.x);
+          f.dot.setAttribute('cy', fp.y);
+          f.dot.style.opacity = isDormant ? 0.12 : (voiceActive ? 0.5 : 0.28);
+        });
+      }
+    });
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// A single glowing ball that travels from wherever it was typed to the
+// sphere and fades into it — visual proof the new memory actually entered
+// the brain, instead of a node just silently popping into existence.
+function flyMemoryIntoBrain(fromRect, onArrive) {
+  const svg = document.getElementById('neural-link');
+  const graphRect = document.getElementById('graph-wrap').getBoundingClientRect();
+
+  const p1 = { x: fromRect.right, y: fromRect.top + fromRect.height / 2 };
+  const p2 = { x: graphRect.left + graphRect.width / 2, y: graphRect.top + graphRect.height / 2 };
+  const cx = (p1.x + p2.x) / 2;
+  const cy = Math.min(p1.y, p2.y) - 70;
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', `M ${p1.x} ${p1.y} Q ${cx} ${cy} ${p2.x} ${p2.y}`);
+  path.style.opacity = '0'; // invisible guide, only used for getPointAtLength
+  const ball = document.createElementNS(ns, 'circle');
+  ball.setAttribute('r', '4.5');
+  ball.style.fill = '#eaf3ff';
+  ball.style.filter = 'drop-shadow(0 0 9px #cfe4ff) drop-shadow(0 0 18px rgba(180,210,255,0.6))';
+  svg.appendChild(path);
+  svg.appendChild(ball);
+
+  const length = path.getTotalLength();
+  const duration = 850;
+  const start = performance.now();
+
+  function frame(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - t, 3); // ease-out — fast start, gentle arrival
+    const point = path.getPointAtLength(eased * length);
+    ball.setAttribute('cx', point.x);
+    ball.setAttribute('cy', point.y);
+    ball.setAttribute('r', 4.5 - eased * 1.8); // shrinks slightly as it arrives, like being absorbed
+    if (t < 1) {
+      requestAnimationFrame(frame);
+    } else {
+      svg.removeChild(path);
+      svg.removeChild(ball);
+      onArrive();
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+// Shared "firing" system for the sphere — briefly brightens specific nodes'
+// actual Three.js materials (bypassing the color accessor, which 3d-force-graph
+// only evaluates once per node, not every frame) so a node can glow and fade
+// back down smoothly. Used both for idle background thought and for real
+// memory recall during conversation.
+let igniteNodes = () => {};
+
+// 3d-force-graph shares one material instance across every node with the
+// same color (a GPU-batching optimization) — mutating "just this node"'s
+// color without this would silently recolor every same-color node at once.
+// Every place that mutates a node's material color must go through this first.
+function ensureOwnMaterial(n) {
+  const obj = n.__threeObj;
+  if (obj && obj.material && !obj.material.__perNodeClone) {
+    obj.material = obj.material.clone();
+    obj.material.__perNodeClone = true;
+  }
+  return obj;
+}
+
+// Single source of truth for "what color should this node be at rest" —
+// selected, search-dimmed, or its natural importance color. Both the search
+// box and the neuron-firing loop call this instead of each hardcoding their
+// own version, so they can't fight over the same node's color anymore.
+let activeSearchQuery = '';
+function baseColorFor(n) {
+  if (n.id === selectedId) return new THREE.Color('#ffffff');
+  if (activeSearchQuery) {
+    const haystack = (n.name + ' ' + (n.tags || []).join(' ')).toLowerCase();
+    if (!haystack.includes(activeSearchQuery)) {
+      return new THREE.Color(n.color).lerp(new THREE.Color('#000000'), 0.92);
+    }
+  }
+  return new THREE.Color(n.color);
+}
+
+function initNeuronFiring() {
+  const firing = new Map(); // id -> { start, duration }
+
+  // Ambient firing shouldn't pick a node a search has dimmed out — flashing
+  // it toward white mid-search reads as "search is broken."
+  function isSearchedOut(n) {
+    if (!activeSearchQuery) return false;
+    const haystack = (n.name + ' ' + (n.tags || []).join(' ')).toLowerCase();
+    return !haystack.includes(activeSearchQuery);
+  }
+
+  function fireRandom() {
+    if (allNodes.length && !isDormant) {
+      const n = allNodes[Math.floor(Math.random() * allNodes.length)];
+      if (!firing.has(n.id) && !isSearchedOut(n)) firing.set(n.id, { start: performance.now(), duration: 900 + Math.random() * 600 });
+      // while it's actually speaking, fire a couple extra nodes too — "thinking harder"
+      if (voiceActive) {
+        for (let i = 0; i < 2; i++) {
+          const extra = allNodes[Math.floor(Math.random() * allNodes.length)];
+          if (!firing.has(extra.id) && !isSearchedOut(extra)) firing.set(extra.id, { start: performance.now(), duration: 700 + Math.random() * 400 });
+        }
+      }
+    }
+    setTimeout(fireRandom, voiceActive ? 150 + Math.random() * 200 : 500 + Math.random() * 1100);
+  }
+  fireRandom();
+
+  igniteNodes = (ids, duration = 1700) => {
+    ids.forEach((id) => firing.set(id, { start: performance.now(), duration }));
+  };
+
+  function tick() {
+    const now = performance.now();
+    for (const n of allNodes) {
+      const obj = ensureOwnMaterial(n);
+      if (!obj || !obj.material) continue;
+      const f = firing.get(n.id);
+      if (f) {
+        if (isSearchedOut(n)) {
+          // a search started mid-pulse — cut it short instead of letting it finish bright
+          firing.delete(n.id);
+          obj.material.color.copy(baseColorFor(n));
+          continue;
+        }
+        const elapsed = now - f.start;
+        if (elapsed > f.duration) {
+          firing.delete(n.id);
+          obj.material.color.copy(baseColorFor(n));
+        } else {
+          const wave = Math.sin((elapsed / f.duration) * Math.PI); // rises then falls
+          const base = baseColorFor(n);
+          const bright = new THREE.Color('#ffffff');
+          obj.material.color.copy(base).lerp(bright, wave * 0.8);
+        }
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// Polls for memories the AI actually recalled during a real conversation and
+// flashes those exact nodes — so you can literally watch it think, instead
+// of the sphere just sitting there while the chat happens invisibly.
+function initThinkingWatcher() {
+  let lastTs = null;
+  async function poll() {
+    try {
+      const res = await fetch('/api/last-recall', { credentials: 'same-origin' });
+      const data = await res.json();
+      if (data.ts && data.ts !== lastTs) {
+        lastTs = data.ts;
+        igniteNodes(data.ids, 2200);
+      }
+    } catch (e) { /* server may be mid-restart — just try again next tick */ }
+    setTimeout(poll, 1500);
+  }
+  poll();
+}
+
+// Drops one already-saved memory node into the live sphere — pulled out as
+// its own step so a whole batch from extractMemories() can land one at a
+// time instead of all popping in at once.
+function landMemoryNode(node) {
+  allNodes.push(node);
+  // mirror the server's link logic: connect to any existing memory sharing a tag
+  for (const other of allNodes) {
+    if (other.id === node.id) continue;
+    const shared = node.tags.filter((t) => other.tags.includes(t));
+    if (shared.length > 0) allLinks.push({ source: node.id, target: other.id, value: shared.length });
+  }
+
+  if (Graph) {
+    Graph.graphData({ nodes: allNodes, links: allLinks });
+  } else if (allNodes.length === 1) {
+    // first-ever memory — the empty state was showing, so build the graph now
+    document.getElementById('empty').style.display = 'none';
+    initGraph({ nodes: allNodes, links: allLinks });
+  }
+  renderSidebarStats();
+}
+
+// Lets Ari feed it a whole paragraph at once instead of one line per Enter —
+// it goes to /api/extract-memories, which uses Claude to split it into
+// individual tagged memories the same way I'd do it by hand, then each one
+// flies into the sphere in sequence.
+function initAddMemory() {
+  const input = document.getElementById('memory-input');
+  const status = document.getElementById('add-memory-status');
+
+  function showStatus(text, isError) {
+    status.textContent = text;
+    status.style.color = isError ? '#e8432c' : '';
+    status.classList.add('show');
+    setTimeout(() => { status.classList.remove('show'); status.style.color = ''; }, isError ? 2400 : 1800);
+  }
+
+  input.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter' || e.shiftKey) return; // Shift+Enter = newline, plain Enter = submit
+    e.preventDefault();
+    const content = input.value.trim();
+    if (!content) return;
+
+    const originRect = input.getBoundingClientRect();
+    input.disabled = true;
+    showStatus('Reading it…', false);
+
+    try {
+      const res = await fetch('/api/extract-memories', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: content }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+
+      input.value = '';
+
+      if (data.nodes.length === 0) {
+        showStatus('Nothing worth remembering in that', false);
+        return;
+      }
+
+      // land them one at a time, staggered — a cascade instead of a dump
+      data.nodes.forEach((node, i) => {
+        setTimeout(() => {
+          flyMemoryIntoBrain(originRect, () => {
+            landMemoryNode(node);
+            if (i === data.nodes.length - 1) {
+              showStatus(`Saved ${data.nodes.length} ${data.nodes.length === 1 ? 'memory' : 'memories'}`, false);
+            }
+          });
+        }, i * 450);
+      });
+    } catch (err) {
+      showStatus(err.message, true);
+    } finally {
+      input.disabled = false;
+      input.focus();
+    }
+  });
+}
+
+// Shows a clicked node's full memory — content, tags, and when it was saved
+// — instead of just the bare text, so browsing the sphere is actually useful.
+function showSelectedMemory(n) {
+  const box = document.getElementById('selected-memory');
+  document.getElementById('selected-memory-text').textContent = n.name;
+
+  const metaEl = document.getElementById('selected-memory-meta');
+  metaEl.innerHTML = '';
+  (n.tags || []).forEach((tag) => {
+    const span = document.createElement('span');
+    span.className = 'sm-tag';
+    span.textContent = tag;
+    metaEl.appendChild(span);
+  });
+
+  const date = new Date(n.timestamp);
+  document.getElementById('selected-memory-date').textContent = date.toLocaleDateString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+  });
+
+  box.classList.add('show');
+}
+
+function initSelectedMemoryClose() {
+  document.getElementById('selected-memory-close').addEventListener('click', () => {
+    document.getElementById('selected-memory').classList.remove('show');
+    selectedId = null;
+  });
+}
+
+// Dims every node whose content and tags don't match the search text, so the
+// sphere itself becomes the filtered view instead of a separate list.
+// Dims non-matching nodes toward near-black via their actual material color
+// (not opacity — 3d-force-graph silently resets opacity back to its constant
+// accessor value on its own render ticks, so opacity edits never stuck).
+function initMemorySearch() {
+  const input = document.getElementById('memory-search');
+  const countEl = document.getElementById('search-count');
+
+  input.addEventListener('input', () => {
+    activeSearchQuery = input.value.trim().toLowerCase();
+
+    if (!activeSearchQuery) {
+      countEl.textContent = '';
+    } else {
+      const matches = allNodes.filter((n) => (n.name + ' ' + (n.tags || []).join(' ')).toLowerCase().includes(activeSearchQuery)).length;
+      countEl.textContent = `${matches} match${matches === 1 ? '' : 'es'}`;
+    }
+
+    allNodes.forEach((n) => {
+      const obj = ensureOwnMaterial(n);
+      if (obj) obj.material.color.copy(baseColorFor(n));
+    });
+  });
+}
+
+function renderSidebarStats() {
+  document.getElementById('stat-memories-small').textContent = `${allNodes.length} memories`;
+  const avg = allNodes.length ? (2 * allLinks.length / allNodes.length).toFixed(1) : '0';
+  renderVitals(avg);
+}
+
+// All synthetic/derived from real memory data — not literal biometrics, just
+// a readable pulse on how active and well-connected the brain currently is.
+function renderVitals(avgLinks) {
+  const now = Date.now();
+  const timestamps = allNodes.map((n) => new Date(n.timestamp).getTime());
+  const mostRecent = timestamps.length ? Math.max(...timestamps) : null;
+  const oldest = timestamps.length ? Math.min(...timestamps) : null;
+
+  // Short windows on purpose — pulse should spike fast during a burst of
+  // activity, then cool back to resting within minutes, not linger for a day.
+  const last5m = timestamps.filter((t) => now - t < 5 * 60 * 1000).length;
+  const last30m = timestamps.filter((t) => now - t < 30 * 60 * 1000).length;
+  const REST_BPM = 58;
+  const REDLINE_BPM = 130;
+  const bpm = Math.max(REST_BPM, Math.min(REST_BPM + last5m * 26 + last30m * 5, 180));
+  currentBpm = bpm; // target — displayedBpm eases toward this every frame, see startBreathingLoop
+
+  // Health is connectivity quality minus strain from working hard right now —
+  // busier the brain gets, the more its health dips, same as a body under load.
+  const strain = Math.max(0, bpm - 90) * 0.9;
+  const health = Math.max(0, Math.min(100, Math.round(50 + avgLinks * 2.5 - strain)));
+  document.getElementById('mon-health').textContent = `${health}%`;
+
+  let status;
+  if (bpm >= REDLINE_BPM) status = 'OVERWORKED';
+  else if (mostRecent === null) status = 'DORMANT';
+  else {
+    const minutesAgo = (now - mostRecent) / (60 * 1000);
+    status = minutesAgo < 10 ? 'ACTIVE' : minutesAgo < 90 ? 'IDLE' : 'DORMANT';
+  }
+  const statusEl = document.getElementById('mon-status');
+  statusEl.textContent = status;
+  statusEl.className = `readout-value status-${status.toLowerCase()}`;
+
+  isDormant = status === 'DORMANT';
+  isOverworked = status === 'OVERWORKED';
+  document.body.classList.toggle('dormant', isDormant);
+  document.getElementById('mon-pulse').parentElement.classList.toggle('overworked', isOverworked);
+  if (Graph) Graph.controls().autoRotateSpeed = isDormant ? 0.12 : 0.5;
+
+  const recentCritical = allNodes.filter((n) => now - new Date(n.timestamp).getTime() < 60 * 60 * 1000 && n.val >= 5).length;
+  let mood;
+  if (status === 'OVERWORKED') mood = recentCritical > 0 ? 'overwhelmed and on edge' : 'wired and overworked';
+  else if (status === 'DORMANT') mood = 'quiet, a little withdrawn';
+  else if (health < 35) mood = 'drained and low energy';
+  else if (health < 55) mood = 'a bit worn down but pushing through';
+  else if (bpm > 90) mood = 'energized and excited';
+  else if (health > 80) mood = 'content and steady';
+  else mood = 'calm';
+  document.getElementById('hero-mood').textContent = mood;
+
+  if (oldest !== null) {
+    const ageMs = now - oldest;
+    const days = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+    const hours = Math.floor((ageMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+    document.getElementById('mon-age').textContent = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+  }
+}
+
+// Stylized single-lead ECG complex over one cardiac cycle (phase 0..1).
+// Not medically accurate — just a recognizable heartbeat shape.
+function ecgSample(phase) {
+  if (phase < 0.1) return 0;
+  if (phase < 0.15) return Math.sin(((phase - 0.1) / 0.05) * Math.PI) * 0.15;
+  if (phase < 0.19) return 0;
+  if (phase < 0.23) return -((phase - 0.19) / 0.04) * 0.2;
+  if (phase < 0.27) return -0.2 + ((phase - 0.23) / 0.04) * 1.4;
+  if (phase < 0.31) return 1.2 - ((phase - 0.27) / 0.04) * 1.5;
+  if (phase < 0.35) return -0.3 + ((phase - 0.31) / 0.04) * 0.3;
+  if (phase < 0.45) return 0;
+  if (phase < 0.6) return Math.sin(((phase - 0.45) / 0.15) * Math.PI) * 0.25;
+  return 0;
+}
+
+function initECG() {
+  const canvas = document.getElementById('ecg-canvas');
+  const ctx = canvas.getContext('2d');
+  let buffer = [];
+
+  function resize() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height));
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    buffer = new Array(width).fill(0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+  setTimeout(resize, 300);
+  setTimeout(resize, 1200);
+
+  // Phase accumulates incrementally (not a modulo of elapsed time) so the
+  // waveform stays smooth as bpm drifts, and each beat gets its own small
+  // random timing jitter — real hearts don't tick at a perfectly fixed
+  // interval, there's natural beat-to-beat variability (HRV).
+  let phase = 0, lastT = null, beatJitter = 1;
+  function frame(t) {
+    if (lastT === null) lastT = t;
+    const dt = t - lastT;
+    lastT = t;
+
+    const periodMs = (60 / displayedBpm) * 1000 * beatJitter;
+    phase += dt / periodMs;
+    if (phase >= 1) {
+      phase -= 1;
+      beatJitter = 1 + (Math.random() - 0.5) * 0.08;
+    }
+    buffer.push(ecgSample(phase));
+    buffer.shift();
+
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < w; x += 32) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+    for (let y = 0; y < h; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+
+    const midY = h / 2;
+    const amp = h * 0.32;
+    const traceColor = isOverworked ? '#e8432c' : isDormant ? 'rgba(120,140,130,0.35)' : '#7fd99a';
+    ctx.strokeStyle = traceColor;
+    ctx.lineWidth = 1.6;
+    ctx.shadowColor = isOverworked ? '#e8432c' : '#7fd99a';
+    ctx.shadowBlur = isDormant ? 0 : 3;
+    ctx.beginPath();
+    buffer.forEach((v, i) => {
+      const y = midY - v * amp;
+      if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------- Body turntable: 8 pre-generated angle photos, cross-faded on
+// rotation, sitting right next to the sphere. Reuses displayedBpm/ecgSample
+// from the vitals system above so the heart/brain glow matches the ECG.
+function initBodyTurntable() {
+  const FRAME_COUNT = 8;
+  const wrap = document.getElementById('body-wrap');
+  const glowHeart = document.getElementById('glow-heart');
+  const glowBrain = document.getElementById('glow-brain');
+  let frontEl = document.getElementById('frame-a');
+  let backEl = document.getElementById('frame-b');
+
+  let currentFrame = 0;
+  let dragging = false, dragStartX = 0, dragStartFrame = 0;
+  let autoTimer = null;
+  let paused = false; // held while the AI is speaking — face stays still and front-facing
+
+  function setFrame(idx) {
+    const next = ((idx % FRAME_COUNT) + FRAME_COUNT) % FRAME_COUNT;
+    if (next === currentFrame) return;
+    currentFrame = next;
+    backEl.src = `/turntable/angle-${currentFrame}.png`;
+    backEl.classList.add('active');
+    frontEl.classList.remove('active');
+    const tmp = frontEl; frontEl = backEl; backEl = tmp;
+  }
+
+  function startAuto() {
+    stopAuto();
+    if (paused) return;
+    autoTimer = setInterval(() => setFrame(currentFrame + 1), 1000);
+  }
+  function stopAuto() { if (autoTimer) clearInterval(autoTimer); autoTimer = null; }
+
+  function dragStart(x) {
+    dragging = true; dragStartX = x; dragStartFrame = currentFrame;
+    wrap.classList.add('dragging'); stopAuto();
+  }
+  function dragMove(x) {
+    if (!dragging) return;
+    setFrame(dragStartFrame - Math.round((x - dragStartX) / 60));
+  }
+  function dragEnd() {
+    if (!dragging) return;
+    dragging = false;
+    wrap.classList.remove('dragging');
+    setTimeout(startAuto, 2500);
+  }
+
+  wrap.addEventListener('mousedown', (e) => dragStart(e.clientX));
+  window.addEventListener('mousemove', (e) => dragMove(e.clientX));
+  window.addEventListener('mouseup', dragEnd);
+  wrap.addEventListener('touchstart', (e) => dragStart(e.touches[0].clientX), { passive: true });
+  window.addEventListener('touchmove', (e) => dragMove(e.touches[0].clientX), { passive: true });
+  window.addEventListener('touchend', dragEnd);
+
+  startAuto();
+
+  let bodyPhase = 0, bodyLastT = null;
+  function pulseGlow(t) {
+    if (bodyLastT === null) bodyLastT = t;
+    const periodMs = (60 / displayedBpm) * 1000;
+    bodyPhase = (bodyPhase + (t - bodyLastT) / periodMs) % 1;
+    bodyLastT = t;
+
+    const heartBeat = Math.max(0, ecgSample(bodyPhase));
+    glowHeart.style.opacity = 0.25 + heartBeat * 0.55;
+    glowHeart.style.transform = `translate(-50%, -50%) scale(${1 + heartBeat * 0.35})`;
+
+    const brainPhase = (bodyPhase - 0.05 + 1) % 1;
+    const brainBeat = Math.max(0, ecgSample(brainPhase));
+    glowBrain.style.opacity = 0.22 + brainBeat * 0.5;
+    glowBrain.style.transform = `translate(-50%, -50%) scale(${1 + brainBeat * 0.3})`;
+
+    // the whole body faintly expands with the same heartbeat — barely
+    // perceptible on purpose, it should read as "alive," not cartoonish
+    wrap.style.transform = `scale(${1 + heartBeat * 0.012})`;
+
+    requestAnimationFrame(pulseGlow);
+  }
+  requestAnimationFrame(pulseGlow);
+
+  // Occasional blink — small, easy to miss consciously, but it's the kind of
+  // detail that's the difference between "a rendering" and "someone home."
+  const blinkEl = document.getElementById('blink-overlay');
+  function doBlink() {
+    blinkEl.style.opacity = '1';
+    setTimeout(() => { blinkEl.style.opacity = '0'; }, 110);
+  }
+  function scheduleBlink() {
+    const delay = 2600 + Math.random() * 5200;
+    setTimeout(() => {
+      if (!isDormant) {
+        doBlink();
+        if (Math.random() < 0.25) setTimeout(doBlink, 180); // occasional double-blink
+      }
+      scheduleBlink();
+    }, delay);
+  }
+  scheduleBlink();
+
+  bodyControls = {
+    pauseForSpeech() { paused = true; stopAuto(); setFrame(0); },
+    resumeAfterSpeech() { paused = false; startAuto(); },
+  };
+}
+
+// ---------- Voice assistant: clap twice to wake, listen, reply out loud.
+// Clap detection and speech are 100% free (browser mic + Web Speech API) —
+// the only real cost is the /api/chat call after you actually speak.
+function initVoiceAssistant() {
+  const statusEl = document.getElementById('voice-status');
+  const mouthEl = document.getElementById('mouth-indicator');
+  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let awake = false;
+  let lastPeakTime = 0;
+  let clapTimestamps = [];
+  let clapThreshold = 60; // replaced by a real calibrated value once mic access is granted
+  let listeningEnabledAt = 0; // hard cooldown gate — blocks clap detection for a bit after each cycle
+  let pendingPeak = null; // { time } — a loud moment waiting to be confirmed as a real transient
+
+  function cooldown(ms) { listeningEnabledAt = performance.now() + ms; }
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = cls || '';
+  }
+
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then((stream) => {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+
+      // Calibrate against this room's actual ambient noise instead of a fixed
+      // guess — a quiet room and a noisy room need very different thresholds
+      // for a clap to reliably stand out.
+      const samples = [];
+      const calibrateStart = performance.now();
+      function calibrate() {
+        analyser.getByteTimeDomainData(data);
+        let peak = 0;
+        for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] - 128));
+        samples.push(peak);
+        if (performance.now() - calibrateStart < 1200) {
+          requestAnimationFrame(calibrate);
+        } else {
+          const avgNoise = samples.reduce((a, b) => a + b, 0) / samples.length;
+          clapThreshold = Math.min(90, Math.max(28, avgNoise + 22));
+          setStatus('Clap twice to wake me up');
+          requestAnimationFrame(watchForClaps);
+        }
+      }
+      setStatus('Calibrating mic…');
+      requestAnimationFrame(calibrate);
+
+      function watchForClaps() {
+        const now = performance.now();
+        if (!awake && now > listeningEnabledAt) {
+          analyser.getByteTimeDomainData(data);
+          let peak = 0;
+          for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] - 128));
+
+          if (pendingPeak) {
+            // A clap is a sharp spike that drops right back down — sustained
+            // loud sound (talking, music, a TV) does not, so it gets ignored.
+            const elapsed = now - pendingPeak.time;
+            if (peak < clapThreshold * 0.5) {
+              lastPeakTime = pendingPeak.time;
+              clapTimestamps = [...clapTimestamps.filter((t) => pendingPeak.time - t < 1200), pendingPeak.time];
+              pendingPeak = null;
+              if (clapTimestamps.length >= 2) {
+                clapTimestamps = [];
+                wake();
+              }
+            } else if (elapsed > 180) {
+              pendingPeak = null; // stayed loud too long — not a clap, discard
+            }
+          } else if (peak > clapThreshold && now - lastPeakTime > 250) {
+            pendingPeak = { time: now };
+          }
+        }
+        requestAnimationFrame(watchForClaps);
+      }
+    })
+    .catch(() => setStatus('Mic access denied — voice mode unavailable', 'error'));
+
+  function speak(text, onDone) {
+    if (bodyControls) bodyControls.pauseForSpeech(); // hold still, face forward, while talking
+    mouthEl.classList.add('speaking');
+    voiceActive = true; // sphere/links pulse faster while it's actually talking
+
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.onboundary = () => {
+      mouthEl.style.transform = 'translate(-50%, -50%) scaleY(2.4)';
+      setTimeout(() => { mouthEl.style.transform = 'translate(-50%, -50%) scaleY(1)'; }, 90);
+    };
+    const finish = () => {
+      mouthEl.classList.remove('speaking');
+      voiceActive = false;
+      if (bodyControls) bodyControls.resumeAfterSpeech();
+      if (onDone) onDone();
+    };
+    utter.onend = finish;
+    utter.onerror = finish;
+    speechSynthesis.speak(utter);
+  }
+
+  const SILENCE_LIMIT_MS = 15000;
+  let sessionDeadline = 0;
+
+  function endSession() {
+    // The conversation just ends quietly here — the greeting only ever
+    // happens once, at the actual clap-triggered wake-up, never as a sign-off.
+    awake = false;
+    cooldown(1000);
+    setStatus('Clap twice to wake me up');
+  }
+
+  function wake() {
+    awake = true;
+    const greeting = `Hello ${currentIdentity.displayName}.`;
+    setStatus(greeting.slice(0, -1));
+    speak(greeting, () => {
+      sessionDeadline = performance.now() + SILENCE_LIMIT_MS;
+      listen();
+    });
+  }
+
+  function listen() {
+    if (!SpeechRecognitionCtor) {
+      setStatus('Speech recognition not supported in this browser', 'error');
+      endSession();
+      return;
+    }
+    setStatus('Listening…');
+    const recog = new SpeechRecognitionCtor();
+    recog.lang = 'en-US';
+    recog.interimResults = false;
+    recog.maxAlternatives = 1;
+    let resultReceived = false; // onend fires after a successful result too — only handle silence here
+
+    recog.onresult = (e) => { resultReceived = true; handleMessage(e.results[0][0].transcript); };
+    recog.onerror = () => { resultReceived = false; }; // e.g. "no-speech" — let onend decide what happens next
+    recog.onend = () => {
+      if (resultReceived) return; // handleMessage/speak owns the flow from here
+      if (performance.now() < sessionDeadline) {
+        listen(); // still within the silence window — keep waiting, don't end the session
+      } else {
+        endSession();
+      }
+    };
+    recog.start();
+  }
+
+  async function handleMessage(text) {
+    setStatus('Thinking…', 'thinking');
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setStatus('');
+      speak(data.reply, () => {
+        sessionDeadline = performance.now() + SILENCE_LIMIT_MS; // reset the silence clock, conversation continues
+        listen();
+      });
+    } catch (e) {
+      setStatus('Something went wrong', 'error');
+      endSession();
+    }
+  }
+}
+</script>
+</body>
+</html>
