@@ -309,9 +309,7 @@ createServer(async (req, res) => {
     return sendJson(res, 404, { error: 'Not found' });
   }
 
-  let path = req.url;
-  if (path === '/') path = '/landing.html';
-  else if (path === '/app') path = '/index.html';
+  const path = req.url === '/' ? '/index.html' : req.url;
   const filePath = join(PUBLIC_DIR, path.split('?')[0]);
   if (!filePath.startsWith(PUBLIC_DIR) || !existsSync(filePath)) {
     res.writeHead(404);
