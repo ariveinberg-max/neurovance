@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import dns from 'node:dns';
 import { createServer } from 'http';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -8,6 +9,13 @@ import { chatReply, getLastRecall, extractMemories } from './agent.js';
 import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
 import { sendVerificationCode } from './mailer.js';
+
+// Render free-tier containers have no outbound IPv6 route. Node defaults to
+// verbatim DNS ordering, so the AAAA records for smtp.gmail.com come back
+// first and every SMTP connect dies with ENETUNREACH before auth starts.
+// nodemailer accepts a family option but never forwards it to the socket,
+// so the ordering has to be fixed here, at the DNS layer.
+dns.setDefaultResultOrder('ipv4first');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
@@ -109,6 +117,7 @@ createServer(async (req, res) => {
       await sendVerificationCode(email.trim(), code);
       sendJson(res, 200, { ok: true });
     } catch (e) {
+      console.error('[signup-start] failed:', e);
       sendJson(res, 400, { error: e.message });
     }
     return;
