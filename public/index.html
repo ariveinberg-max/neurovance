@@ -643,6 +643,7 @@ function initAuthGate() {
     if (!email || !password) { signupEmailError.textContent = 'Enter an email and password.'; return; }
 
     signupEmailSubmit.disabled = true;
+    signupEmailSubmit.textContent = 'Sending…';
     try {
       const res = await fetch('/api/signup-start', {
         method: 'POST', credentials: 'same-origin',
@@ -658,6 +659,7 @@ function initAuthGate() {
       signupEmailError.textContent = err.message;
     } finally {
       signupEmailSubmit.disabled = false;
+      signupEmailSubmit.textContent = 'Send code';
     }
   }
   signupEmailSubmit.addEventListener('click', doSignupStart);
