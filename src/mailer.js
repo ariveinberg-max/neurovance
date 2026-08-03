@@ -17,12 +17,17 @@ function getTransporter() {
   const { GMAIL_USER, GMAIL_APP_PASSWORD } = process.env;
   if (!GMAIL_USER || !GMAIL_APP_PASSWORD) return null;
   transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
-    // Render's free-tier containers have no outbound IPv6 route, but Node
-    // prefers IPv6 (AAAA) when both records exist for smtp.gmail.com —
-    // forcing IPv4 avoids an ENETUNREACH before auth ever happens.
-    family: 4,
+    // family: 4 was removed - nodemailer accepts the option but never forwards
+    // it down to net/tls.connect, so it silently did nothing. IPv4 is now forced
+    // process-wide via NODE_OPTIONS=--dns-result-order=ipv4first on Render.
+    // Fail fast instead of stalling ~120s while Node walks every A/AAAA record.
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
   });
   return transporter;
 }
