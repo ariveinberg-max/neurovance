@@ -19,6 +19,10 @@ function getTransporter() {
   transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+    // Render's free-tier containers have no outbound IPv6 route, but Node
+    // prefers IPv6 (AAAA) when both records exist for smtp.gmail.com —
+    // forcing IPv4 avoids an ENETUNREACH before auth ever happens.
+    family: 4,
   });
   return transporter;
 }
