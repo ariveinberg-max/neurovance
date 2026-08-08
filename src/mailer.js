@@ -2,6 +2,15 @@ import nodemailer from 'nodemailer';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import dns from 'dns';
+
+// Render's free-tier containers have no outbound IPv6 route. Passing
+// family:4 to nodemailer wasn't enough to stop it picking an AAAA record —
+// this custom lookup forces every DNS resolution during the SMTP connection
+// to only ever return an IPv4 address, so there's no path to IPv6 at all.
+function lookupIPv4(hostname, options, callback) {
+  dns.lookup(hostname, { family: 4 }, callback);
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = join(__dirname, '..', 'public', 'brand', 'neurovance-lockup.png');
@@ -17,12 +26,11 @@ function getTransporter() {
   const { GMAIL_USER, GMAIL_APP_PASSWORD } = process.env;
   if (!GMAIL_USER || !GMAIL_APP_PASSWORD) return null;
   transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
-    // Render's free-tier containers have no outbound IPv6 route, but Node
-    // prefers IPv6 (AAAA) when both records exist for smtp.gmail.com —
-    // forcing IPv4 avoids an ENETUNREACH before auth ever happens.
-    family: 4,
+    lookup: lookupIPv4,
   });
   return transporter;
 }
