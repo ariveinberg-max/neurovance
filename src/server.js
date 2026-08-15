@@ -67,9 +67,7 @@ function parseCookies(header) {
   return out;
 }
 
-// Returns { user, session } for any valid session (verified or not) — used
-// by /api/me and the face-verification endpoints, which need to know who's
-// mid-login even before the second factor completes.
+// Returns { user, session } for any valid session.
 function getSessionAndUser(req) {
   const cookies = parseCookies(req.headers.cookie || '');
   const token = cookies[SESSION_COOKIE];
@@ -135,16 +133,16 @@ createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'Username, your name, and an AI name are all required.' });
       }
       const user = auth.finishSignup({ email, verifiedToken, username, displayName, aiName });
-      const token = auth.createSession(user.id, false); // unverified — face is still required
+      const token = auth.createSession(user.id);
       setSessionCookie(res, token);
-      sendJson(res, 200, { ok: true, needsFace: true, hasFace: false, displayName: user.displayName, aiName: user.aiName });
+      sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
     } catch (e) {
       sendJson(res, 400, { error: e.message });
     }
     return;
   }
 
-  // ---------- Login: username + password, then face is a mandatory second factor ----------
+  // ---------- Login: username + password ----------
 
   if (req.url === '/api/login' && req.method === 'POST') {
     try {
@@ -153,52 +151,9 @@ createServer(async (req, res) => {
       if (!user || !auth.verifyPassword(password || '', user.passwordHash)) {
         return sendJson(res, 401, { error: 'Wrong username or password.' });
       }
-      const token = auth.createSession(user.id, false); // password alone never grants full access
+      const token = auth.createSession(user.id);
       setSessionCookie(res, token);
-      sendJson(res, 200, {
-        ok: true,
-        needsFace: true,
-        hasFace: Array.isArray(user.faceDescriptor),
-        displayName: user.displayName,
-        aiName: user.aiName,
-      });
-    } catch (e) {
-      sendJson(res, 400, { error: e.message });
-    }
-    return;
-  }
-
-  // ---------- Face second factor: enroll (first time) or verify (returning) ----------
-
-  if (req.url === '/api/enroll-face' && req.method === 'POST') {
-    const { user, token } = getSessionAndUser(req);
-    if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
-    try {
-      const { descriptor } = await readJsonBody(req);
-      if (!Array.isArray(descriptor) || descriptor.length === 0) {
-        return sendJson(res, 400, { error: 'descriptor must be a non-empty array' });
-      }
-      auth.setFaceDescriptor(user.id, descriptor);
-      auth.markSessionVerified(token); // enrolling for the first time completes 2FA for this session
-      sendJson(res, 200, { ok: true });
-    } catch (e) {
-      sendJson(res, 400, { error: e.message });
-    }
-    return;
-  }
-
-  if (req.url === '/api/verify-face' && req.method === 'POST') {
-    const { user, token } = getSessionAndUser(req);
-    if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
-    try {
-      const { descriptor } = await readJsonBody(req);
-      if (!Array.isArray(descriptor) || descriptor.length === 0) {
-        return sendJson(res, 400, { error: 'descriptor must be a non-empty array' });
-      }
-      const matched = auth.verifyFaceForUser(user.id, descriptor);
-      if (!matched) return sendJson(res, 401, { error: "That didn't match — try again." });
-      auth.markSessionVerified(token);
-      sendJson(res, 200, { ok: true });
+      sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
     } catch (e) {
       sendJson(res, 400, { error: e.message });
     }
@@ -214,26 +169,16 @@ createServer(async (req, res) => {
   }
 
   if (req.url === '/api/me') {
-    const { session, user } = getSessionAndUser(req);
+    const { user } = getSessionAndUser(req);
     if (!user) return sendJson(res, 401, { ok: false });
-    if (!session.verified) {
-      return sendJson(res, 200, {
-        ok: true,
-        pending: true,
-        needsFace: true,
-        hasFace: Array.isArray(user.faceDescriptor),
-        displayName: user.displayName,
-        aiName: user.aiName,
-      });
-    }
     sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName, username: user.username });
     return;
   }
 
-  // Everything below requires a fully verified (password + face) session.
+  // Everything below requires a valid session.
   if (req.url.startsWith('/api/')) {
-    const { session, user } = getSessionAndUser(req);
-    if (!user || !session.verified) return sendJson(res, 401, { error: 'Not authenticated' });
+    const { user } = getSessionAndUser(req);
+    if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
 
     if (req.url === '/api/graph') {
       return sendJson(res, 200, buildGraph(user.id));

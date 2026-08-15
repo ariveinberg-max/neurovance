@@ -60,42 +60,6 @@
   }
   #logout-link:hover { color: #9a9aa2; }
 
-  /* ---------- Face scan — the oval Face-ID-style capture, shown as a
-     mandatory step right after password login/signup, not an alternative
-     login method ---------- */
-  #face-scan-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
-  #face-oval {
-    width: 300px; height: 380px; border-radius: 50% / 55%;
-    border: 1.5px solid rgba(210,230,255,0.35); overflow: hidden; position: relative;
-    background: #0a0a0c; transition: border-color 0.3s ease;
-  }
-  #face-oval.detected { border-color: rgba(127,217,154,0.8); }
-  #face-video {
-    position: absolute; top: 50%; left: 50%; width: 100%; height: 100%;
-    object-fit: cover; transform: translate(-50%, -50%) scaleX(-1); /* mirror, like a real camera/mirror */
-  }
-  /* A block of thin horizontal scan lines that sweeps down together, like a
-     barcode reader passing over the face, instead of one soft glow band. */
-  #face-scan-line {
-    position: absolute; left: 0; right: 0; height: 30%; top: -30%;
-    background: repeating-linear-gradient(
-      to bottom,
-      rgba(140,145,155,0.55) 0px,
-      rgba(140,145,155,0.55) 1.5px,
-      rgba(140,145,155,0) 1.5px,
-      rgba(140,145,155,0) 7px
-    );
-    mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 45%, rgba(0,0,0,1) 55%, rgba(0,0,0,0) 100%);
-    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 45%, rgba(0,0,0,1) 55%, rgba(0,0,0,0) 100%);
-    pointer-events: none; z-index: 2; animation: face-scan-sweep 2.4s ease-in-out infinite;
-  }
-  @keyframes face-scan-sweep {
-    0% { top: -30%; }
-    50% { top: 100%; }
-    100% { top: -30%; }
-  }
-  #face-status { font-size: 11px; color: #63636a; text-align: center; min-height: 14px; }
-
   /* ---------- Sidebar ---------- */
   #sidebar {
     width: 260px; min-width: 260px; height: 100vh; z-index: 10;
@@ -325,16 +289,6 @@
       <div class="auth-error" id="signup-username-error"></div>
       <button class="auth-submit" id="signup-username-submit">Create account</button>
     </div>
-
-    <div id="screen-face" class="auth-screen" style="display:none">
-      <div id="face-scan-wrap">
-        <div id="face-oval">
-          <video id="face-video" autoplay playsinline muted></video>
-          <div id="face-scan-line"></div>
-        </div>
-        <div id="face-status">Loading face scan…</div>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -424,7 +378,6 @@
 </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <script src="https://unpkg.com/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
 <script src="https://unpkg.com/three@0.150.0/build/three.min.js"></script>
 <script>
@@ -460,100 +413,9 @@ function startApp() {
     });
 }
 
-// ---------- Face scan: real face-recognition (face-api.js, free, entirely
-// client-side — nothing about your face ever leaves this browser except the
-// final 128-number descriptor sent to log you in). Not hardware-secure like
-// Apple's actual Face ID (no depth sensor, no liveness check) — that's why
-// password login always stays available as a fallback.
-const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
-let faceModelsReady = false;
-let faceStream = null;
-let faceLoopHandle = null;
-
-async function loadFaceModels() {
-  if (faceModelsReady) return true;
-  try {
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL),
-      faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL),
-    ]);
-    faceModelsReady = true;
-    return true;
-  } catch (e) {
-    console.warn('Face scan models failed to load:', e);
-    return false;
-  }
-}
-
-async function startFaceStream(videoEl) {
-  faceStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 320 } });
-  videoEl.srcObject = faceStream;
-  await new Promise((resolve) => { videoEl.onloadedmetadata = resolve; });
-}
-
-function stopFaceStream() {
-  if (faceStream) {
-    faceStream.getTracks().forEach((t) => t.stop());
-    faceStream = null;
-  }
-  if (faceLoopHandle) {
-    clearTimeout(faceLoopHandle);
-    faceLoopHandle = null;
-  }
-}
-
-// Runs detection repeatedly; once the same face is found for ~600ms straight
-// (not just a single lucky frame), captures its descriptor and resolves —
-// this is what gives it the automatic "just hold still a moment" feel
-// instead of needing a manual capture button.
-const DETECTOR_OPTIONS = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.3 });
-
-function detectStableFace(videoEl, ovalEl, statusEl, onDescriptor) {
-  // Accumulates "good" time on every successful frame and only bleeds a
-  // little back off on a miss (instead of resetting to zero) — a single
-  // flaky frame (blink, tiny angle change) shouldn't undo all progress.
-  // This just needs to be good enough to recognize you, not lab-grade.
-  let goodMs = 0;
-  const TARGET_MS = 350;
-  let lastResult = null;
-  let lastTick = null;
-
-  async function tick() {
-    if (!videoEl.srcObject) return; // stream stopped, abandon this loop
-    const now = performance.now();
-    const dt = lastTick === null ? 0 : now - lastTick;
-    lastTick = now;
-
-    const result = await faceapi
-      .detectSingleFace(videoEl, DETECTOR_OPTIONS)
-      .withFaceLandmarks()
-      .withFaceDescriptor();
-
-    if (result) {
-      lastResult = result;
-      ovalEl.classList.add('detected');
-      goodMs = Math.min(TARGET_MS, goodMs + dt);
-      statusEl.textContent = goodMs > 150 ? 'Hold still…' : 'Face found';
-      if (goodMs >= TARGET_MS) {
-        onDescriptor(Array.from(lastResult.descriptor));
-        return; // caller decides whether to restart the loop
-      }
-    } else {
-      goodMs = Math.max(0, goodMs - dt * 2); // decays faster than it builds, but doesn't zero out instantly
-      if (goodMs === 0) {
-        ovalEl.classList.remove('detected');
-        statusEl.textContent = 'Position your face in the oval';
-      }
-    }
-    faceLoopHandle = setTimeout(tick, 120);
-  }
-  tick();
-}
-
 // Gate the whole app behind a session check — shows the login/signup card
-// until a session is both password-verified AND face-verified, then reveals
-// the real app and binds the logged-in user's own chosen name/AI-name.
+// until a valid session exists, then reveals the real app and binds the
+// logged-in user's own chosen name/AI-name.
 let currentIdentity = { displayName: 'there', aiName: 'Ari V2' };
 let pendingEmail = null;
 let pendingVerifiedToken = null;
@@ -576,7 +438,6 @@ const AUTH_SCREEN_TITLES = {
   'screen-signup-email': 'CREATE ACCOUNT',
   'screen-signup-code': 'CHECK YOUR EMAIL',
   'screen-signup-username': 'CHOOSE A USERNAME',
-  'screen-face': 'SECOND FACTOR',
 };
 
 function goToScreen(id) {
@@ -625,8 +486,7 @@ function initAuthGate() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Something went wrong.');
-      applyIdentity(data);
-      startFaceStep(data.hasFace);
+      showApp(data);
     } catch (err) {
       loginError.textContent = err.message;
     } finally {
@@ -641,6 +501,10 @@ function initAuthGate() {
     const email = signupEmail.value.trim();
     const password = signupPassword.value;
     if (!email || !password) { signupEmailError.textContent = 'Enter an email and password.'; return; }
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/[a-z]/.test(password)) {
+      signupEmailError.textContent = 'Password must be at least 8 characters and include an uppercase and a lowercase letter.';
+      return;
+    }
 
     signupEmailSubmit.disabled = true;
     signupEmailSubmit.textContent = 'Sending…';
@@ -709,8 +573,7 @@ function initAuthGate() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Something went wrong.');
-      applyIdentity(data);
-      startFaceStep(data.hasFace);
+      showApp(data);
     } catch (err) {
       signupUsernameError.textContent = err.message;
     } finally {
@@ -726,67 +589,10 @@ function initAuthGate() {
   });
 }
 
-// The mandatory second factor: enrolls the face if this account doesn't
-// have one yet, otherwise requires it to match before granting real access —
-// same shape as any password + authenticator-app 2FA flow, just using a face
-// instead of a 6-digit code for the second step.
-function startFaceStep(hasFace) {
-  goToScreen('screen-face');
-  const faceVideo = document.getElementById('face-video');
-  const faceOval = document.getElementById('face-oval');
-  const faceStatus = document.getElementById('face-status');
-
-  async function onDescriptor(descriptor) {
-    stopFaceStream();
-    const endpoint = hasFace ? '/api/verify-face' : '/api/enroll-face';
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ descriptor }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        faceStatus.textContent = data.error || "That didn't work — try again.";
-        setTimeout(startScan, 1200);
-        return;
-      }
-      showApp(currentIdentity);
-    } catch (err) {
-      faceStatus.textContent = 'Something went wrong — try again.';
-      setTimeout(startScan, 1200);
-    }
-  }
-
-  async function startScan() {
-    faceStatus.textContent = hasFace ? 'Verify your face to continue' : 'Loading face scan…';
-    const ok = await loadFaceModels();
-    if (!ok) {
-      faceStatus.textContent = 'Face scan unavailable right now — refresh and try again.';
-      return;
-    }
-    try {
-      await startFaceStream(faceVideo);
-      detectStableFace(faceVideo, faceOval, faceStatus, onDescriptor);
-    } catch (e) {
-      faceStatus.textContent = 'Camera access is required to continue — allow it and refresh.';
-    }
-  }
-
-  startScan();
-}
-
 initAuthGate();
 fetch('/api/me', { credentials: 'same-origin' })
   .then((r) => (r.ok ? r.json() : Promise.reject()))
-  .then((data) => {
-    applyIdentity(data);
-    if (data.pending) {
-      startFaceStep(data.hasFace);
-    } else {
-      showApp(data);
-    }
-  })
+  .then((data) => showApp(data))
   .catch(() => goToScreen('screen-login'));
 
 function initGraph(data) {

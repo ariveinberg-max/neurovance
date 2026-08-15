@@ -87,10 +87,24 @@ function generateCode() {
   return String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
 }
 
+const PASSWORD_ERROR = 'Password must be at least 8 characters and include an uppercase and a lowercase letter.';
+
+function isStrongPassword(password) {
+  return (
+    typeof password === 'string' &&
+    password.length >= 8 &&
+    /[A-Z]/.test(password) &&
+    /[a-z]/.test(password)
+  );
+}
+
 export function startSignup({ email, password }) {
   const normalizedEmail = email.trim().toLowerCase();
   if (findUserByEmail(normalizedEmail)) {
     throw new Error('An account with that email already exists.');
+  }
+  if (!isStrongPassword(password)) {
+    throw new Error(PASSWORD_ERROR);
   }
   const pending = loadPendingSignups();
   const code = generateCode();
@@ -157,41 +171,10 @@ export function finishSignup({ email, verifiedToken, username, displayName, aiNa
   return user;
 }
 
-// ---------- Real (not fake) face matching, used as a mandatory second
-// factor after password login — same honest caveat as before: no
-// liveness/depth check, so it's a fun real feature, not bank-vault security.
-const FACE_MATCH_THRESHOLD = 0.5;
-
-function euclideanDistance(a, b) {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += (a[i] - b[i]) ** 2;
-  return Math.sqrt(sum);
-}
-
-export function setFaceDescriptor(userId, descriptor) {
-  const users = loadUsers();
-  const user = users.find((u) => u.id === userId);
-  if (!user) throw new Error('User not found.');
-  user.faceDescriptor = descriptor;
-  saveUsers(users);
-  return user;
-}
-
-// Checks a descriptor against ONE specific already-identified user (this is
-// a 2FA check, not an open "whose face is this" lookup across everyone).
-export function verifyFaceForUser(userId, descriptor) {
-  const user = findUserById(userId);
-  if (!user || !Array.isArray(user.faceDescriptor)) return false;
-  return euclideanDistance(user.faceDescriptor, descriptor) <= FACE_MATCH_THRESHOLD;
-}
-
-// Sessions now have a `verified` flag: password login gets you a session,
-// but it stays unverified (limited access) until the face-scan second
-// factor succeeds — same shape real 2FA takes, just face instead of a code.
-export function createSession(userId, verified = false) {
+export function createSession(userId) {
   const token = randomBytes(32).toString('hex');
   const sessions = loadSessions();
-  sessions[token] = { userId, verified, createdAt: new Date().toISOString() };
+  sessions[token] = { userId, createdAt: new Date().toISOString() };
   saveSessions(sessions);
   return token;
 }
@@ -200,14 +183,6 @@ export function getSession(token) {
   if (!token) return null;
   const sessions = loadSessions();
   return sessions[token] || null;
-}
-
-export function markSessionVerified(token) {
-  const sessions = loadSessions();
-  if (sessions[token]) {
-    sessions[token].verified = true;
-    saveSessions(sessions);
-  }
 }
 
 export function destroySession(token) {
