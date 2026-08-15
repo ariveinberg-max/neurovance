@@ -76,8 +76,9 @@ function getSessionAndUser(req) {
   return { session, user: auth.findUserById(session.userId), token };
 }
 
-function setSessionCookie(res, token) {
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`);
+function setSessionCookie(res, token, remember = true) {
+  const maxAge = remember ? `; Max-Age=${60 * 60 * 24 * 30}` : ''; // omitted = session cookie, gone when the browser closes
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax${maxAge}`);
 }
 
 function clearSessionCookie(res) {
@@ -146,13 +147,13 @@ createServer(async (req, res) => {
 
   if (req.url === '/api/login' && req.method === 'POST') {
     try {
-      const { username, password } = await readJsonBody(req);
+      const { username, password, remember } = await readJsonBody(req);
       const user = username && auth.findUserByUsername(username);
       if (!user || !auth.verifyPassword(password || '', user.passwordHash)) {
         return sendJson(res, 401, { error: 'Wrong username or password.' });
       }
       const token = auth.createSession(user.id);
-      setSessionCookie(res, token);
+      setSessionCookie(res, token, remember !== false);
       sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
     } catch (e) {
       sendJson(res, 400, { error: e.message });

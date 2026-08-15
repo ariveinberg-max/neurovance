@@ -45,6 +45,19 @@
   }
   .auth-field::placeholder { color: #4a4a50; }
   .auth-field:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  .password-field { position: relative; }
+  .password-field .auth-field { padding-right: 42px; }
+  .toggle-password {
+    position: absolute; right: 0; bottom: 8px; background: none; border: none;
+    color: #63636a; font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 0.5px;
+    text-transform: uppercase; cursor: pointer; padding: 0; transition: color 0.2s ease;
+  }
+  .toggle-password:hover { color: #9a9aa2; }
+  .remember-me {
+    display: flex; align-items: center; gap: 8px; font-size: 11px; color: #9a9aa2;
+    cursor: pointer; user-select: none; margin-top: -4px;
+  }
+  .remember-me input { accent-color: #6b6c74; cursor: pointer; }
   .auth-submit {
     background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
     font-size: 12px; letter-spacing: 0.5px; padding: 10px; border-radius: 3px; cursor: pointer;
@@ -266,7 +279,11 @@
 
     <div id="screen-login" class="auth-screen">
       <input class="auth-field" id="login-username" type="text" placeholder="Username" autocomplete="username" />
-      <input class="auth-field" id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+      <div class="password-field">
+        <input class="auth-field" id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+        <button type="button" class="toggle-password" data-target="login-password">Show</button>
+      </div>
+      <label class="remember-me"><input type="checkbox" id="login-remember" checked />Remember me</label>
       <div class="auth-error" id="login-error"></div>
       <button class="auth-submit" id="login-submit">Sign in</button>
       <div class="auth-toggle" id="goto-signup">Don't have an account? <span>Sign up</span></div>
@@ -274,7 +291,10 @@
 
     <div id="screen-signup-email" class="auth-screen" style="display:none">
       <input class="auth-field" id="signup-email" type="email" placeholder="Email" autocomplete="email" />
-      <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" />
+      <div class="password-field">
+        <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" />
+        <button type="button" class="toggle-password" data-target="signup-password">Show</button>
+      </div>
       <div id="password-reqs">
         <div class="req" id="req-length">At least 8 characters</div>
         <div class="req" id="req-upper">One uppercase letter</div>
@@ -457,8 +477,18 @@ function goToScreen(id) {
 }
 
 function initAuthGate() {
+  document.querySelectorAll('.toggle-password').forEach((btn) => {
+    const target = document.getElementById(btn.dataset.target);
+    btn.addEventListener('click', () => {
+      const show = target.type === 'password';
+      target.type = show ? 'text' : 'password';
+      btn.textContent = show ? 'Hide' : 'Show';
+    });
+  });
+
   const loginUsername = document.getElementById('login-username');
   const loginPassword = document.getElementById('login-password');
+  const loginRemember = document.getElementById('login-remember');
   const loginError = document.getElementById('login-error');
   const loginSubmit = document.getElementById('login-submit');
 
@@ -502,7 +532,7 @@ function initAuthGate() {
       const res = await fetch('/api/login', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, remember: loginRemember.checked }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Something went wrong.');
