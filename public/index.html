@@ -54,6 +54,11 @@
   .auth-toggle { font-size: 11px; color: #63636a; cursor: pointer; text-align: center; }
   .auth-toggle span { color: #9a9aa2; text-decoration: underline; }
   .auth-error { font-size: 11px; color: #e8432c; min-height: 14px; }
+  #password-reqs { display: flex; flex-direction: column; gap: 5px; margin-top: -6px; }
+  #password-reqs .req { font-size: 10.5px; color: #63636a; letter-spacing: 0.3px; transition: color 0.2s ease; }
+  #password-reqs .req::before { content: '○  '; }
+  #password-reqs .req.met { color: #7fd99a; }
+  #password-reqs .req.met::before { content: '●  '; }
   #logout-link {
     font-size: 9px; letter-spacing: 1px; color: #4a4a50; cursor: pointer; text-transform: uppercase;
     margin-top: 10px; transition: color 0.2s ease;
@@ -270,6 +275,11 @@
     <div id="screen-signup-email" class="auth-screen" style="display:none">
       <input class="auth-field" id="signup-email" type="email" placeholder="Email" autocomplete="email" />
       <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" />
+      <div id="password-reqs">
+        <div class="req" id="req-length">At least 8 characters</div>
+        <div class="req" id="req-upper">One uppercase letter</div>
+        <div class="req" id="req-lower">One lowercase letter</div>
+      </div>
       <div class="auth-error" id="signup-email-error"></div>
       <button class="auth-submit" id="signup-email-submit">Send code</button>
       <div class="auth-toggle" id="goto-login">Already have an account? <span>Sign in</span></div>
@@ -456,6 +466,16 @@ function initAuthGate() {
   const signupPassword = document.getElementById('signup-password');
   const signupEmailError = document.getElementById('signup-email-error');
   const signupEmailSubmit = document.getElementById('signup-email-submit');
+
+  const reqLength = document.getElementById('req-length');
+  const reqUpper = document.getElementById('req-upper');
+  const reqLower = document.getElementById('req-lower');
+  signupPassword.addEventListener('input', () => {
+    const v = signupPassword.value;
+    reqLength.classList.toggle('met', v.length >= 8);
+    reqUpper.classList.toggle('met', /[A-Z]/.test(v));
+    reqLower.classList.toggle('met', /[a-z]/.test(v));
+  });
 
   const signupCode = document.getElementById('signup-code');
   const signupCodeError = document.getElementById('signup-code-error');
