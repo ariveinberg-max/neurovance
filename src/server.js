@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { createServer } from 'http';
-import { readFileSync, existsSync, statSync } from 'fs';
+import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, extname } from 'path';
 import { randomBytes } from 'crypto';
@@ -8,12 +8,28 @@ import { allMemories, remember } from './memory.js';
 import { chatReply, getLastRecall, extractMemories } from './agent.js';
 import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
-import { sendVerificationCode } from './mailer.js';
+import { sendVerificationCode, sendWaitlistNotification } from './mailer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
+const MEMORY_DIR = join(__dirname, '..', 'memory');
+const WAITLIST_PATH = join(MEMORY_DIR, 'waitlist.json');
 const PORT = process.env.PORT || 4173;
 const SESSION_COOKIE = 'ari_session';
+// The marketing site (neurovance.dev) is a separate static origin from this
+// API (app.neurovance.dev) — the waitlist form has to call cross-origin, so
+// this is the one endpoint that needs an explicit CORS allowance.
+const WAITLIST_CORS_ORIGIN = 'https://neurovance.dev';
+
+function loadWaitlist() {
+  if (!existsSync(WAITLIST_PATH)) return [];
+  return JSON.parse(readFileSync(WAITLIST_PATH, 'utf-8'));
+}
+
+function saveWaitlist(list) {
+  if (!existsSync(MEMORY_DIR)) mkdirSync(MEMORY_DIR, { recursive: true });
+  writeFileSync(WAITLIST_PATH, JSON.stringify(list, null, 2));
+}
 
 // Mission-control palette: mostly grey/silver so the graph reads as one
 // instrument, with telemetry-alert red reserved for genuinely critical memories.
@@ -199,6 +215,39 @@ async function handleOAuthCallback(req, res, provider) {
 }
 
 createServer(async (req, res) => {
+  // ---------- Waitlist — public, no auth, called cross-origin from the
+  // marketing site, so it needs its own CORS handling ----------
+
+  if (req.url === '/api/waitlist' && req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': WAITLIST_CORS_ORIGIN,
+      'Access-Control-Allow-Methods': 'POST',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    return res.end();
+  }
+
+  if (req.url === '/api/waitlist' && req.method === 'POST') {
+    res.setHeader('Access-Control-Allow-Origin', WAITLIST_CORS_ORIGIN);
+    try {
+      const { email } = await readJsonBody(req);
+      const normalized = email?.trim().toLowerCase();
+      if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+        return sendJson(res, 400, { error: 'Enter a valid email.' });
+      }
+      const list = loadWaitlist();
+      if (!list.find((w) => w.email === normalized)) {
+        list.push({ email: normalized, joinedAt: new Date().toISOString() });
+        saveWaitlist(list);
+        sendWaitlistNotification(normalized).catch((e) => console.error('Waitlist notify failed:', e));
+      }
+      sendJson(res, 200, { ok: true });
+    } catch (e) {
+      sendJson(res, 400, { error: 'Something went wrong.' });
+    }
+    return;
+  }
+
   // ---------- Signup: email + password -> emailed code -> pick username ----------
 
   if (req.url === '/api/signup-start' && req.method === 'POST') {

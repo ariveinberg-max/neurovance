@@ -70,3 +70,18 @@ export async function sendVerificationCode(toEmail, code) {
     ],
   });
 }
+
+export async function sendWaitlistNotification(email) {
+  const t = getTransporter();
+  if (!t) {
+    console.log(`[mailer] GMAIL_USER/GMAIL_APP_PASSWORD not set — new waitlist signup: ${email}`);
+    return;
+  }
+  await t.sendMail({
+    from: process.env.GMAIL_SEND_AS || `"Neurovance" <${process.env.GMAIL_USER}>`,
+    to: process.env.GMAIL_USER,
+    subject: 'New waitlist signup',
+    text: `${email} joined the Neurovance waitlist.`,
+    html: `<p><strong>${email}</strong> joined the Neurovance waitlist.</p>`,
+  });
+}
