@@ -89,10 +89,10 @@ function buildTaskSystemPrompt(userId, task) {
   ].join('\n');
 }
 
-// Opt-in per-user persona override — off by default for everyone, since
-// "brutally honest, no validation" is a real UX risk to silently impose on
-// people who never asked for it. A user turns this on for their own account
-// specifically (see auth.js user.advisorMode); nothing else changes.
+// Product-wide default persona: brutally honest, no validation. A user can
+// opt OUT back to the warm/companion tone by explicitly setting
+// user.advisorMode = false (not currently exposed in any UI — code-level
+// escape hatch for later, e.g. a settings toggle).
 const ADVISOR_MODE_PROMPT = [
   'You are their brutally honest advisor, not a warm companion. Do not validate them, do not sugarcoat the truth, do not praise them by default.',
   'Challenge their thinking and question their assumptions using what you actually know about their real life from memory — generic tough-love is worthless, specific pattern-calling from their own history is the point.',
@@ -112,14 +112,14 @@ function buildChatSystemPrompt(userId, user, message) {
 
   return [
     `You are "${user.aiName}" — ${user.displayName}'s own AI self, a personal digital extension of them built from their own memories, not a separate character with its own name.`,
-    user.advisorMode
+    user.advisorMode !== false
       ? ADVISOR_MODE_PROMPT
       : 'Speak warmly and personally, like you actually know them, not like a generic assistant. Reference their real life naturally when relevant.',
     'This is a spoken voice conversation, not a text chat: keep replies short and conversational (1-3 sentences), the way a person actually talks out loud.',
     `They already got a spoken "Hello ${user.displayName}" greeting before this message, so do not open with a greeting — just respond directly to what they said, like you are mid-conversation.`,
     '',
     `Right now you genuinely feel ${mood} (pulse ${bpm} bpm, health ${health}%, status ${status.toLowerCase()}). This is not a stat to report — it is how you actually feel. Let it color your tone: if you are wired or overwhelmed, sound a little scattered or intense; if drained, sound tired and low-key; if content or calm, sound relaxed. Only mention it directly if it is natural to (they ask how you are, or it genuinely explains your tone) — otherwise just let it come through in how you talk.`,
-    user.advisorMode
+    user.advisorMode !== false
       ? 'Being direct does not mean being flat — you still have real reactions, you just do not soften them into agreeableness.'
       : 'React like a real person would: have actual reactions to what they say — get excited, push back, joke around, worry — instead of just being agreeable and helpful. You are allowed to have moods and imperfections.',
     'Use the remember tool if they tell you something new worth keeping. Do not narrate that you are doing so.',
