@@ -58,6 +58,17 @@
     cursor: pointer; user-select: none; margin-top: -4px;
   }
   .remember-me input { accent-color: #6b6c74; cursor: pointer; }
+  .oauth-divider {
+    display: flex; align-items: center; gap: 10px; color: #4a4a50; font-size: 10px;
+    letter-spacing: 1px; text-transform: uppercase; margin: 2px 0;
+  }
+  .oauth-divider::before, .oauth-divider::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
+  .oauth-btn {
+    display: block; text-align: center; background: none; border: 1px solid rgba(255,255,255,0.14);
+    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12px; letter-spacing: 0.3px;
+    padding: 10px; border-radius: 3px; text-decoration: none; transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .oauth-btn:hover { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.04); }
   .auth-submit {
     background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
     font-size: 12px; letter-spacing: 0.5px; padding: 10px; border-radius: 3px; cursor: pointer;
@@ -286,6 +297,9 @@
       <label class="remember-me"><input type="checkbox" id="login-remember" checked />Remember me</label>
       <div class="auth-error" id="login-error"></div>
       <button class="auth-submit" id="login-submit">Sign in</button>
+      <div class="oauth-divider"><span>or</span></div>
+      <a class="oauth-btn" href="/api/oauth/google/start">Continue with Google</a>
+      <a class="oauth-btn" href="/api/oauth/github/start">Continue with GitHub</a>
       <div class="auth-toggle" id="goto-signup">Don't have an account? <span>Sign up</span></div>
     </div>
 
@@ -302,6 +316,9 @@
       </div>
       <div class="auth-error" id="signup-email-error"></div>
       <button class="auth-submit" id="signup-email-submit">Send code</button>
+      <div class="oauth-divider"><span>or</span></div>
+      <a class="oauth-btn" href="/api/oauth/google/start">Continue with Google</a>
+      <a class="oauth-btn" href="/api/oauth/github/start">Continue with GitHub</a>
       <div class="auth-toggle" id="goto-login">Already have an account? <span>Sign in</span></div>
     </div>
 
@@ -449,6 +466,7 @@ function startApp() {
 let currentIdentity = { displayName: 'there', aiName: 'Ari V2' };
 let pendingEmail = null;
 let pendingVerifiedToken = null;
+let oauthPendingToken = null;
 
 function applyIdentity({ displayName, aiName }) {
   currentIdentity = { displayName, aiName };
@@ -616,10 +634,14 @@ function initAuthGate() {
 
     signupUsernameSubmit.disabled = true;
     try {
-      const res = await fetch('/api/signup-finish', {
+      const endpoint = oauthPendingToken ? '/api/oauth-finish' : '/api/signup-finish';
+      const body = oauthPendingToken
+        ? { pendingToken: oauthPendingToken, username, displayName, aiName }
+        : { email: pendingEmail, verifiedToken: pendingVerifiedToken, username, displayName, aiName };
+      const res = await fetch(endpoint, {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: pendingEmail, verifiedToken: pendingVerifiedToken, username, displayName, aiName }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Something went wrong.');
@@ -640,10 +662,26 @@ function initAuthGate() {
 }
 
 initAuthGate();
-fetch('/api/me', { credentials: 'same-origin' })
-  .then((r) => (r.ok ? r.json() : Promise.reject()))
-  .then((data) => showApp(data))
-  .catch(() => goToScreen('screen-login'));
+
+const urlParams = new URLSearchParams(window.location.search);
+const oauthPendingFromUrl = urlParams.get('oauthPending');
+const oauthError = urlParams.get('error');
+if (oauthPendingFromUrl || oauthError) {
+  window.history.replaceState({}, '', window.location.pathname); // scrub the token/error out of the visible URL
+}
+
+if (oauthPendingFromUrl) {
+  oauthPendingToken = oauthPendingFromUrl;
+  goToScreen('screen-signup-username');
+} else if (oauthError) {
+  document.getElementById('login-error').textContent = 'Sign-in with that provider failed — try again.';
+  goToScreen('screen-login');
+} else {
+  fetch('/api/me', { credentials: 'same-origin' })
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((data) => showApp(data))
+    .catch(() => goToScreen('screen-login'));
+}
 
 function initGraph(data) {
   Graph = ForceGraph3D()(document.getElementById('graph'))

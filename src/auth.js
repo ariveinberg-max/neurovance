@@ -8,6 +8,7 @@ const MEMORY_DIR = join(__dirname, '..', 'memory');
 const USERS_PATH = join(MEMORY_DIR, 'users.json');
 const SESSIONS_PATH = join(MEMORY_DIR, 'sessions.json');
 const PENDING_SIGNUPS_PATH = join(MEMORY_DIR, 'pending-signups.json');
+const PENDING_OAUTH_PATH = join(MEMORY_DIR, 'pending-oauth.json');
 
 function ensureMemoryDir() {
   if (!existsSync(MEMORY_DIR)) mkdirSync(MEMORY_DIR, { recursive: true });
@@ -43,6 +44,16 @@ function savePendingSignups(pending) {
   writeFileSync(PENDING_SIGNUPS_PATH, JSON.stringify(pending, null, 2));
 }
 
+function loadPendingOAuth() {
+  if (!existsSync(PENDING_OAUTH_PATH)) return {};
+  return JSON.parse(readFileSync(PENDING_OAUTH_PATH, 'utf-8'));
+}
+
+function savePendingOAuth(pending) {
+  ensureMemoryDir();
+  writeFileSync(PENDING_OAUTH_PATH, JSON.stringify(pending, null, 2));
+}
+
 // No new dependency for this — Node's built-in scrypt is exactly what
 // Node's own docs recommend for hand-rolled password hashing.
 export function hashPassword(password) {
@@ -71,6 +82,10 @@ export function findUserByEmail(email) {
 
 export function findUserById(userId) {
   return loadUsers().find((u) => u.id === userId) || null;
+}
+
+export function findUserByOAuth(provider, providerId) {
+  return loadUsers().find((u) => u.oauthProvider === provider && u.oauthId === providerId) || null;
 }
 
 export function listUsers() {
@@ -167,6 +182,74 @@ export function finishSignup({ email, verifiedToken, username, displayName, aiNa
 
   delete pending[normalizedEmail];
   savePendingSignups(pending);
+
+  return user;
+}
+
+// ---------- OAuth (Google / GitHub): if the provider's email already
+// matches an existing account, link this provider to it and sign straight
+// in — no separate "pick a username" step for a returning identity. A
+// genuinely new email still goes through choosing a username/AI name, same
+// as email+password signup, just skipping straight past the password step
+// since the provider already proved who they are.
+const OAUTH_PENDING_EXPIRY_MS = 15 * 60 * 1000;
+
+export function startOAuthSignup({ provider, providerId, email }) {
+  const existingByOAuth = findUserByOAuth(provider, providerId);
+  if (existingByOAuth) return { linked: true, user: existingByOAuth };
+
+  const normalizedEmail = email?.trim().toLowerCase();
+  const existingByEmail = normalizedEmail ? findUserByEmail(normalizedEmail) : null;
+  if (existingByEmail) {
+    const users = loadUsers();
+    const user = users.find((u) => u.id === existingByEmail.id);
+    user.oauthProvider = provider;
+    user.oauthId = providerId;
+    saveUsers(users);
+    return { linked: true, user };
+  }
+
+  const pendingToken = randomBytes(24).toString('hex');
+  const pending = loadPendingOAuth();
+  pending[pendingToken] = {
+    provider,
+    providerId,
+    email: normalizedEmail || null,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + OAUTH_PENDING_EXPIRY_MS,
+  };
+  savePendingOAuth(pending);
+  return { linked: false, pendingToken };
+}
+
+export function finishOAuthSignup({ pendingToken, username, displayName, aiName }) {
+  const pending = loadPendingOAuth();
+  const record = pending[pendingToken];
+  if (!record) throw new Error('That sign-in expired — start over.');
+  if (Date.now() > record.expiresAt) throw new Error('That sign-in expired — start over.');
+
+  const normalizedUsername = username.trim().toLowerCase();
+  if (findUserByUsername(normalizedUsername)) {
+    throw new Error('That username is already taken.');
+  }
+
+  const users = loadUsers();
+  const user = {
+    id: randomUUID(),
+    username: normalizedUsername,
+    email: record.email,
+    passwordHash: null, // OAuth-only account — no password login until/unless they set one
+    oauthProvider: record.provider,
+    oauthId: record.providerId,
+    displayName: displayName.trim(),
+    aiName: aiName.trim(),
+    createdAt: new Date().toISOString(),
+  };
+  users.push(user);
+  saveUsers(users);
+
+  delete pending[pendingToken];
+  savePendingOAuth(pending);
 
   return user;
 }

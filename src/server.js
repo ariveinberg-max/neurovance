@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, extname } from 'path';
+import { randomBytes } from 'crypto';
 import { allMemories, remember } from './memory.js';
 import { chatReply, getLastRecall, extractMemories } from './agent.js';
 import { computeVitals } from './vitals.js';
@@ -96,6 +97,107 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
+// ---------- OAuth (Google / GitHub) — standard authorization-code flow,
+// hand-rolled with plain fetch calls rather than a library, same spirit as
+// the rest of this app's zero-dependency approach to auth.
+const OAUTH_STATE_COOKIE = 'oauth_state';
+
+function oauthRedirectUri(provider) {
+  return process.env[`${provider.toUpperCase()}_REDIRECT_URI`];
+}
+
+function startOAuthRedirect(res, provider, authUrl, params) {
+  const state = randomBytes(16).toString('hex');
+  res.setHeader('Set-Cookie', `${OAUTH_STATE_COOKIE}=${provider}:${state}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`);
+  const query = new URLSearchParams({ ...params, state }).toString();
+  res.writeHead(302, { Location: `${authUrl}?${query}` });
+  res.end();
+}
+
+function finishOAuthLogin(res, result) {
+  if (result.linked) {
+    const token = auth.createSession(result.user.id);
+    setSessionCookie(res, token);
+    res.writeHead(302, { Location: '/' });
+  } else {
+    // Brand-new identity — no session yet, just a short-lived pending token
+    // the client uses to finish picking a username.
+    res.writeHead(302, { Location: `/?oauthPending=${result.pendingToken}` });
+  }
+  res.end();
+}
+
+async function handleOAuthCallback(req, res, provider) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const code = url.searchParams.get('code');
+  const returnedState = url.searchParams.get('state');
+  const cookies = parseCookies(req.headers.cookie || '');
+  const [savedProvider, savedState] = (cookies[OAUTH_STATE_COOKIE] || '').split(':');
+
+  if (!code || !returnedState || savedProvider !== provider || savedState !== returnedState) {
+    res.writeHead(302, { Location: '/?error=oauth_failed' });
+    return res.end();
+  }
+
+  try {
+    let profile;
+    if (provider === 'google') {
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          redirect_uri: oauthRedirectUri('google'),
+          grant_type: 'authorization_code',
+        }),
+      });
+      const tokenData = await tokenRes.json();
+      if (!tokenData.access_token) throw new Error('Google did not return an access token.');
+      const profileRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      const p = await profileRes.json();
+      profile = { providerId: p.sub, email: p.email };
+    } else if (provider === 'github') {
+      const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+        body: new URLSearchParams({
+          code,
+          client_id: process.env.GITHUB_CLIENT_ID,
+          client_secret: process.env.GITHUB_CLIENT_SECRET,
+          redirect_uri: oauthRedirectUri('github'),
+        }),
+      });
+      const tokenData = await tokenRes.json();
+      if (!tokenData.access_token) throw new Error('GitHub did not return an access token.');
+      const headers = { Authorization: `Bearer ${tokenData.access_token}`, 'User-Agent': 'neurovance' };
+      const profileRes = await fetch('https://api.github.com/user', { headers });
+      const p = await profileRes.json();
+      let email = p.email;
+      if (!email) {
+        // GitHub only includes email on /user if it's public — fall back to
+        // the emails endpoint and take the primary verified one.
+        const emailsRes = await fetch('https://api.github.com/user/emails', { headers });
+        const emails = await emailsRes.json();
+        email = Array.isArray(emails) ? (emails.find((e) => e.primary)?.email || emails[0]?.email) : null;
+      }
+      profile = { providerId: String(p.id), email };
+    } else {
+      throw new Error('Unknown provider.');
+    }
+
+    const result = auth.startOAuthSignup({ provider, providerId: profile.providerId, email: profile.email });
+    finishOAuthLogin(res, result);
+  } catch (e) {
+    console.error(`${provider} OAuth error:`, e);
+    res.writeHead(302, { Location: '/?error=oauth_failed' });
+    res.end();
+  }
+}
+
 createServer(async (req, res) => {
   // ---------- Signup: email + password -> emailed code -> pick username ----------
 
@@ -150,11 +252,55 @@ createServer(async (req, res) => {
     try {
       const { username, password, remember } = await readJsonBody(req);
       const user = username && auth.findUserByUsername(username);
-      if (!user || !auth.verifyPassword(password || '', user.passwordHash)) {
-        return sendJson(res, 401, { error: 'Wrong username or password.' });
+      if (!user || !user.passwordHash || !auth.verifyPassword(password || '', user.passwordHash)) {
+        return sendJson(res, 401, { error: user && !user.passwordHash ? `This account signed up with ${user.oauthProvider} — use that to sign in.` : 'Wrong username or password.' });
       }
       const token = auth.createSession(user.id);
       setSessionCookie(res, token, remember !== false);
+      sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
+    } catch (e) {
+      sendJson(res, 400, { error: e.message });
+    }
+    return;
+  }
+
+  // ---------- OAuth: Google + GitHub ----------
+
+  if (req.url === '/api/oauth/google/start') {
+    return startOAuthRedirect(res, 'google', 'https://accounts.google.com/o/oauth2/v2/auth', {
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      redirect_uri: oauthRedirectUri('google'),
+      response_type: 'code',
+      scope: 'openid email profile',
+      prompt: 'select_account',
+    });
+  }
+
+  if (req.url.startsWith('/api/oauth/google/callback')) {
+    return handleOAuthCallback(req, res, 'google');
+  }
+
+  if (req.url === '/api/oauth/github/start') {
+    return startOAuthRedirect(res, 'github', 'https://github.com/login/oauth/authorize', {
+      client_id: process.env.GITHUB_CLIENT_ID,
+      redirect_uri: oauthRedirectUri('github'),
+      scope: 'read:user user:email',
+    });
+  }
+
+  if (req.url.startsWith('/api/oauth/github/callback')) {
+    return handleOAuthCallback(req, res, 'github');
+  }
+
+  if (req.url === '/api/oauth-finish' && req.method === 'POST') {
+    try {
+      const { pendingToken, username, displayName, aiName } = await readJsonBody(req);
+      if (!pendingToken || !username?.trim() || !displayName?.trim() || !aiName?.trim()) {
+        return sendJson(res, 400, { error: 'Username, your name, and an AI name are all required.' });
+      }
+      const user = auth.finishOAuthSignup({ pendingToken, username, displayName, aiName });
+      const token = auth.createSession(user.id);
+      setSessionCookie(res, token);
       sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
     } catch (e) {
       sendJson(res, 400, { error: e.message });
