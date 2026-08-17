@@ -402,8 +402,13 @@ createServer(async (req, res) => {
     return sendJson(res, 404, { error: 'Not found' });
   }
 
-  const path = req.url === '/' ? '/index.html' : req.url;
-  const filePath = join(PUBLIC_DIR, path.split('?')[0]);
+  // Strip the query string FIRST, then check for root — req.url includes
+  // any query string (e.g. "/?oauthPending=..."), so checking req.url === '/'
+  // before stripping missed every root request that had one, falling through
+  // to try to serve PUBLIC_DIR itself instead of index.html.
+  const rawPath = req.url.split('?')[0];
+  const path = rawPath === '/' ? '/index.html' : rawPath;
+  const filePath = join(PUBLIC_DIR, path);
   // existsSync() is true for directories too — a request that happens to
   // resolve to a directory path (e.g. /turntable with no filename) would
   // pass this check, then crash the whole process on readFileSync(),
