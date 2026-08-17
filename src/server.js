@@ -93,6 +93,7 @@ function sendJson(res, status, body) {
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
 };
 
 createServer(async (req, res) => {
