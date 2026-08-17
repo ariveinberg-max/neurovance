@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { createServer } from 'http';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, extname } from 'path';
 import { randomBytes } from 'crypto';
@@ -404,12 +404,22 @@ createServer(async (req, res) => {
 
   const path = req.url === '/' ? '/index.html' : req.url;
   const filePath = join(PUBLIC_DIR, path.split('?')[0]);
-  if (!filePath.startsWith(PUBLIC_DIR) || !existsSync(filePath)) {
-    res.writeHead(404);
-    res.end('Not found');
-    return;
+  // existsSync() is true for directories too — a request that happens to
+  // resolve to a directory path (e.g. /turntable with no filename) would
+  // pass this check, then crash the whole process on readFileSync(),
+  // since that throws EISDIR uncaught. statSync + isFile() rules that out,
+  // and the try/catch is defense in depth against any other read failure.
+  try {
+    if (!filePath.startsWith(PUBLIC_DIR) || !existsSync(filePath) || !statSync(filePath).isFile()) {
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': MIME[extname(filePath)] || 'application/octet-stream' });
+    res.end(readFileSync(filePath));
+  } catch (e) {
+    console.error('Static file error:', e);
+    res.writeHead(500);
+    res.end('Server error');
   }
-
-  res.writeHead(200, { 'Content-Type': MIME[extname(filePath)] || 'application/octet-stream' });
-  res.end(readFileSync(filePath));
 }).listen(PORT, () => console.log(`Brain graph running at http://localhost:${PORT}`));
