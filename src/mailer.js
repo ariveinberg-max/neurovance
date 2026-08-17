@@ -42,7 +42,7 @@ export async function sendVerificationCode(toEmail, code) {
     return;
   }
   await t.sendMail({
-    from: process.env.GMAIL_USER,
+    from: process.env.GMAIL_SEND_AS || `"Neurovance" <${process.env.GMAIL_USER}>`,
     to: toEmail,
     subject: 'Your verification code',
     text: `Your verification code is ${code}. It expires in 10 minutes.`,
