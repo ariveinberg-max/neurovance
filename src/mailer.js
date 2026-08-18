@@ -71,6 +71,44 @@ export async function sendVerificationCode(toEmail, code) {
   });
 }
 
+// Sends one announcement email to one recipient, styled like the rest of
+// Neurovance's mail. Callers send one-at-a-time (never a shared To/Cc list)
+// so waitlist emails are never exposed to each other, and pace calls with a
+// delay to stay well under Gmail's sending limits for a personal account.
+export async function sendBroadcast(toEmail, subject, bodyHtml, bodyText) {
+  const t = getTransporter();
+  if (!t) {
+    console.log(`[mailer] GMAIL_USER/GMAIL_APP_PASSWORD not set — broadcast to ${toEmail}: ${subject}`);
+    return;
+  }
+  await t.sendMail({
+    from: process.env.GMAIL_SEND_AS || `"Neurovance" <${process.env.GMAIL_USER}>`,
+    to: toEmail,
+    subject,
+    text: bodyText,
+    html: `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#08090a; padding:40px 0;">
+        <tr><td align="center">
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#000000; border:1px solid #1c1d21;">
+            <tr><td align="center" style="padding:40px 24px 8px;">
+              <img src="cid:neurovance-logo" width="220" alt="Neurovance" style="display:block; max-width:220px;" />
+            </td></tr>
+            <tr><td style="padding:24px 36px 40px; font-family:-apple-system,Helvetica,Arial,sans-serif; font-size:14px; line-height:1.7; color:#c9cad0;">
+              ${bodyHtml}
+            </td></tr>
+            <tr><td align="center" style="padding:0 24px 32px; font-family:-apple-system,Helvetica,Arial,sans-serif; font-size:11px; color:#4a4b50;">
+              You're getting this because you joined the Neurovance waitlist. Reply and let us know if you'd rather not hear from us again.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    `,
+    attachments: [
+      { filename: 'neurovance-lockup.png', path: LOGO_PATH, cid: 'neurovance-logo' },
+    ],
+  });
+}
+
 export async function sendWaitlistNotification(email) {
   const t = getTransporter();
   if (!t) {

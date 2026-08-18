@@ -8,7 +8,7 @@ import { allMemories, remember } from './memory.js';
 import { chatReply, getLastRecall, extractMemories } from './agent.js';
 import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
-import { sendVerificationCode, sendWaitlistNotification } from './mailer.js';
+import { sendVerificationCode, sendWaitlistNotification, sendBroadcast } from './mailer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
@@ -242,6 +242,50 @@ createServer(async (req, res) => {
         sendWaitlistNotification(normalized).catch((e) => console.error('Waitlist notify failed:', e));
       }
       sendJson(res, 200, { ok: true });
+    } catch (e) {
+      sendJson(res, 400, { error: 'Something went wrong.' });
+    }
+    return;
+  }
+
+  // ---------- Waitlist admin — owner-only, gated by a shared secret header
+  // (not the multi-user auth system, since this is a single-owner tool) ----------
+
+  if (req.url === '/api/admin/waitlist' && req.method === 'GET') {
+    if (!process.env.ADMIN_KEY || req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
+      return sendJson(res, 401, { error: 'Unauthorized.' });
+    }
+    return sendJson(res, 200, { waitlist: loadWaitlist() });
+  }
+
+  if (req.url === '/api/admin/waitlist/broadcast' && req.method === 'POST') {
+    if (!process.env.ADMIN_KEY || req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
+      return sendJson(res, 401, { error: 'Unauthorized.' });
+    }
+    try {
+      const { subject, bodyHtml, bodyText } = await readJsonBody(req);
+      if (!subject?.trim() || !bodyHtml?.trim()) {
+        return sendJson(res, 400, { error: 'Subject and body are required.' });
+      }
+      const list = loadWaitlist();
+      // Fire the response immediately and send in the background — a few
+      // hundred emails at one-per-second would otherwise hold the request
+      // open for minutes. Sending one at a time (never a shared To/Cc) keeps
+      // every recipient's address private from the others, and the delay
+      // keeps this well under Gmail's per-day sending limit for a personal
+      // account instead of bursting it all at once.
+      sendJson(res, 200, { ok: true, queued: list.length });
+      (async () => {
+        for (const entry of list) {
+          try {
+            await sendBroadcast(entry.email, subject, bodyHtml, bodyText || '');
+          } catch (e) {
+            console.error(`Broadcast to ${entry.email} failed:`, e.message);
+          }
+          await new Promise((r) => setTimeout(r, 1200));
+        }
+        console.log(`Broadcast complete: ${list.length} recipients.`);
+      })();
     } catch (e) {
       sendJson(res, 400, { error: 'Something went wrong.' });
     }
