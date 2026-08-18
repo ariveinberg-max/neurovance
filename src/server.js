@@ -249,9 +249,22 @@ createServer(async (req, res) => {
   }
 
   // ---------- Waitlist admin — owner-only, gated by a shared secret header
-  // (not the multi-user auth system, since this is a single-owner tool) ----------
+  // (not the multi-user auth system, since this is a single-owner tool).
+  // The admin page itself lives on neurovance.dev (a separate static site,
+  // deployed independently from this app server), so these two routes need
+  // the same cross-origin allowance as the public waitlist route below. ----------
+
+  if ((req.url === '/api/admin/waitlist' || req.url === '/api/admin/waitlist/broadcast') && req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': WAITLIST_CORS_ORIGIN,
+      'Access-Control-Allow-Methods': 'GET, POST',
+      'Access-Control-Allow-Headers': 'Content-Type, x-admin-key',
+    });
+    return res.end();
+  }
 
   if (req.url === '/api/admin/waitlist' && req.method === 'GET') {
+    res.setHeader('Access-Control-Allow-Origin', WAITLIST_CORS_ORIGIN);
     if (!process.env.ADMIN_KEY || req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
       return sendJson(res, 401, { error: 'Unauthorized.' });
     }
@@ -259,6 +272,7 @@ createServer(async (req, res) => {
   }
 
   if (req.url === '/api/admin/waitlist/broadcast' && req.method === 'POST') {
+    res.setHeader('Access-Control-Allow-Origin', WAITLIST_CORS_ORIGIN);
     if (!process.env.ADMIN_KEY || req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
       return sendJson(res, 401, { error: 'Unauthorized.' });
     }
