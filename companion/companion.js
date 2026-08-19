@@ -56,6 +56,83 @@ function resolveScoped(relativePath) {
   return target;
 }
 
+// Minimal XML plist parser — just enough of Apple's plist grammar
+// (dict/array/string/integer/real/true/false, everything else treated as
+// opaque) to walk Safari's bookmarks structure. No dependency needed since
+// Node has no built-in plist or XML parser.
+function parsePlist(xml) {
+  const tagRe = /<(\/?)([a-zA-Z0-9]+)([^>]*?)(\/?)>/g;
+
+  function decodeEntities(s) {
+    return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  }
+
+  function parseValue(pos) {
+    tagRe.lastIndex = pos;
+    const m = tagRe.exec(xml);
+    if (!m) throw new Error('Unexpected end of plist');
+    const [full, closing, name, , selfCloseFlag] = m;
+    if (closing) throw new Error('Unexpected closing tag: ' + name);
+    const tagEnd = m.index + full.length;
+    const isSelfClosing = selfCloseFlag === '/' || full.endsWith('/>');
+
+    if (isSelfClosing) {
+      if (name === 'true') return { value: true, nextPos: tagEnd };
+      if (name === 'false') return { value: false, nextPos: tagEnd };
+      return { value: null, nextPos: tagEnd };
+    }
+
+    if (name === 'dict') {
+      const dict = {};
+      let p = tagEnd;
+      for (;;) {
+        const closeMatch = /^\s*<\/dict>/.exec(xml.slice(p));
+        if (closeMatch) { p += closeMatch[0].length; break; }
+        const keyMatch = /^\s*<key>([\s\S]*?)<\/key>/.exec(xml.slice(p));
+        if (!keyMatch) throw new Error('Expected <key> in dict at pos ' + p);
+        const key = decodeEntities(keyMatch[1]);
+        p += keyMatch[0].length;
+        p += /^\s*/.exec(xml.slice(p))[0].length;
+        const { value, nextPos } = parseValue(p);
+        dict[key] = value;
+        p = nextPos;
+      }
+      return { value: dict, nextPos: p };
+    }
+
+    if (name === 'array') {
+      const arr = [];
+      let p = tagEnd;
+      for (;;) {
+        p += /^\s*/.exec(xml.slice(p))[0].length;
+        const closeMatch = /^<\/array>/.exec(xml.slice(p));
+        if (closeMatch) { p += closeMatch[0].length; break; }
+        const { value, nextPos } = parseValue(p);
+        arr.push(value);
+        p = nextPos;
+      }
+      return { value: arr, nextPos: p };
+    }
+
+    const closeTagRe = new RegExp('</' + name + '>');
+    const closeMatch = closeTagRe.exec(xml.slice(tagEnd));
+    if (!closeMatch) throw new Error('Missing closing tag for ' + name);
+    const content = xml.slice(tagEnd, tagEnd + closeMatch.index);
+    const nextPos = tagEnd + closeMatch.index + closeMatch[0].length;
+
+    if (name === 'string') return { value: decodeEntities(content), nextPos };
+    if (name === 'integer') return { value: parseInt(content, 10), nextPos };
+    if (name === 'real') return { value: parseFloat(content), nextPos };
+    return { value: content, nextPos };
+  }
+
+  const plistMatch = /<plist[^>]*>/.exec(xml);
+  if (!plistMatch) throw new Error('Not a plist file');
+  let p = plistMatch.index + plistMatch[0].length;
+  p += /^\s*/.exec(xml.slice(p))[0].length;
+  return parseValue(p).value;
+}
+
 function handleCommand(action, params) {
   if (action === 'list_files') {
     const dir = resolveScoped(params.subpath || '');
@@ -123,10 +200,18 @@ function handleCommand(action, params) {
   // find a link the user already saved, instead of asking them to type a
   // URL it could have looked up itself. Recursively walks the bookmark
   // folder tree Safari stores on disk.
+  //
+  // Uses XML plist conversion, not `plutil -convert json` — Safari's
+  // Bookmarks.plist commonly holds binary fields (favicon thumbnails, sync
+  // UUIDs) that plutil's JSON converter refuses to represent at all,
+  // failing the whole file with "Invalid object in plist for JSON format"
+  // even though every bookmark itself is a plain title/URL string. XML
+  // plist represents everything, so it never hits that wall; we parse it
+  // ourselves below since Node has no built-in plist/XML parser.
   if (action === 'read_safari_bookmarks') {
     const plistPath = join(homedir(), 'Library', 'Safari', 'Bookmarks.plist');
     return new Promise((res, rej) => {
-      execFile('plutil', ['-convert', 'json', '-o', '-', plistPath], { maxBuffer: 20 * 1024 * 1024 }, (err, stdout) => {
+      execFile('plutil', ['-convert', 'xml1', '-o', '-', plistPath], { maxBuffer: 20 * 1024 * 1024 }, (err, stdout) => {
         if (err) {
           if (/permission|Operation not permitted|couldn't be read|No such file/i.test(err.message)) {
             rej(new Error('Terminal needs Full Disk Access to read Safari bookmarks: System Settings > Privacy & Security > Full Disk Access > add your terminal app, then restart the Companion.'));
@@ -136,14 +221,14 @@ function handleCommand(action, params) {
           return;
         }
         try {
-          const root = JSON.parse(stdout);
+          const root = parsePlist(stdout);
           const bookmarks = [];
           const walk = (node) => {
-            if (!node) return;
+            if (!node || typeof node !== 'object') return;
             if (node.WebBookmarkType === 'WebBookmarkTypeLeaf' && node.URLString) {
               bookmarks.push({ title: node.URIDictionary?.title || node.URLString, url: node.URLString });
             }
-            (node.Children || []).forEach(walk);
+            if (Array.isArray(node.Children)) node.Children.forEach(walk);
           };
           walk(root);
           res(bookmarks.slice(0, 300));
