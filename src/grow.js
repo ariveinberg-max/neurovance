@@ -24,7 +24,7 @@ for (const user of await listUsers()) {
   const memories = await allMemories(user.id);
   const prompt = buildPrompt(memories);
   try {
-    const result = await runTask(user.id, prompt);
+    const result = await runTask(user.id, user, prompt);
     console.log(`[${new Date().toISOString()}] [${user.username}] ${result}`);
   } catch (e) {
     console.error(`[${new Date().toISOString()}] [${user.username}] grow failed:`, e.message);

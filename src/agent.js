@@ -6,6 +6,18 @@ import * as pendingNotes from './pending-notes.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
+// Custom-branded model tiers (Neurovance's own names, matching auth.js's
+// MODEL_TIERS) mapped to real underlying Claude models. "core" keeps the
+// exact model every existing conversation has always run on — adding tiers
+// doesn't change anyone's behavior until they actually pick "pulse".
+const MODEL_IDS = {
+  pulse: 'claude-haiku-4-5-20251001',
+  core: 'claude-sonnet-4-6',
+};
+function resolveModel(tier) {
+  return MODEL_IDS[tier] || MODEL_IDS.core;
+}
+
 const MEMORY_TOOL = {
   name: 'remember',
   description:
@@ -231,13 +243,13 @@ async function buildChatSystemPrompt(userId, user, message) {
   ].join('\n');
 }
 
-async function runLoop(userId, system, initialMessage, tools, maxTokens) {
+async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId) {
   const messages = [{ role: 'user', content: initialMessage }];
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: modelId || MODEL_IDS.core,
       max_tokens: maxTokens,
       system,
       tools,
@@ -280,13 +292,13 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens) {
   }
 }
 
-export async function runTask(userId, task) {
+export async function runTask(userId, user, task) {
   const [extraTools, system] = await Promise.all([
     companionTools(userId),
     buildTaskSystemPrompt(userId, task),
   ]);
   const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools];
-  return runLoop(userId, system, task, tools, 1024);
+  return runLoop(userId, system, task, tools, 1024, resolveModel(user?.model));
 }
 
 // Turns a raw dump of text (typed or pasted, however messy) into individual
@@ -444,5 +456,5 @@ export async function correctMemory(userId, memoryId, correctionText) {
 // and caps replies short, since this is spoken aloud, not read.
 export async function chatReply(userId, user, message) {
   const system = await buildChatSystemPrompt(userId, user, message);
-  return runLoop(userId, system, message, [MEMORY_TOOL], 200);
+  return runLoop(userId, system, message, [MEMORY_TOOL], 200, resolveModel(user?.model));
 }

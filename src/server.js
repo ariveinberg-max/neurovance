@@ -425,7 +425,7 @@ const server = createServer(async (req, res) => {
   if (req.url === '/api/me') {
     const { user } = await getSessionAndUser(req);
     if (!user) return sendJson(res, 401, { ok: false });
-    sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName, username: user.username });
+    sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName, username: user.username, model: user.model || 'core' });
     return;
   }
 
@@ -436,6 +436,23 @@ const server = createServer(async (req, res) => {
 
     if (req.url === '/api/graph') {
       return sendJson(res, 200, await buildGraph(user.id));
+    }
+
+    // ---------- Model tier — Neurovance's own custom-branded model names
+    // (Pulse / Core), not Anthropic's. Picking one only changes what powers
+    // this user's own chat + tasks, never anyone else's. ----------
+
+    if (req.url === '/api/model' && req.method === 'POST') {
+      try {
+        const { tier } = await readJsonBody(req);
+        if (!auth.MODEL_TIERS.includes(tier)) {
+          return sendJson(res, 400, { error: `tier must be one of: ${auth.MODEL_TIERS.join(', ')}` });
+        }
+        await auth.setModelTier(user.id, tier);
+        return sendJson(res, 200, { ok: true, model: tier });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
     }
 
     // ---------- Companion — lets this user's agent read from one folder on
@@ -601,7 +618,7 @@ const server = createServer(async (req, res) => {
         if (typeof task !== 'string' || !task.trim()) {
           return sendJson(res, 400, { error: 'task must be a non-empty string' });
         }
-        const result = await runTask(user.id, task.trim());
+        const result = await runTask(user.id, user, task.trim());
         return sendJson(res, 200, { result });
       } catch (e) {
         console.error('Task error:', e);

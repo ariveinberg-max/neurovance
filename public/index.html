@@ -231,9 +231,9 @@
   }
   #talk-drawer.open { transform: translateY(0); }
   #talk-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
+    padding: 14px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
   }
+  #talk-header-top { display: flex; align-items: center; justify-content: space-between; }
   #talk-mode-tabs { display: flex; gap: 6px; }
   .talk-mode {
     background: none; border: none; color: #63636a; font-family: 'Inter', sans-serif;
@@ -243,6 +243,13 @@
   .talk-mode.active { color: #d6d6d9; background: rgba(255,255,255,0.07); }
   #talk-close { color: #63636a; cursor: pointer; font-size: 13px; padding: 4px; transition: color 0.2s ease; }
   #talk-close:hover { color: #d6d6d9; }
+  #model-tabs { display: flex; gap: 6px; margin-top: 8px; }
+  .model-tier {
+    background: none; border: 1px solid rgba(255,255,255,0.1); color: #63636a; font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 10px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .model-tier.active { color: #7fd99a; background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
   #talk-transcript { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
   .talk-msg { font-size: 12.5px; line-height: 1.55; max-width: 88%; }
   .talk-msg .talk-role {
@@ -606,11 +613,17 @@
 <button id="talk-toggle">Talk</button>
 <div id="talk-drawer">
   <div id="talk-header">
-    <div id="talk-mode-tabs">
-      <button class="talk-mode active" data-mode="chat">Chat</button>
-      <button class="talk-mode" data-mode="task">Give it a task</button>
+    <div id="talk-header-top">
+      <div id="talk-mode-tabs">
+        <button class="talk-mode active" data-mode="chat">Chat</button>
+        <button class="talk-mode" data-mode="task">Give it a task</button>
+      </div>
+      <div id="talk-close">✕</div>
     </div>
-    <div id="talk-close">✕</div>
+    <div id="model-tabs">
+      <button class="model-tier" data-tier="pulse">Pulse</button>
+      <button class="model-tier active" data-tier="core">Core</button>
+    </div>
   </div>
   <div id="talk-transcript"></div>
   <div id="talk-input-row">
@@ -668,8 +681,8 @@ let pendingEmail = null;
 let pendingVerifiedToken = null;
 let oauthPendingToken = null;
 
-function applyIdentity({ displayName, aiName }) {
-  currentIdentity = { displayName, aiName };
+function applyIdentity({ displayName, aiName, model }) {
+  currentIdentity = { displayName, aiName, model: model || 'core' };
   document.getElementById('app-title').textContent = aiName;
   document.getElementById('app-subtitle').textContent = `${displayName}'s Superself`;
 }
@@ -1624,6 +1637,29 @@ function initTalkDrawer() {
     mode = btn.dataset.mode;
     input.placeholder = mode === 'task' ? 'Give it something to do…' : 'Say something…';
   }));
+
+  // Model tier — Pulse (fast) / Core (normal), Neurovance's own names.
+  // Only ever changes this one user's own chat + tasks.
+  const modelTabs = document.querySelectorAll('.model-tier');
+  modelTabs.forEach((btn) => {
+    if (btn.dataset.tier === currentIdentity.model) {
+      modelTabs.forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+    btn.addEventListener('click', async () => {
+      if (btn.classList.contains('active')) return;
+      const tier = btn.dataset.tier;
+      const res = await fetch('/api/model', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier }),
+      });
+      if (!res.ok) return;
+      currentIdentity.model = tier;
+      modelTabs.forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
 
   async function refreshGraphAfterTask() {
     const data = await fetch('/api/graph', { credentials: 'same-origin' }).then((r) => r.json());

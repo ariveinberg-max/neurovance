@@ -91,6 +91,20 @@ export async function listUsers() {
   return loadUsers();
 }
 
+// Custom-branded model tiers — Neurovance's own names, not Anthropic's.
+// Starting with two: a fast one and a normal-speed one.
+export const MODEL_TIERS = ['pulse', 'core'];
+const DEFAULT_MODEL_TIER = 'core';
+
+export async function setModelTier(userId, tier) {
+  if (!MODEL_TIERS.includes(tier)) throw new Error(`Unknown model tier: ${tier}`);
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.model = tier;
+  await saveUser(user);
+  return user;
+}
+
 // ---------- Email + password signup, verified by a code sent to that email,
 // username picked only after verification succeeds ----------
 
@@ -169,6 +183,7 @@ export async function finishSignup({ email, verifiedToken, username, displayName
     passwordHash: record.passwordHash,
     displayName: displayName.trim(),
     aiName: aiName.trim(),
+    model: DEFAULT_MODEL_TIER,
     createdAt: new Date().toISOString(),
   };
   await saveUser(user);
@@ -228,6 +243,7 @@ export async function finishOAuthSignup({ pendingToken, username, displayName, a
     oauthId: record.providerId,
     displayName: displayName.trim(),
     aiName: aiName.trim(),
+    model: DEFAULT_MODEL_TIER,
     createdAt: new Date().toISOString(),
   };
   await saveUser(user);
