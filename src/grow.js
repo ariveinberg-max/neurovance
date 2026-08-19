@@ -20,8 +20,8 @@ function buildPrompt(memories) {
   ].join(' ');
 }
 
-for (const user of listUsers()) {
-  const memories = allMemories(user.id);
+for (const user of await listUsers()) {
+  const memories = await allMemories(user.id);
   const prompt = buildPrompt(memories);
   try {
     const result = await runTask(user.id, prompt);

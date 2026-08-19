@@ -79,8 +79,8 @@ const COMPANION_OPEN_URL_TOOL = {
   },
 };
 
-function companionTools(userId) {
-  return companion.isPaired(userId)
+async function companionTools(userId) {
+  return (await companion.isPaired(userId))
     ? [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL]
     : [];
 }
@@ -125,14 +125,16 @@ export function getLastRecall(userId) {
   return lastRecallByUser.get(userId) || { ids: [], ts: null };
 }
 
-function memoryContext(userId, query) {
+async function memoryContext(userId, query) {
   // Keyword recall alone misses paraphrased or indirect phrasing constantly
   // (voice conversation rarely reuses a memory's exact words), so core
   // identity facts are always included regardless of whether this turn's
   // wording happens to overlap with them.
-  const core = coreMemories(userId, 8);
-  const relevant = recall(userId, query, 5);
-  const recent = recentMemories(userId, 3);
+  const [core, relevant, recent] = await Promise.all([
+    coreMemories(userId, 8),
+    recall(userId, query, 5),
+    recentMemories(userId, 3),
+  ]);
   const seen = new Set();
   const combined = [...core, ...relevant, ...recent]
     .filter((m) => (seen.has(m.id) ? false : seen.add(m.id)));
@@ -144,9 +146,11 @@ function memoryContext(userId, query) {
     .join('\n');
 }
 
-function buildTaskSystemPrompt(userId, task) {
-  const memoryLines = memoryContext(userId, task);
-  const hasCompanion = companion.isPaired(userId);
+async function buildTaskSystemPrompt(userId, task) {
+  const [memoryLines, hasCompanion] = await Promise.all([
+    memoryContext(userId, task),
+    companion.isPaired(userId),
+  ]);
   return [
     'You are an autonomous agent brain with persistent memory across conversations.',
     'Use the remember tool whenever you learn something worth keeping for next time.',
@@ -190,16 +194,20 @@ function vitalsPushbackLine(status, health) {
 // store, has a genuine emotional state derived from its own real vitals,
 // and talks like an actual person feeling that way — not a system
 // reporting its status. `user` is { displayName, aiName, advisorMode } from auth.js.
-function buildChatSystemPrompt(userId, user, message) {
-  const memoryLines = memoryContext(userId, message);
-  const { bpm, health, status, mood } = computeVitals(allMemories(userId));
+async function buildChatSystemPrompt(userId, user, message) {
+  const [memoryLines, memories, unseen] = await Promise.all([
+    memoryContext(userId, message),
+    allMemories(userId),
+    pendingNotes.unseenNotes(userId),
+  ]);
+  const { bpm, health, status, mood } = computeVitals(memories);
   const pushback = vitalsPushbackLine(status, health);
 
   // Surface at most one unprompted thing per turn — an insight from dreaming,
   // a curiosity question, or something the Companion noticed — and only if
   // it actually fits, not forced into every reply.
-  const pending = pendingNotes.unseenNotes(userId)[0];
-  if (pending) pendingNotes.markSeen(userId, pending.id);
+  const pending = unseen[0];
+  if (pending) await pendingNotes.markSeen(userId, pending.id);
   const pendingLine = pending
     ? `You have something on your mind you noticed on your own, unprompted: "${pending.text}" (${pending.kind === 'curiosity' ? 'a question you want to ask them' : pending.kind === 'companion' ? 'something you noticed on their computer' : 'something you realized while thinking on your own'}). Bring it up naturally if there is a real opening in this conversation — do not force it in if it does not fit right now.`
     : '';
@@ -246,7 +254,7 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens) {
     const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
       if (toolUse.name === 'remember') {
         const { content, tags, importance } = toolUse.input;
-        const entry = remember(userId, content, tags, importance);
+        const entry = await remember(userId, content, tags, importance);
         return { type: 'tool_result', tool_use_id: toolUse.id, content: `Saved as memory #${entry.id}.` };
       }
       if (toolUse.name === 'search_web') {
@@ -273,8 +281,12 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens) {
 }
 
 export async function runTask(userId, task) {
-  const tools = [MEMORY_TOOL, SEARCH_TOOL, ...companionTools(userId)];
-  return runLoop(userId, buildTaskSystemPrompt(userId, task), task, tools, 1024);
+  const [extraTools, system] = await Promise.all([
+    companionTools(userId),
+    buildTaskSystemPrompt(userId, task),
+  ]);
+  const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools];
+  return runLoop(userId, system, task, tools, 1024);
 }
 
 // Turns a raw dump of text (typed or pasted, however messy) into individual
@@ -307,12 +319,12 @@ export async function extractMemories(userId, rawText) {
     const toolUses = response.content.filter((b) => b.type === 'tool_use');
     if (toolUses.length === 0) break;
 
-    const toolResults = toolUses.map((toolUse) => {
+    const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
       const { content, tags, importance } = toolUse.input;
-      const entry = remember(userId, content, tags, importance);
+      const entry = await remember(userId, content, tags, importance);
       saved.push(entry);
       return { type: 'tool_result', tool_use_id: toolUse.id, content: `Saved as memory #${entry.id}.` };
-    });
+    }));
     messages.push({ role: 'user', content: toolResults });
   }
 
@@ -324,7 +336,7 @@ export async function extractMemories(userId, rawText) {
 // genuinely non-obvious link — not something already stated directly. Meant
 // to run in the background (grow.js), not on-demand from the UI.
 export async function runDreamCycle(userId) {
-  const memories = allMemories(userId);
+  const memories = await allMemories(userId);
   if (memories.length < 5) return null; // not enough yet for a real connection to exist
 
   const summary = memories.slice(-40).map((m) => `#${m.id} [${m.tags.join(',')}] ${m.content}`).join('\n');
@@ -337,8 +349,8 @@ export async function runDreamCycle(userId) {
   const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
   if (!text || text === 'NOTHING') return null;
 
-  const entry = remember(userId, text, ['insight'], 3);
-  pendingNotes.addNote(userId, 'insight', text);
+  const entry = await remember(userId, text, ['insight'], 3);
+  await pendingNotes.addNote(userId, 'insight', text);
   return entry;
 }
 
@@ -347,7 +359,7 @@ export async function runDreamCycle(userId) {
 // question worth asking next time — queued as a pending note the chat flow
 // can bring up when there's a natural opening.
 export async function runCuriosityCycle(userId) {
-  const memories = allMemories(userId);
+  const memories = await allMemories(userId);
   const summary = memories.slice(-40).map((m) => `[${m.tags.join(',')}] ${m.content}`).join('\n');
 
   const response = await client.messages.create({
@@ -359,7 +371,7 @@ export async function runCuriosityCycle(userId) {
   const question = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
   if (!question) return null;
 
-  pendingNotes.addNote(userId, 'curiosity', question);
+  await pendingNotes.addNote(userId, 'curiosity', question);
   return question;
 }
 
@@ -383,10 +395,10 @@ const UPDATE_MEMORY_TOOL = {
 };
 
 export async function correctMemory(userId, memoryId, correctionText) {
-  const target = findMemory(userId, memoryId);
+  const target = await findMemory(userId, memoryId);
   if (!target) throw new Error(`No memory #${memoryId} found.`);
 
-  const related = recall(userId, `${target.content} ${target.tags.join(' ')}`, 6).filter((m) => m.id !== memoryId);
+  const related = (await recall(userId, `${target.content} ${target.tags.join(' ')}`, 6)).filter((m) => m.id !== memoryId);
   const context = [`Memory #${target.id}: ${target.content}`, ...related.map((m) => `Memory #${m.id}: ${m.content}`)].join('\n');
 
   const messages = [{
@@ -409,11 +421,11 @@ export async function correctMemory(userId, memoryId, correctionText) {
     const toolUses = response.content.filter((b) => b.type === 'tool_use');
     if (toolUses.length === 0) break;
 
-    const toolResults = toolUses.map((toolUse) => {
-      const entry = updateMemory(userId, toolUse.input.id, toolUse.input.content);
+    const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
+      const entry = await updateMemory(userId, toolUse.input.id, toolUse.input.content);
       updated.push(entry);
       return { type: 'tool_result', tool_use_id: toolUse.id, content: `Updated memory #${entry.id}.` };
-    });
+    }));
     messages.push({ role: 'user', content: toolResults });
   }
 
@@ -421,7 +433,7 @@ export async function correctMemory(userId, memoryId, correctionText) {
   // user's correction silently does nothing — fall back to a direct
   // overwrite of the memory they actually flagged.
   if (updated.length === 0) {
-    updated.push(updateMemory(userId, memoryId, correctionText));
+    updated.push(await updateMemory(userId, memoryId, correctionText));
   }
 
   return updated;
@@ -431,5 +443,6 @@ export async function correctMemory(userId, memoryId, correctionText) {
 // every tool the model *could* call is a chance it adds an extra round-trip)
 // and caps replies short, since this is spoken aloud, not read.
 export async function chatReply(userId, user, message) {
-  return runLoop(userId, buildChatSystemPrompt(userId, user, message), message, [MEMORY_TOOL], 200);
+  const system = await buildChatSystemPrompt(userId, user, message);
+  return runLoop(userId, system, message, [MEMORY_TOOL], 200);
 }

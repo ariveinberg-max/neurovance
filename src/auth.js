@@ -1,57 +1,53 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { getDoc, setDoc, deleteDoc, getAllDocs } from './db.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const MEMORY_DIR = join(__dirname, '..', 'memory');
-const USERS_PATH = join(MEMORY_DIR, 'users.json');
-const SESSIONS_PATH = join(MEMORY_DIR, 'sessions.json');
-const PENDING_SIGNUPS_PATH = join(MEMORY_DIR, 'pending-signups.json');
-const PENDING_OAUTH_PATH = join(MEMORY_DIR, 'pending-oauth.json');
+// Every user is its own Firestore document (collection "users", doc id =
+// user.id) rather than one shared array, so lookups don't require loading
+// everyone's account just to find one. Sessions/pending-signups/pending-
+// oauth are all short-lived, keyed records — same shape, own collections.
 
-function ensureMemoryDir() {
-  if (!existsSync(MEMORY_DIR)) mkdirSync(MEMORY_DIR, { recursive: true });
+async function loadUsers() {
+  return getAllDocs('users');
 }
 
-function loadUsers() {
-  if (!existsSync(USERS_PATH)) return [];
-  return JSON.parse(readFileSync(USERS_PATH, 'utf-8'));
+async function saveUser(user) {
+  await setDoc('users', user.id, user);
 }
 
-function saveUsers(users) {
-  ensureMemoryDir();
-  writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
+async function getSessionRecord(token) {
+  return getDoc('sessions', token);
 }
 
-function loadSessions() {
-  if (!existsSync(SESSIONS_PATH)) return {};
-  return JSON.parse(readFileSync(SESSIONS_PATH, 'utf-8'));
+async function saveSessionRecord(token, record) {
+  await setDoc('sessions', token, { ...record, token });
 }
 
-function saveSessions(sessions) {
-  ensureMemoryDir();
-  writeFileSync(SESSIONS_PATH, JSON.stringify(sessions, null, 2));
+async function deleteSessionRecord(token) {
+  await deleteDoc('sessions', token);
 }
 
-function loadPendingSignups() {
-  if (!existsSync(PENDING_SIGNUPS_PATH)) return {};
-  return JSON.parse(readFileSync(PENDING_SIGNUPS_PATH, 'utf-8'));
+async function getPendingSignup(email) {
+  return getDoc('pendingSignups', email);
 }
 
-function savePendingSignups(pending) {
-  ensureMemoryDir();
-  writeFileSync(PENDING_SIGNUPS_PATH, JSON.stringify(pending, null, 2));
+async function savePendingSignup(email, record) {
+  await setDoc('pendingSignups', email, record);
 }
 
-function loadPendingOAuth() {
-  if (!existsSync(PENDING_OAUTH_PATH)) return {};
-  return JSON.parse(readFileSync(PENDING_OAUTH_PATH, 'utf-8'));
+async function deletePendingSignup(email) {
+  await deleteDoc('pendingSignups', email);
 }
 
-function savePendingOAuth(pending) {
-  ensureMemoryDir();
-  writeFileSync(PENDING_OAUTH_PATH, JSON.stringify(pending, null, 2));
+async function getPendingOAuth(token) {
+  return getDoc('pendingOAuth', token);
+}
+
+async function savePendingOAuthRecord(token, record) {
+  await setDoc('pendingOAuth', token, record);
+}
+
+async function deletePendingOAuthRecord(token) {
+  await deleteDoc('pendingOAuth', token);
 }
 
 // No new dependency for this — Node's built-in scrypt is exactly what
@@ -70,25 +66,28 @@ export function verifyPassword(password, storedHash) {
   return candidate.length === stored.length && timingSafeEqual(candidate, stored);
 }
 
-export function findUserByUsername(username) {
+export async function findUserByUsername(username) {
   const normalized = username.trim().toLowerCase();
-  return loadUsers().find((u) => u.username === normalized) || null;
+  const users = await loadUsers();
+  return users.find((u) => u.username === normalized) || null;
 }
 
-export function findUserByEmail(email) {
+export async function findUserByEmail(email) {
   const normalized = email.trim().toLowerCase();
-  return loadUsers().find((u) => u.email === normalized) || null;
+  const users = await loadUsers();
+  return users.find((u) => u.email === normalized) || null;
 }
 
-export function findUserById(userId) {
-  return loadUsers().find((u) => u.id === userId) || null;
+export async function findUserById(userId) {
+  return getDoc('users', userId);
 }
 
-export function findUserByOAuth(provider, providerId) {
-  return loadUsers().find((u) => u.oauthProvider === provider && u.oauthId === providerId) || null;
+export async function findUserByOAuth(provider, providerId) {
+  const users = await loadUsers();
+  return users.find((u) => u.oauthProvider === provider && u.oauthId === providerId) || null;
 }
 
-export function listUsers() {
+export async function listUsers() {
   return loadUsers();
 }
 
@@ -113,17 +112,16 @@ function isStrongPassword(password) {
   );
 }
 
-export function startSignup({ email, password }) {
+export async function startSignup({ email, password }) {
   const normalizedEmail = email.trim().toLowerCase();
-  if (findUserByEmail(normalizedEmail)) {
+  if (await findUserByEmail(normalizedEmail)) {
     throw new Error('An account with that email already exists.');
   }
   if (!isStrongPassword(password)) {
     throw new Error(PASSWORD_ERROR);
   }
-  const pending = loadPendingSignups();
   const code = generateCode();
-  pending[normalizedEmail] = {
+  await savePendingSignup(normalizedEmail, {
     email: normalizedEmail,
     passwordHash: hashPassword(password),
     code,
@@ -131,15 +129,13 @@ export function startSignup({ email, password }) {
     verifiedToken: null,
     createdAt: Date.now(),
     expiresAt: Date.now() + CODE_EXPIRY_MS,
-  };
-  savePendingSignups(pending);
+  });
   return code; // caller emails this — never logged or returned to the client directly
 }
 
-export function verifySignupCode({ email, code }) {
+export async function verifySignupCode({ email, code }) {
   const normalizedEmail = email.trim().toLowerCase();
-  const pending = loadPendingSignups();
-  const record = pending[normalizedEmail];
+  const record = await getPendingSignup(normalizedEmail);
   if (!record) throw new Error('No signup in progress for that email — start over.');
   if (Date.now() > record.expiresAt) throw new Error('That code expired — request a new one.');
   if (record.code !== String(code).trim()) throw new Error('Wrong code.');
@@ -147,14 +143,13 @@ export function verifySignupCode({ email, code }) {
   record.verified = true;
   record.verifiedToken = randomBytes(24).toString('hex');
   record.verifiedTokenExpiresAt = Date.now() + VERIFIED_TOKEN_EXPIRY_MS;
-  savePendingSignups(pending);
+  await savePendingSignup(normalizedEmail, record);
   return record.verifiedToken;
 }
 
-export function finishSignup({ email, verifiedToken, username, displayName, aiName }) {
+export async function finishSignup({ email, verifiedToken, username, displayName, aiName }) {
   const normalizedEmail = email.trim().toLowerCase();
-  const pending = loadPendingSignups();
-  const record = pending[normalizedEmail];
+  const record = await getPendingSignup(normalizedEmail);
   if (!record || !record.verified || record.verifiedToken !== verifiedToken) {
     throw new Error('Email verification expired or invalid — start over.');
   }
@@ -163,11 +158,10 @@ export function finishSignup({ email, verifiedToken, username, displayName, aiNa
   }
 
   const normalizedUsername = username.trim().toLowerCase();
-  if (findUserByUsername(normalizedUsername)) {
+  if (await findUserByUsername(normalizedUsername)) {
     throw new Error('That username is already taken.');
   }
 
-  const users = loadUsers();
   const user = {
     id: randomUUID(),
     username: normalizedUsername,
@@ -177,11 +171,8 @@ export function finishSignup({ email, verifiedToken, username, displayName, aiNa
     aiName: aiName.trim(),
     createdAt: new Date().toISOString(),
   };
-  users.push(user);
-  saveUsers(users);
-
-  delete pending[normalizedEmail];
-  savePendingSignups(pending);
+  await saveUser(user);
+  await deletePendingSignup(normalizedEmail);
 
   return user;
 }
@@ -194,46 +185,40 @@ export function finishSignup({ email, verifiedToken, username, displayName, aiNa
 // since the provider already proved who they are.
 const OAUTH_PENDING_EXPIRY_MS = 15 * 60 * 1000;
 
-export function startOAuthSignup({ provider, providerId, email }) {
-  const existingByOAuth = findUserByOAuth(provider, providerId);
+export async function startOAuthSignup({ provider, providerId, email }) {
+  const existingByOAuth = await findUserByOAuth(provider, providerId);
   if (existingByOAuth) return { linked: true, user: existingByOAuth };
 
   const normalizedEmail = email?.trim().toLowerCase();
-  const existingByEmail = normalizedEmail ? findUserByEmail(normalizedEmail) : null;
+  const existingByEmail = normalizedEmail ? await findUserByEmail(normalizedEmail) : null;
   if (existingByEmail) {
-    const users = loadUsers();
-    const user = users.find((u) => u.id === existingByEmail.id);
-    user.oauthProvider = provider;
-    user.oauthId = providerId;
-    saveUsers(users);
-    return { linked: true, user };
+    existingByEmail.oauthProvider = provider;
+    existingByEmail.oauthId = providerId;
+    await saveUser(existingByEmail);
+    return { linked: true, user: existingByEmail };
   }
 
   const pendingToken = randomBytes(24).toString('hex');
-  const pending = loadPendingOAuth();
-  pending[pendingToken] = {
+  await savePendingOAuthRecord(pendingToken, {
     provider,
     providerId,
     email: normalizedEmail || null,
     createdAt: Date.now(),
     expiresAt: Date.now() + OAUTH_PENDING_EXPIRY_MS,
-  };
-  savePendingOAuth(pending);
+  });
   return { linked: false, pendingToken };
 }
 
-export function finishOAuthSignup({ pendingToken, username, displayName, aiName }) {
-  const pending = loadPendingOAuth();
-  const record = pending[pendingToken];
+export async function finishOAuthSignup({ pendingToken, username, displayName, aiName }) {
+  const record = await getPendingOAuth(pendingToken);
   if (!record) throw new Error('That sign-in expired — start over.');
   if (Date.now() > record.expiresAt) throw new Error('That sign-in expired — start over.');
 
   const normalizedUsername = username.trim().toLowerCase();
-  if (findUserByUsername(normalizedUsername)) {
+  if (await findUserByUsername(normalizedUsername)) {
     throw new Error('That username is already taken.');
   }
 
-  const users = loadUsers();
   const user = {
     id: randomUUID(),
     username: normalizedUsername,
@@ -245,32 +230,24 @@ export function finishOAuthSignup({ pendingToken, username, displayName, aiName 
     aiName: aiName.trim(),
     createdAt: new Date().toISOString(),
   };
-  users.push(user);
-  saveUsers(users);
-
-  delete pending[pendingToken];
-  savePendingOAuth(pending);
+  await saveUser(user);
+  await deletePendingOAuthRecord(pendingToken);
 
   return user;
 }
 
-export function createSession(userId) {
+export async function createSession(userId) {
   const token = randomBytes(32).toString('hex');
-  const sessions = loadSessions();
-  sessions[token] = { userId, createdAt: new Date().toISOString() };
-  saveSessions(sessions);
+  await saveSessionRecord(token, { userId, createdAt: new Date().toISOString() });
   return token;
 }
 
-export function getSession(token) {
+export async function getSession(token) {
   if (!token) return null;
-  const sessions = loadSessions();
-  return sessions[token] || null;
+  return getSessionRecord(token);
 }
 
-export function destroySession(token) {
+export async function destroySession(token) {
   if (!token) return;
-  const sessions = loadSessions();
-  delete sessions[token];
-  saveSessions(sessions);
+  await deleteSessionRecord(token);
 }

@@ -1,8 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { randomBytes, randomUUID } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { getDoc, setDoc } from './db.js';
 import * as pendingNotes from './pending-notes.js';
 
 // Lets a user's own agent reach a small, read-only, explicitly-scoped folder
@@ -12,23 +10,13 @@ import * as pendingNotes from './pending-notes.js';
 // that's enforced on the companion side (see resolveScoped there), since
 // the companion is the thing that actually touches the filesystem.
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const COMPANIONS_DIR = join(__dirname, '..', 'memory', 'companions');
-
-function pathFor(userId) {
-  return join(COMPANIONS_DIR, `${userId}.json`);
+async function loadRecord(userId) {
+  const record = await getDoc('companions', userId);
+  return record && !record.unpaired ? record : null;
 }
 
-function loadRecord(userId) {
-  const path = pathFor(userId);
-  if (!existsSync(path)) return null;
-  const record = JSON.parse(readFileSync(path, 'utf-8'));
-  return record.unpaired ? null : record;
-}
-
-function saveRecord(userId, record) {
-  if (!existsSync(COMPANIONS_DIR)) mkdirSync(COMPANIONS_DIR, { recursive: true });
-  writeFileSync(pathFor(userId), JSON.stringify(record, null, 2));
+async function saveRecord(userId, record) {
+  await setDoc('companions', userId, record);
 }
 
 // Pairing codes and live sockets are in-memory only — a server restart just
@@ -48,20 +36,20 @@ export function generatePairingCode(userId) {
   return code;
 }
 
-export function isPaired(userId) {
-  return !!loadRecord(userId);
+export async function isPaired(userId) {
+  return !!(await loadRecord(userId));
 }
 
-export function companionStatus(userId) {
-  const record = loadRecord(userId);
+export async function companionStatus(userId) {
+  const record = await loadRecord(userId);
   if (!record) return { paired: false };
   return { paired: true, pairedAt: record.pairedAt, hostname: record.hostname, online: liveConnections.has(userId), lastSeen: record.lastSeen };
 }
 
-export function unpair(userId) {
+export async function unpair(userId) {
   liveConnections.get(userId)?.close();
   liveConnections.delete(userId);
-  if (existsSync(pathFor(userId))) saveRecord(userId, { unpaired: true });
+  await saveRecord(userId, { unpaired: true });
 }
 
 export function attach(server) {
@@ -75,7 +63,7 @@ export function attach(server) {
   wss.on('connection', (ws) => {
     let userId = null;
 
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
 
@@ -88,8 +76,8 @@ export function attach(server) {
         pairingCodes.delete(msg.code);
         userId = entry.userId;
         liveConnections.set(userId, ws);
-        const existing = loadRecord(userId);
-        saveRecord(userId, {
+        const existing = await loadRecord(userId);
+        await saveRecord(userId, {
           pairedAt: existing?.pairedAt || new Date().toISOString(),
           lastSeen: new Date().toISOString(),
           hostname: msg.hostname || 'unknown computer',
@@ -99,13 +87,14 @@ export function attach(server) {
       }
 
       if (msg.type === 'reconnect') {
-        if (!isPaired(msg.userId)) {
+        if (!(await isPaired(msg.userId))) {
           ws.send(JSON.stringify({ type: 'reconnect_result', ok: false }));
           return ws.close();
         }
         userId = msg.userId;
         liveConnections.set(userId, ws);
-        saveRecord(userId, { ...loadRecord(userId), lastSeen: new Date().toISOString() });
+        const existing = await loadRecord(userId);
+        await saveRecord(userId, { ...existing, lastSeen: new Date().toISOString() });
         ws.send(JSON.stringify({ type: 'reconnect_result', ok: true }));
         return;
       }
@@ -114,7 +103,7 @@ export function attach(server) {
       // tells us when something changes — this only ever queues a note the
       // user sees inside a session they opened, never a push notification.
       if (msg.type === 'event' && msg.name === 'file_changed' && userId) {
-        pendingNotes.addNote(userId, 'companion', `I noticed "${msg.data.filename}" changed in your Neurovance folder.`);
+        await pendingNotes.addNote(userId, 'companion', `I noticed "${msg.data.filename}" changed in your Neurovance folder.`);
         return;
       }
 

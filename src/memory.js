@@ -1,48 +1,29 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { getAllDocs, setDoc } from './db.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const USERS_DIR = join(__dirname, '..', 'memory', 'users');
-
-function storePathFor(userId) {
-  return join(USERS_DIR, userId, 'memories.json');
+function memoriesPath(userId) {
+  return `users/${userId}/memories`;
 }
 
-function ensureUserStore(userId) {
-  const dir = join(USERS_DIR, userId);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const path = storePathFor(userId);
-  if (!existsSync(path)) writeFileSync(path, '[]');
+async function loadAll(userId) {
+  return getAllDocs(memoriesPath(userId));
 }
 
-function load(userId) {
-  ensureUserStore(userId);
-  return JSON.parse(readFileSync(storePathFor(userId), 'utf-8'));
-}
-
-function save(userId, memories) {
-  ensureUserStore(userId);
-  writeFileSync(storePathFor(userId), JSON.stringify(memories, null, 2));
-}
-
-export function remember(userId, content, tags = [], importance = 1) {
-  const memories = load(userId);
+export async function remember(userId, content, tags = [], importance = 1) {
+  const memories = await loadAll(userId);
   const entry = {
-    id: memories.length ? memories[memories.length - 1].id + 1 : 1,
+    id: memories.length ? Math.max(...memories.map((m) => m.id)) + 1 : 1,
     timestamp: new Date().toISOString(),
     content,
     tags,
     importance,
   };
-  memories.push(entry);
-  save(userId, memories);
+  await setDoc(memoriesPath(userId), String(entry.id), entry);
   return entry;
 }
 
 // Keyword-overlap scoring, no embeddings — keeps recall free of API calls.
-export function recall(userId, query, limit = 5) {
-  const memories = load(userId);
+export async function recall(userId, query, limit = 5) {
+  const memories = await loadAll(userId);
   const queryWords = query.toLowerCase().split(/\W+/).filter(Boolean);
 
   const scored = memories.map((m) => {
@@ -57,39 +38,40 @@ export function recall(userId, query, limit = 5) {
     .slice(0, limit);
 }
 
-export function recentMemories(userId, limit = 5) {
-  const memories = load(userId);
-  return memories.slice(-limit).reverse();
+export async function recentMemories(userId, limit = 5) {
+  const memories = await loadAll(userId);
+  return memories.sort((a, b) => a.id - b.id).slice(-limit).reverse();
 }
 
 // Core identity facts that should ground every conversation regardless of
 // whether the user's wording happens to overlap with them — keyword recall
 // alone misses paraphrased or indirect questions constantly.
-export function coreMemories(userId, limit = 8) {
-  const memories = load(userId);
+export async function coreMemories(userId, limit = 8) {
+  const memories = await loadAll(userId);
   return memories
     .filter((m) => m.importance >= 4)
     .sort((a, b) => b.importance - a.importance || b.id - a.id)
     .slice(0, limit);
 }
 
-export function allMemories(userId) {
-  return load(userId);
+export async function allMemories(userId) {
+  const memories = await loadAll(userId);
+  return memories.sort((a, b) => a.id - b.id);
 }
 
-export function findMemory(userId, id) {
-  return load(userId).find((m) => m.id === id) || null;
+export async function findMemory(userId, id) {
+  const memories = await loadAll(userId);
+  return memories.find((m) => m.id === id) || null;
 }
 
 // Overwrites a memory's content in place (e.g. the user correcting something
 // it got wrong) rather than appending a new one, so the graph doesn't end up
 // with both the wrong fact and its correction sitting side by side forever.
-export function updateMemory(userId, id, content) {
-  const memories = load(userId);
-  const entry = memories.find((m) => m.id === id);
+export async function updateMemory(userId, id, content) {
+  const entry = await findMemory(userId, id);
   if (!entry) throw new Error(`No memory #${id} to update.`);
   entry.content = content;
   entry.correctedAt = new Date().toISOString();
-  save(userId, memories);
+  await setDoc(memoriesPath(userId), String(id), entry);
   return entry;
 }

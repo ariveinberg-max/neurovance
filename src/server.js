@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { createServer } from 'http';
-import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, extname } from 'path';
 import { randomBytes } from 'crypto';
@@ -11,12 +11,11 @@ import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
 import * as companion from './companion.js';
 import * as connections from './connections.js';
+import { getAllDocs, setDoc } from './db.js';
 import { sendVerificationCode, sendWaitlistNotification, sendBroadcast } from './mailer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
-const MEMORY_DIR = join(__dirname, '..', 'memory');
-const WAITLIST_PATH = join(MEMORY_DIR, 'waitlist.json');
 const PORT = process.env.PORT || 4173;
 const SESSION_COOKIE = 'ari_session';
 // The marketing site (neurovance.dev) is a separate static origin from this
@@ -24,14 +23,12 @@ const SESSION_COOKIE = 'ari_session';
 // this is the one endpoint that needs an explicit CORS allowance.
 const WAITLIST_CORS_ORIGIN = 'https://neurovance.dev';
 
-function loadWaitlist() {
-  if (!existsSync(WAITLIST_PATH)) return [];
-  return JSON.parse(readFileSync(WAITLIST_PATH, 'utf-8'));
+async function loadWaitlist() {
+  return getAllDocs('waitlist');
 }
 
-function saveWaitlist(list) {
-  if (!existsSync(MEMORY_DIR)) mkdirSync(MEMORY_DIR, { recursive: true });
-  writeFileSync(WAITLIST_PATH, JSON.stringify(list, null, 2));
+async function addToWaitlist(email) {
+  await setDoc('waitlist', email, { email, joinedAt: new Date().toISOString() });
 }
 
 // Mission-control palette: mostly grey/silver so the graph reads as one
@@ -42,8 +39,8 @@ function colorForMemory(importance) {
   return '#6b6c74';
 }
 
-function buildGraph(userId) {
-  const memories = allMemories(userId);
+async function buildGraph(userId) {
+  const memories = await allMemories(userId);
 
   const nodes = memories.map((m) => ({
     id: m.id,
@@ -88,12 +85,12 @@ function parseCookies(header) {
 }
 
 // Returns { user, session } for any valid session.
-function getSessionAndUser(req) {
+async function getSessionAndUser(req) {
   const cookies = parseCookies(req.headers.cookie || '');
   const token = cookies[SESSION_COOKIE];
-  const session = auth.getSession(token);
+  const session = await auth.getSession(token);
   if (!session) return { session: null, user: null, token: null };
-  return { session, user: auth.findUserById(session.userId), token };
+  return { session, user: await auth.findUserById(session.userId), token };
 }
 
 function setSessionCookie(res, token, remember = true) {
@@ -133,9 +130,9 @@ function startOAuthRedirect(res, provider, authUrl, params) {
   res.end();
 }
 
-function finishOAuthLogin(res, result) {
+async function finishOAuthLogin(res, result) {
   if (result.linked) {
-    const token = auth.createSession(result.user.id);
+    const token = await auth.createSession(result.user.id);
     setSessionCookie(res, token);
     res.writeHead(302, { Location: '/' });
   } else {
@@ -208,8 +205,8 @@ async function handleOAuthCallback(req, res, provider) {
       throw new Error('Unknown provider.');
     }
 
-    const result = auth.startOAuthSignup({ provider, providerId: profile.providerId, email: profile.email });
-    finishOAuthLogin(res, result);
+    const result = await auth.startOAuthSignup({ provider, providerId: profile.providerId, email: profile.email });
+    await finishOAuthLogin(res, result);
   } catch (e) {
     console.error(`${provider} OAuth error:`, e);
     res.writeHead(302, { Location: '/?error=oauth_failed' });
@@ -238,10 +235,9 @@ const server = createServer(async (req, res) => {
       if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
         return sendJson(res, 400, { error: 'Enter a valid email.' });
       }
-      const list = loadWaitlist();
+      const list = await loadWaitlist();
       if (!list.find((w) => w.email === normalized)) {
-        list.push({ email: normalized, joinedAt: new Date().toISOString() });
-        saveWaitlist(list);
+        await addToWaitlist(normalized);
         sendWaitlistNotification(normalized).catch((e) => console.error('Waitlist notify failed:', e));
       }
       sendJson(res, 200, { ok: true });
@@ -271,7 +267,7 @@ const server = createServer(async (req, res) => {
     if (!process.env.ADMIN_KEY || req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
       return sendJson(res, 401, { error: 'Unauthorized.' });
     }
-    return sendJson(res, 200, { waitlist: loadWaitlist() });
+    return sendJson(res, 200, { waitlist: await loadWaitlist() });
   }
 
   if (req.url === '/api/admin/waitlist/broadcast' && req.method === 'POST') {
@@ -284,7 +280,7 @@ const server = createServer(async (req, res) => {
       if (!subject?.trim() || !bodyHtml?.trim()) {
         return sendJson(res, 400, { error: 'Subject and body are required.' });
       }
-      const list = loadWaitlist();
+      const list = await loadWaitlist();
       // Fire the response immediately and send in the background — a few
       // hundred emails at one-per-second would otherwise hold the request
       // open for minutes. Sending one at a time (never a shared To/Cc) keeps
@@ -317,7 +313,7 @@ const server = createServer(async (req, res) => {
       if (!email?.trim() || !password) {
         return sendJson(res, 400, { error: 'Email and password are required.' });
       }
-      const code = auth.startSignup({ email, password });
+      const code = await auth.startSignup({ email, password });
       await sendVerificationCode(email.trim(), code);
       sendJson(res, 200, { ok: true });
     } catch (e) {
@@ -332,7 +328,7 @@ const server = createServer(async (req, res) => {
       if (!email?.trim() || !code) {
         return sendJson(res, 400, { error: 'Email and code are required.' });
       }
-      const verifiedToken = auth.verifySignupCode({ email, code });
+      const verifiedToken = await auth.verifySignupCode({ email, code });
       sendJson(res, 200, { ok: true, verifiedToken });
     } catch (e) {
       sendJson(res, 400, { error: e.message });
@@ -346,8 +342,8 @@ const server = createServer(async (req, res) => {
       if (!email?.trim() || !verifiedToken || !username?.trim() || !displayName?.trim() || !aiName?.trim()) {
         return sendJson(res, 400, { error: 'Username, your name, and an AI name are all required.' });
       }
-      const user = auth.finishSignup({ email, verifiedToken, username, displayName, aiName });
-      const token = auth.createSession(user.id);
+      const user = await auth.finishSignup({ email, verifiedToken, username, displayName, aiName });
+      const token = await auth.createSession(user.id);
       setSessionCookie(res, token);
       sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
     } catch (e) {
@@ -361,11 +357,11 @@ const server = createServer(async (req, res) => {
   if (req.url === '/api/login' && req.method === 'POST') {
     try {
       const { username, password, remember } = await readJsonBody(req);
-      const user = username && auth.findUserByUsername(username);
+      const user = username && await auth.findUserByUsername(username);
       if (!user || !user.passwordHash || !auth.verifyPassword(password || '', user.passwordHash)) {
         return sendJson(res, 401, { error: user && !user.passwordHash ? `This account signed up with ${user.oauthProvider} — use that to sign in.` : 'Wrong username or password.' });
       }
-      const token = auth.createSession(user.id);
+      const token = await auth.createSession(user.id);
       setSessionCookie(res, token, remember !== false);
       sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
     } catch (e) {
@@ -408,8 +404,8 @@ const server = createServer(async (req, res) => {
       if (!pendingToken || !username?.trim() || !displayName?.trim() || !aiName?.trim()) {
         return sendJson(res, 400, { error: 'Username, your name, and an AI name are all required.' });
       }
-      const user = auth.finishOAuthSignup({ pendingToken, username, displayName, aiName });
-      const token = auth.createSession(user.id);
+      const user = await auth.finishOAuthSignup({ pendingToken, username, displayName, aiName });
+      const token = await auth.createSession(user.id);
       setSessionCookie(res, token);
       sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
     } catch (e) {
@@ -420,14 +416,14 @@ const server = createServer(async (req, res) => {
 
   if (req.url === '/api/logout' && req.method === 'POST') {
     const cookies = parseCookies(req.headers.cookie || '');
-    auth.destroySession(cookies[SESSION_COOKIE]);
+    await auth.destroySession(cookies[SESSION_COOKIE]);
     clearSessionCookie(res);
     sendJson(res, 200, { ok: true });
     return;
   }
 
   if (req.url === '/api/me') {
-    const { user } = getSessionAndUser(req);
+    const { user } = await getSessionAndUser(req);
     if (!user) return sendJson(res, 401, { ok: false });
     sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName, username: user.username });
     return;
@@ -435,11 +431,11 @@ const server = createServer(async (req, res) => {
 
   // Everything below requires a valid session.
   if (req.url.startsWith('/api/')) {
-    const { user } = getSessionAndUser(req);
+    const { user } = await getSessionAndUser(req);
     if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
 
     if (req.url === '/api/graph') {
-      return sendJson(res, 200, buildGraph(user.id));
+      return sendJson(res, 200, await buildGraph(user.id));
     }
 
     // ---------- Companion — lets this user's agent read from one folder on
@@ -451,11 +447,11 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.url === '/api/companion/status') {
-      return sendJson(res, 200, companion.companionStatus(user.id));
+      return sendJson(res, 200, await companion.companionStatus(user.id));
     }
 
     if (req.url === '/api/companion/unpair' && req.method === 'POST') {
-      companion.unpair(user.id);
+      await companion.unpair(user.id);
       return sendJson(res, 200, { ok: true });
     }
 
@@ -485,14 +481,14 @@ const server = createServer(async (req, res) => {
     // (dreaming, curiosity, Companion file changes) and wants to surface. ----------
 
     if (req.url === '/api/pending-notes') {
-      return sendJson(res, 200, { notes: pendingNotes.unseenNotes(user.id) });
+      return sendJson(res, 200, { notes: await pendingNotes.unseenNotes(user.id) });
     }
 
     if (req.url === '/api/pending-notes/dismiss' && req.method === 'POST') {
       try {
         const { id } = await readJsonBody(req);
         if (!Number.isInteger(id)) return sendJson(res, 400, { error: 'id is required.' });
-        pendingNotes.markSeen(user.id, id);
+        await pendingNotes.markSeen(user.id, id);
         return sendJson(res, 200, { ok: true });
       } catch (e) {
         return sendJson(res, 400, { error: 'Something went wrong.' });
@@ -506,14 +502,14 @@ const server = createServer(async (req, res) => {
     // list, never the other person's memories in any form. ----------
 
     if (req.url === '/api/connections' && req.method === 'GET') {
-      return sendJson(res, 200, { connections: connections.listConnectionsFor(user.id) });
+      return sendJson(res, 200, { connections: await connections.listConnectionsFor(user.id) });
     }
 
     if (req.url === '/api/connections/request' && req.method === 'POST') {
       try {
         const { username } = await readJsonBody(req);
         if (!username?.trim()) return sendJson(res, 400, { error: 'A username is required.' });
-        const entry = connections.requestConnection(user.id, username.trim());
+        const entry = await connections.requestConnection(user.id, username.trim());
         return sendJson(res, 200, { ok: true, id: entry.id });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
@@ -524,7 +520,7 @@ const server = createServer(async (req, res) => {
       try {
         const { id, accept } = await readJsonBody(req);
         if (!id || typeof accept !== 'boolean') return sendJson(res, 400, { error: 'id and accept are required.' });
-        connections.respondToConnection(user.id, id, accept);
+        await connections.respondToConnection(user.id, id, accept);
         return sendJson(res, 200, { ok: true });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
@@ -535,7 +531,7 @@ const server = createServer(async (req, res) => {
       try {
         const { id } = await readJsonBody(req);
         if (!id) return sendJson(res, 400, { error: 'id is required.' });
-        const overlap = connections.getOverlap(user.id, id);
+        const overlap = await connections.getOverlap(user.id, id);
         return sendJson(res, 200, overlap);
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
@@ -574,7 +570,7 @@ const server = createServer(async (req, res) => {
         if (typeof content !== 'string' || !content.trim()) {
           return sendJson(res, 400, { error: 'content must be a non-empty string' });
         }
-        const entry = remember(
+        const entry = await remember(
           user.id,
           content.trim(),
           Array.isArray(tags) && tags.length ? tags : ['personal'],
