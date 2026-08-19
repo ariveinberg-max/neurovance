@@ -165,6 +165,8 @@
     font-size: 9px; letter-spacing: 0.5px; color: #9a9aa2; background: rgba(255,255,255,0.06);
     border-radius: 3px; padding: 3px 7px;
   }
+  .sm-tag-clickable { cursor: pointer; transition: color 0.15s ease, background 0.15s ease; }
+  .sm-tag-clickable:hover { color: #eceef0; background: rgba(255,255,255,0.12); }
   #selected-memory-date {
     font-size: 10px; color: #63636a; margin-top: 8px;
   }
@@ -1171,13 +1173,22 @@ function ensureOwnMaterial(n) {
 // box and the neuron-firing loop call this instead of each hardcoding their
 // own version, so they can't fight over the same node's color anymore.
 let activeSearchQuery = '';
+
+// Multi-word AND matching, each word matched independently against name or
+// tags — "job stress" now finds a memory tagged ["career","stress"] even
+// though those words never appear adjacent, the way a real search should
+// work instead of one long literal substring.
+function matchesSearch(n) {
+  if (!activeSearchQuery) return true;
+  const words = activeSearchQuery.split(/\s+/).filter(Boolean);
+  const haystack = (n.name + ' ' + (n.tags || []).join(' ')).toLowerCase();
+  return words.every((w) => haystack.includes(w));
+}
+
 function baseColorFor(n) {
   if (n.id === selectedId) return new THREE.Color('#ffffff');
-  if (activeSearchQuery) {
-    const haystack = (n.name + ' ' + (n.tags || []).join(' ')).toLowerCase();
-    if (!haystack.includes(activeSearchQuery)) {
-      return new THREE.Color(n.color).lerp(new THREE.Color('#000000'), 0.92);
-    }
+  if (!matchesSearch(n)) {
+    return new THREE.Color(n.color).lerp(new THREE.Color('#000000'), 0.92);
   }
   return new THREE.Color(n.color);
 }
@@ -1188,9 +1199,7 @@ function initNeuronFiring() {
   // Ambient firing shouldn't pick a node a search has dimmed out — flashing
   // it toward white mid-search reads as "search is broken."
   function isSearchedOut(n) {
-    if (!activeSearchQuery) return false;
-    const haystack = (n.name + ' ' + (n.tags || []).join(' ')).toLowerCase();
-    return !haystack.includes(activeSearchQuery);
+    return !matchesSearch(n);
   }
 
   function fireRandom() {
@@ -1356,8 +1365,13 @@ function showSelectedMemory(n) {
   metaEl.innerHTML = '';
   (n.tags || []).forEach((tag) => {
     const span = document.createElement('span');
-    span.className = 'sm-tag';
+    span.className = 'sm-tag sm-tag-clickable';
     span.textContent = tag;
+    span.title = `Filter the graph to "${tag}"`;
+    span.addEventListener('click', (e) => {
+      e.stopPropagation(); // don't let the click also deselect via the sphere's background click handler
+      runSearch(tag);
+    });
     metaEl.appendChild(span);
   });
 
@@ -1777,25 +1791,28 @@ function initCompanion() {
 // Dims non-matching nodes toward near-black via their actual material color
 // (not opacity — 3d-force-graph silently resets opacity back to its constant
 // accessor value on its own render ticks, so opacity edits never stuck).
-function initMemorySearch() {
+function runSearch(query) {
   const input = document.getElementById('memory-search');
   const countEl = document.getElementById('search-count');
+  input.value = query;
+  activeSearchQuery = query.trim().toLowerCase();
 
-  input.addEventListener('input', () => {
-    activeSearchQuery = input.value.trim().toLowerCase();
+  if (!activeSearchQuery) {
+    countEl.textContent = '';
+  } else {
+    const matches = allNodes.filter(matchesSearch).length;
+    countEl.textContent = `${matches} match${matches === 1 ? '' : 'es'}`;
+  }
 
-    if (!activeSearchQuery) {
-      countEl.textContent = '';
-    } else {
-      const matches = allNodes.filter((n) => (n.name + ' ' + (n.tags || []).join(' ')).toLowerCase().includes(activeSearchQuery)).length;
-      countEl.textContent = `${matches} match${matches === 1 ? '' : 'es'}`;
-    }
-
-    allNodes.forEach((n) => {
-      const obj = ensureOwnMaterial(n);
-      if (obj) obj.material.color.copy(baseColorFor(n));
-    });
+  allNodes.forEach((n) => {
+    const obj = ensureOwnMaterial(n);
+    if (obj) obj.material.color.copy(baseColorFor(n));
   });
+}
+
+function initMemorySearch() {
+  const input = document.getElementById('memory-search');
+  input.addEventListener('input', () => runSearch(input.value));
 }
 
 function renderSidebarStats() {
