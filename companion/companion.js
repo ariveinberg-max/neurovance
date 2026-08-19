@@ -2,8 +2,9 @@
 // Neurovance Companion — runs on your own computer, not in the cloud.
 //
 // What it can do: read files inside one folder (~/Documents/Neurovance),
-// open https:// links in Safari, and read the text of whatever's already
-// showing in Safari's front tab — only when your own paired Superself asks.
+// open https:// links in Safari, read the text of whatever's already
+// showing in Safari's front tab, and read your saved Safari bookmarks —
+// only when your own paired Superself asks.
 // What it can't do: touch anything outside that folder, write or delete
 // anything, run arbitrary commands, log into anything, or fill in a form —
 // reading a page only ever sees what you already loaded yourself. That
@@ -114,6 +115,41 @@ function handleCommand(action, params) {
         const [url, title, ...rest] = stdout.trim().split('|||NEUROVANCE|||');
         const text = rest.join('|||NEUROVANCE|||'); // in case the delimiter-lookalike ever appears in real page text
         res({ url, title, text: text.slice(0, 8000) });
+      });
+    });
+  }
+
+  // Reads Safari's own saved bookmarks (read-only) so it can actually go
+  // find a link the user already saved, instead of asking them to type a
+  // URL it could have looked up itself. Recursively walks the bookmark
+  // folder tree Safari stores on disk.
+  if (action === 'read_safari_bookmarks') {
+    const plistPath = join(homedir(), 'Library', 'Safari', 'Bookmarks.plist');
+    return new Promise((res, rej) => {
+      execFile('plutil', ['-convert', 'json', '-o', '-', plistPath], { maxBuffer: 20 * 1024 * 1024 }, (err, stdout) => {
+        if (err) {
+          if (/permission|Operation not permitted|couldn't be read|No such file/i.test(err.message)) {
+            rej(new Error('Terminal needs Full Disk Access to read Safari bookmarks: System Settings > Privacy & Security > Full Disk Access > add your terminal app, then restart the Companion.'));
+          } else {
+            rej(new Error('Could not read Safari bookmarks: ' + err.message));
+          }
+          return;
+        }
+        try {
+          const root = JSON.parse(stdout);
+          const bookmarks = [];
+          const walk = (node) => {
+            if (!node) return;
+            if (node.WebBookmarkType === 'WebBookmarkTypeLeaf' && node.URLString) {
+              bookmarks.push({ title: node.URIDictionary?.title || node.URLString, url: node.URLString });
+            }
+            (node.Children || []).forEach(walk);
+          };
+          walk(root);
+          res(bookmarks.slice(0, 300));
+        } catch (e) {
+          rej(new Error('Could not parse Safari bookmarks: ' + e.message));
+        }
       });
     });
   }

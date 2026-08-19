@@ -98,10 +98,22 @@ const COMPANION_READ_BROWSER_TOOL = {
   input_schema: { type: 'object', properties: {} },
 };
 
+const COMPANION_READ_BOOKMARKS_TOOL = {
+  name: 'read_safari_bookmarks',
+  description:
+    'Read the user\'s saved Safari bookmarks (title + URL), via their paired Companion app. Use this to actually go find a link the user has already saved — e.g. a school portal, a work tool — BEFORE asking them to type a URL by hand. Read-only, cannot add or remove bookmarks.',
+  input_schema: { type: 'object', properties: {} },
+};
+
+const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL];
+// Derived from the tool list itself, not hand-maintained separately — a
+// tool added to ALL_COMPANION_TOOLS above without also being added to a
+// second hardcoded name list here is exactly how read_current_browser_page
+// silently never worked: offered to the model, but never actually dispatched.
+const COMPANION_TOOL_NAMES = ALL_COMPANION_TOOLS.map((t) => t.name);
+
 async function companionTools(userId) {
-  return (await companion.isPaired(userId))
-    ? [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL]
-    : [];
+  return (await companion.isPaired(userId)) ? ALL_COMPANION_TOOLS : [];
 }
 
 async function handleCompanionTool(userId, toolUse) {
@@ -111,6 +123,10 @@ async function handleCompanionTool(userId, toolUse) {
   }
   if (toolUse.name === 'read_local_file') {
     return await companion.sendCommand(userId, 'read_file', { path: toolUse.input.path });
+  }
+  if (toolUse.name === 'read_safari_bookmarks') {
+    const bookmarks = await companion.sendCommand(userId, 'read_safari_bookmarks', {});
+    return JSON.stringify(bookmarks);
   }
   if (toolUse.name === 'open_url_in_browser') {
     const result = await companion.sendCommand(userId, 'open_url', { url: toolUse.input.url });
@@ -179,12 +195,14 @@ async function buildTaskSystemPrompt(userId, user, task) {
     user?.advisorMode !== false
       ? 'Be direct and brief about what you actually did or found — state the result plainly, the way a competent person reporting back would, not a customer-service bot. No emoji. No "Let me know if there\'s anything else you need!" or "Hope this helps!" filler — end when you have said the actual result.'
       : 'Report back warmly but still plainly — say what you actually did or found, without padding it with generic assistant filler phrases or emoji.',
-    'If something is genuinely ambiguous, ask ONE specific clarifying question instead of guessing — but don\'t pad the question with apology or filler either.',
+    'Before asking the user to hand you something you could reasonably find yourself — a URL, a fact, a saved link — actually try your available tools first (search_web, read_safari_bookmarks, list_local_files). Only ask them once you have genuinely tried and it still is not resolvable. Asking first when you had a tool that could have answered it is the wrong order.',
+    'Use the full conversation above to resolve short or ambiguous follow-ups ("in google", "it\'s saved", "that one") instead of re-asking a question you already asked — piece together what they mean from everything said so far before requesting clarification again.',
+    'If something is still genuinely ambiguous after actually trying to resolve it yourself, ask ONE specific clarifying question — but don\'t pad it with apology or filler.',
     'Use the remember tool whenever you learn something worth keeping for next time.',
     'Use the search_web tool when a task needs a fact or topic you are not confident about.',
     'Do not remember trivial or one-off details — only durable facts, preferences, or lessons.',
     hasCompanion
-      ? 'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything. You can also open_url_in_browser to open a link in their real Safari, and read_current_browser_page to read whatever is already showing in their front Safari tab (only after they have loaded/logged into it themselves — you can never log in or fill in a form for them). Do not imply you can see or touch anything beyond that.'
+      ? 'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything. You can also open_url_in_browser to open a link in their real Safari, read_current_browser_page to read whatever is already showing in their front Safari tab (only after they have loaded/logged into it themselves — you can never log in or fill in a form for them), and read_safari_bookmarks to search their saved bookmarks for a link before asking them to type one. Do not imply you can see or touch anything beyond that.'
       : 'This user has not paired a Companion app, so you have no access to their computer, files, or browser — only memory and web search.',
     memoryLines ? `\nRelevant memories from before:\n${memoryLines}` : '\nNo relevant memories yet.',
   ].join('\n');
@@ -292,7 +310,7 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
           return { type: 'tool_result', tool_use_id: toolUse.id, content: `Search failed: ${e.message}`, is_error: true };
         }
       }
-      if (['list_local_files', 'read_local_file', 'open_url_in_browser'].includes(toolUse.name)) {
+      if (COMPANION_TOOL_NAMES.includes(toolUse.name)) {
         try {
           const result = await handleCompanionTool(userId, toolUse);
           return { type: 'tool_result', tool_use_id: toolUse.id, content: result };
