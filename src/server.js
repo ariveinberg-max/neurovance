@@ -74,6 +74,19 @@ function readJsonBody(req) {
   });
 }
 
+// The Talk drawer sends its own recent transcript as conversation history so
+// follow-ups ("im already logged in") actually connect to what was just
+// said — each call was otherwise completely memoryless. Bounded here
+// server-side too (not just client-side) so a crafted request can't blow up
+// the prompt: last 12 turns, 4000 chars each.
+function sanitizeHistory(history) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .slice(-12)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
+}
+
 function parseCookies(header) {
   const out = {};
   header.split(';').forEach((part) => {
@@ -614,11 +627,11 @@ const server = createServer(async (req, res) => {
     // awaits it rather than pretending it's instant.
     if (req.url === '/api/task' && req.method === 'POST') {
       try {
-        const { task } = await readJsonBody(req);
+        const { task, history } = await readJsonBody(req);
         if (typeof task !== 'string' || !task.trim()) {
           return sendJson(res, 400, { error: 'task must be a non-empty string' });
         }
-        const result = await runTask(user.id, user, task.trim());
+        const result = await runTask(user.id, user, task.trim(), sanitizeHistory(history));
         return sendJson(res, 200, { result });
       } catch (e) {
         console.error('Task error:', e);
@@ -628,11 +641,11 @@ const server = createServer(async (req, res) => {
 
     if (req.url === '/api/chat' && req.method === 'POST') {
       try {
-        const { message } = await readJsonBody(req);
+        const { message, history } = await readJsonBody(req);
         if (typeof message !== 'string' || !message.trim()) {
           return sendJson(res, 400, { error: 'message must be a non-empty string' });
         }
-        const reply = await chatReply(user.id, user, message.trim());
+        const reply = await chatReply(user.id, user, message.trim(), sanitizeHistory(history));
         return sendJson(res, 200, { reply });
       } catch (e) {
         console.error('Chat error:', e);

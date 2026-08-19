@@ -258,8 +258,8 @@ async function buildChatSystemPrompt(userId, user, message) {
   ].join('\n');
 }
 
-async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId) {
-  const messages = [{ role: 'user', content: initialMessage }];
+async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId, priorMessages = []) {
+  const messages = [...priorMessages, { role: 'user', content: initialMessage }];
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -307,13 +307,13 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
   }
 }
 
-export async function runTask(userId, user, task) {
+export async function runTask(userId, user, task, history = []) {
   const [extraTools, system] = await Promise.all([
     companionTools(userId),
     buildTaskSystemPrompt(userId, user, task),
   ]);
   const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools];
-  return runLoop(userId, system, task, tools, 1024, resolveModel(user?.model));
+  return runLoop(userId, system, task, tools, 1024, resolveModel(user?.model), history);
 }
 
 // Turns a raw dump of text (typed or pasted, however messy) into individual
@@ -469,7 +469,7 @@ export async function correctMemory(userId, memoryId, correctionText) {
 // Chat skips the web-search tool (rarely needed for casual conversation, and
 // every tool the model *could* call is a chance it adds an extra round-trip)
 // and caps replies short, since this is spoken aloud, not read.
-export async function chatReply(userId, user, message) {
+export async function chatReply(userId, user, message, history = []) {
   const system = await buildChatSystemPrompt(userId, user, message);
-  return runLoop(userId, system, message, [MEMORY_TOOL], 200, resolveModel(user?.model));
+  return runLoop(userId, system, message, [MEMORY_TOOL], 200, resolveModel(user?.model), history);
 }

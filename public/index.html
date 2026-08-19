@@ -1630,6 +1630,19 @@ function pushTranscript(role, text) {
   renderTranscript();
 }
 
+// The API call itself is stateless — this is what actually gives a
+// conversation continuity, so a follow-up like "im already logged in"
+// connects to what was just said instead of landing as a fresh blank
+// request every time. 'task-result' counts as the assistant's turn too;
+// 'status'/'error' entries are transient UI-only, never real turns.
+function buildHistory() {
+  const ROLE_MAP = { user: 'user', assistant: 'assistant', 'task-result': 'assistant' };
+  return talkTranscript
+    .filter((m) => ROLE_MAP[m.role])
+    .slice(-12)
+    .map((m) => ({ role: ROLE_MAP[m.role], content: m.text }));
+}
+
 // Text chat (same /api/chat as voice) and the autonomous task loop
 // (/api/task, previously only reachable from the daily background cron) —
 // both log into the one shared transcript above.
@@ -1686,6 +1699,7 @@ function initTalkDrawer() {
   async function send() {
     const text = input.value.trim();
     if (!text) return;
+    const history = buildHistory(); // must build BEFORE pushing this turn, or it'd duplicate
     input.value = '';
     input.disabled = true;
     sendBtn.disabled = true;
@@ -1697,7 +1711,7 @@ function initTalkDrawer() {
         const res = await fetch('/api/task', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task: text }),
+          body: JSON.stringify({ task: text, history }),
         });
         const data = await res.json();
         talkTranscript.pop(); // drop the "working on it" placeholder
@@ -1713,7 +1727,7 @@ function initTalkDrawer() {
         const res = await fetch('/api/chat', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text }),
+          body: JSON.stringify({ message: text, history }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
@@ -2224,13 +2238,14 @@ function initVoiceAssistant() {
 
   async function handleMessage(text) {
     setStatus('Thinking…', 'thinking');
+    const history = buildHistory(); // before pushing this turn, or it'd duplicate
     pushTranscript('user', text);
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, history }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
