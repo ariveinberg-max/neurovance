@@ -212,6 +212,63 @@
   }
   #pending-note-dismiss:hover { background: rgba(255,255,255,0.1); }
 
+  /* ---------- Talk drawer — text chat + task assignment, and a real
+     transcript for voice conversations too, which otherwise vanish the
+     moment they're spoken. ---------- */
+  #talk-toggle {
+    position: fixed; bottom: 24px; right: 24px; z-index: 40;
+    background: #0d0d0f; border: 1px solid rgba(255,255,255,0.14); color: #d6d6d9;
+    font-family: 'Inter', sans-serif; font-size: 12px; letter-spacing: 0.3px;
+    padding: 11px 18px; border-radius: 20px; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  #talk-toggle:hover { background: #141416; border-color: rgba(255,255,255,0.28); }
+  #talk-drawer {
+    position: fixed; bottom: 0; right: 0; z-index: 41;
+    width: 360px; max-width: 92vw; height: 480px; max-height: 78vh;
+    background: #0a0a0b; border: 1px solid rgba(255,255,255,0.12); border-bottom: none;
+    border-top-left-radius: 10px; display: flex; flex-direction: column;
+    transform: translateY(100%); transition: transform 0.3s ease;
+  }
+  #talk-drawer.open { transform: translateY(0); }
+  #talk-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
+  }
+  #talk-mode-tabs { display: flex; gap: 6px; }
+  .talk-mode {
+    background: none; border: none; color: #63636a; font-family: 'Inter', sans-serif;
+    font-size: 11px; letter-spacing: 0.3px; padding: 5px 10px; border-radius: 4px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease;
+  }
+  .talk-mode.active { color: #d6d6d9; background: rgba(255,255,255,0.07); }
+  #talk-close { color: #63636a; cursor: pointer; font-size: 13px; padding: 4px; transition: color 0.2s ease; }
+  #talk-close:hover { color: #d6d6d9; }
+  #talk-transcript { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .talk-msg { font-size: 12.5px; line-height: 1.55; max-width: 88%; }
+  .talk-msg .talk-role {
+    font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+    color: #63636a; margin-bottom: 3px; display: block;
+  }
+  .talk-user { align-self: flex-end; text-align: right; color: #d6d6d9; }
+  .talk-assistant { align-self: flex-start; color: #c8c9cf; }
+  .talk-task-result { align-self: stretch; color: #c8c9cf; background: rgba(255,255,255,0.04); border-radius: 6px; padding: 10px 12px; max-width: 100%; }
+  .talk-status { align-self: center; color: #63636a; font-size: 11px; font-style: italic; }
+  .talk-error { align-self: flex-start; color: #e8432c; }
+  #talk-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; }
+  #talk-input {
+    flex: 1; background: none; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px;
+    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12.5px; padding: 8px 10px;
+    outline: none; resize: none; max-height: 90px; transition: border-color 0.25s ease;
+  }
+  #talk-input::placeholder { color: #4a4a50; }
+  #talk-input:focus { border-color: rgba(210,230,255,0.5); }
+  #talk-send {
+    background: rgba(255,255,255,0.08); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    font-size: 11px; padding: 0 14px; border-radius: 6px; cursor: pointer; transition: background 0.2s ease;
+  }
+  #talk-send:hover { background: rgba(255,255,255,0.14); }
+  #talk-send:disabled { opacity: 0.5; cursor: default; }
+
   /* ---------- Companion — pairs a local app on the user's own computer ---------- */
   #companion-panel { margin-top: 24px; }
   #companion-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px; }
@@ -506,7 +563,7 @@
     <svg id="neural-link"></svg>
     <div id="graph-wrap">
       <div id="graph"></div>
-      <div id="empty" style="display:none">No memories yet. Run a task with <code>npm start</code> and the brain will start filling this in.</div>
+      <div id="empty" style="display:none">No memories yet. Tell it something, or open "Talk" in the corner and give it a task.</div>
     </div>
 
     <div id="body-wrap">
@@ -545,6 +602,22 @@
     </div>
   </div>
 </div>
+
+<button id="talk-toggle">Talk</button>
+<div id="talk-drawer">
+  <div id="talk-header">
+    <div id="talk-mode-tabs">
+      <button class="talk-mode active" data-mode="chat">Chat</button>
+      <button class="talk-mode" data-mode="task">Give it a task</button>
+    </div>
+    <div id="talk-close">✕</div>
+  </div>
+  <div id="talk-transcript"></div>
+  <div id="talk-input-row">
+    <textarea id="talk-input" rows="1" placeholder="Say something…"></textarea>
+    <button id="talk-send">Send</button>
+  </div>
+</div>
 </div>
 
 <script src="https://unpkg.com/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
@@ -575,6 +648,7 @@ function startApp() {
       initCompanion();
       initConnections();
       initPendingNotes();
+      initTalkDrawer();
       setInterval(renderSidebarStats, 5000); // live tick — vitals cool down in real time, no reload needed
 
       if (allNodes.length === 0) {
@@ -1502,6 +1576,114 @@ function initConnections() {
   refresh();
 }
 
+// Shared transcript — voice conversations and text chat both log here, so a
+// spoken exchange doesn't just vanish the moment it's said. Function
+// declarations (not const/arrow) so this is safely hoisted above
+// initVoiceAssistant's own use of it regardless of definition order.
+let talkTranscript = [];
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function renderTranscript() {
+  const el = document.getElementById('talk-transcript');
+  const ROLE_LABELS = { user: 'You', assistant: currentIdentity.aiName, 'task-result': 'Task result', status: '', error: 'Error' };
+  el.innerHTML = talkTranscript.map((m) => {
+    const label = ROLE_LABELS[m.role];
+    return `<div class="talk-msg talk-${m.role}">${label ? `<span class="talk-role">${escapeHtml(label)}</span>` : ''}${escapeHtml(m.text)}</div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function pushTranscript(role, text) {
+  talkTranscript.push({ role, text });
+  renderTranscript();
+}
+
+// Text chat (same /api/chat as voice) and the autonomous task loop
+// (/api/task, previously only reachable from the daily background cron) —
+// both log into the one shared transcript above.
+function initTalkDrawer() {
+  const toggle = document.getElementById('talk-toggle');
+  const drawer = document.getElementById('talk-drawer');
+  const closeBtn = document.getElementById('talk-close');
+  const input = document.getElementById('talk-input');
+  const sendBtn = document.getElementById('talk-send');
+  const modeTabs = document.querySelectorAll('.talk-mode');
+  let mode = 'chat';
+
+  toggle.addEventListener('click', () => drawer.classList.toggle('open'));
+  closeBtn.addEventListener('click', () => drawer.classList.remove('open'));
+
+  modeTabs.forEach((btn) => btn.addEventListener('click', () => {
+    modeTabs.forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    mode = btn.dataset.mode;
+    input.placeholder = mode === 'task' ? 'Give it something to do…' : 'Say something…';
+  }));
+
+  async function refreshGraphAfterTask() {
+    const data = await fetch('/api/graph', { credentials: 'same-origin' }).then((r) => r.json());
+    allNodes = data.nodes;
+    allLinks = data.links;
+    if (Graph) Graph.graphData({ nodes: allNodes, links: allLinks });
+    renderSidebarStats();
+  }
+
+  async function send() {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    input.disabled = true;
+    sendBtn.disabled = true;
+    pushTranscript('user', text);
+
+    if (mode === 'task') {
+      pushTranscript('status', 'Working on it — this can take a moment…');
+      try {
+        const res = await fetch('/api/task', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task: text }),
+        });
+        const data = await res.json();
+        talkTranscript.pop(); // drop the "working on it" placeholder
+        if (!res.ok) throw new Error(data.error);
+        pushTranscript('task-result', data.result);
+        refreshGraphAfterTask(); // a task may have remembered new things
+      } catch (err) {
+        talkTranscript.pop();
+        pushTranscript('error', err.message);
+      }
+    } else {
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        pushTranscript('assistant', data.reply);
+      } catch (err) {
+        pushTranscript('error', err.message);
+      }
+    }
+
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.focus();
+  }
+
+  sendBtn.addEventListener('click', send);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+}
+
 // Pairs the local Companion app (companion/companion.js) that lets this
 // user's own Superself read from one folder they chose on their own
 // computer, and open Safari links there — nothing else on their machine is
@@ -1989,6 +2171,7 @@ function initVoiceAssistant() {
 
   async function handleMessage(text) {
     setStatus('Thinking…', 'thinking');
+    pushTranscript('user', text);
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -1999,11 +2182,13 @@ function initVoiceAssistant() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setStatus('');
+      pushTranscript('assistant', data.reply);
       speak(data.reply, () => {
         sessionDeadline = performance.now() + SILENCE_LIMIT_MS; // reset the silence clock, conversation continues
         listen();
       });
     } catch (e) {
+      pushTranscript('error', 'Something went wrong');
       setStatus('Something went wrong', 'error');
       endSession();
     }

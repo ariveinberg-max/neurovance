@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join, extname } from 'path';
 import { randomBytes } from 'crypto';
 import { allMemories, remember } from './memory.js';
-import { chatReply, getLastRecall, extractMemories, correctMemory } from './agent.js';
+import { chatReply, getLastRecall, extractMemories, correctMemory, runTask } from './agent.js';
 import * as pendingNotes from './pending-notes.js';
 import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
@@ -592,6 +592,24 @@ const server = createServer(async (req, res) => {
         });
       } catch (e) {
         return sendJson(res, 500, { error: 'Save failed: ' + e.message });
+      }
+    }
+
+    // The autonomous task loop — same engine grow.js runs on a daily cron,
+    // now actually reachable by the person it belongs to, not just a
+    // background job. Can take a while (multi-turn tool use), so this just
+    // awaits it rather than pretending it's instant.
+    if (req.url === '/api/task' && req.method === 'POST') {
+      try {
+        const { task } = await readJsonBody(req);
+        if (typeof task !== 'string' || !task.trim()) {
+          return sendJson(res, 400, { error: 'task must be a non-empty string' });
+        }
+        const result = await runTask(user.id, task.trim());
+        return sendJson(res, 200, { result });
+      } catch (e) {
+        console.error('Task error:', e);
+        return sendJson(res, 500, { error: 'Task failed: ' + e.message });
       }
     }
 
