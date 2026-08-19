@@ -76,3 +76,20 @@ export function coreMemories(userId, limit = 8) {
 export function allMemories(userId) {
   return load(userId);
 }
+
+export function findMemory(userId, id) {
+  return load(userId).find((m) => m.id === id) || null;
+}
+
+// Overwrites a memory's content in place (e.g. the user correcting something
+// it got wrong) rather than appending a new one, so the graph doesn't end up
+// with both the wrong fact and its correction sitting side by side forever.
+export function updateMemory(userId, id, content) {
+  const memories = load(userId);
+  const entry = memories.find((m) => m.id === id);
+  if (!entry) throw new Error(`No memory #${id} to update.`);
+  entry.content = content;
+  entry.correctedAt = new Date().toISOString();
+  save(userId, memories);
+  return entry;
+}

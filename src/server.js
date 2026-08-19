@@ -5,10 +5,12 @@ import { fileURLToPath } from 'url';
 import { dirname, join, extname } from 'path';
 import { randomBytes } from 'crypto';
 import { allMemories, remember } from './memory.js';
-import { chatReply, getLastRecall, extractMemories } from './agent.js';
+import { chatReply, getLastRecall, extractMemories, correctMemory } from './agent.js';
+import * as pendingNotes from './pending-notes.js';
 import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
 import * as companion from './companion.js';
+import * as connections from './connections.js';
 import { sendVerificationCode, sendWaitlistNotification, sendBroadcast } from './mailer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -455,6 +457,89 @@ const server = createServer(async (req, res) => {
     if (req.url === '/api/companion/unpair' && req.method === 'POST') {
       companion.unpair(user.id);
       return sendJson(res, 200, { ok: true });
+    }
+
+    // ---------- Contestable memory — correcting one memory can mean nearby
+    // ones need fixing too, handled with real related-memory context rather
+    // than a blind single-row overwrite. ----------
+
+    if (req.url === '/api/correct-memory' && req.method === 'POST') {
+      try {
+        const { id, correction } = await readJsonBody(req);
+        if (!Number.isInteger(id) || !correction?.trim()) {
+          return sendJson(res, 400, { error: 'id and correction are required.' });
+        }
+        const updated = await correctMemory(user.id, id, correction.trim());
+        const nodes = updated.map((entry) => ({
+          id: entry.id, name: entry.content, val: entry.importance,
+          color: colorForMemory(entry.importance), tags: entry.tags, timestamp: entry.timestamp,
+        }));
+        return sendJson(res, 200, { nodes });
+      } catch (e) {
+        console.error('Correct-memory error:', e);
+        return sendJson(res, 500, { error: 'Correction failed: ' + e.message });
+      }
+    }
+
+    // ---------- Pending notes — things the Superself noticed on its own
+    // (dreaming, curiosity, Companion file changes) and wants to surface. ----------
+
+    if (req.url === '/api/pending-notes') {
+      return sendJson(res, 200, { notes: pendingNotes.unseenNotes(user.id) });
+    }
+
+    if (req.url === '/api/pending-notes/dismiss' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        if (!Number.isInteger(id)) return sendJson(res, 400, { error: 'id is required.' });
+        pendingNotes.markSeen(user.id, id);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: 'Something went wrong.' });
+      }
+    }
+
+    // ---------- Connections — private, invite-only introductions between two
+    // people's Superselves. No directory to browse; you have to already know
+    // the exact username. Only ever exposes topic-tag overlap after BOTH
+    // sides accept — never raw memory content, never one side's full tag
+    // list, never the other person's memories in any form. ----------
+
+    if (req.url === '/api/connections' && req.method === 'GET') {
+      return sendJson(res, 200, { connections: connections.listConnectionsFor(user.id) });
+    }
+
+    if (req.url === '/api/connections/request' && req.method === 'POST') {
+      try {
+        const { username } = await readJsonBody(req);
+        if (!username?.trim()) return sendJson(res, 400, { error: 'A username is required.' });
+        const entry = connections.requestConnection(user.id, username.trim());
+        return sendJson(res, 200, { ok: true, id: entry.id });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/connections/respond' && req.method === 'POST') {
+      try {
+        const { id, accept } = await readJsonBody(req);
+        if (!id || typeof accept !== 'boolean') return sendJson(res, 400, { error: 'id and accept are required.' });
+        connections.respondToConnection(user.id, id, accept);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/connections/overlap' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        if (!id) return sendJson(res, 400, { error: 'id is required.' });
+        const overlap = connections.getOverlap(user.id, id);
+        return sendJson(res, 200, overlap);
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
     }
 
     if (req.url === '/api/last-recall') {

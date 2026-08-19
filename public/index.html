@@ -168,6 +168,49 @@
   #selected-memory-date {
     font-size: 10px; color: #63636a; margin-top: 8px;
   }
+  #correct-memory-trigger {
+    font-size: 10px; letter-spacing: 0.3px; color: #63636a; text-decoration: underline;
+    cursor: pointer; margin-top: 10px; display: inline-block; transition: color 0.2s ease;
+  }
+  #correct-memory-trigger:hover { color: #9a9aa2; }
+  #correct-memory-form { display: none; margin-top: 10px; }
+  #correct-memory-form.show { display: block; }
+  #correct-memory-input {
+    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
+    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
+    outline: none; resize: none; transition: border-color 0.25s ease;
+  }
+  #correct-memory-input::placeholder { color: #4a4a50; }
+  #correct-memory-input:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  #correct-memory-submit {
+    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    font-size: 10px; letter-spacing: 0.5px; padding: 6px 10px; border-radius: 3px; cursor: pointer;
+    margin-top: 8px; transition: background 0.2s ease;
+  }
+  #correct-memory-submit:hover { background: rgba(255,255,255,0.1); }
+  #correct-memory-submit:disabled { opacity: 0.5; cursor: default; }
+  #correct-memory-status { font-size: 10px; color: #7fd99a; margin-top: 7px; min-height: 12px; }
+  #correct-memory-status.err { color: #e8432c; }
+
+  /* ---------- Pending notes — things it noticed on its own ---------- */
+  #pending-note-banner {
+    position: fixed; top: 24px; left: 50%; transform: translateX(-50%) translateY(-10px);
+    max-width: 420px; background: #0d0d0f; border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px; padding: 16px 18px; z-index: 50;
+    opacity: 0; visibility: hidden; transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s;
+  }
+  #pending-note-banner.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+  #pending-note-kind {
+    font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: #63636a; margin-bottom: 8px;
+  }
+  #pending-note-text { font-size: 13px; line-height: 1.5; color: #d6d6d9; }
+  #pending-note-actions { margin-top: 12px; }
+  #pending-note-dismiss {
+    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    font-size: 11px; padding: 6px 12px; border-radius: 3px; cursor: pointer; transition: background 0.2s ease;
+  }
+  #pending-note-dismiss:hover { background: rgba(255,255,255,0.1); }
 
   /* ---------- Companion — pairs a local app on the user's own computer ---------- */
   #companion-panel { margin-top: 24px; }
@@ -186,6 +229,36 @@
     transition: background 0.2s ease;
   }
   #companion-panel button:hover, #companion-panel a.companion-btn:hover { background: rgba(255,255,255,0.1); }
+
+  /* ---------- Connections — private introductions between two Superselves ---------- */
+  #connections-panel { margin-top: 24px; }
+  #connections-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px; }
+  #connections-list { display: flex; flex-direction: column; gap: 8px; }
+  .connection-row { font-size: 11px; color: #9a9aa2; line-height: 1.6; }
+  .connection-row .conn-name { color: #d6d6d9; }
+  .connection-row .conn-state { color: #63636a; font-size: 10px; }
+  .connection-row button {
+    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    font-size: 9px; letter-spacing: 0.3px; padding: 4px 8px; border-radius: 3px; cursor: pointer;
+    margin-top: 4px; margin-right: 5px; transition: background 0.2s ease;
+  }
+  .connection-row button:hover { background: rgba(255,255,255,0.1); }
+  .connection-row .overlap-tags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 5px; }
+  #connections-request { display: flex; gap: 6px; margin-top: 12px; }
+  #connections-username-input {
+    flex: 1; min-width: 0; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
+    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 11px; padding: 0 0 6px 0; outline: none;
+    transition: border-color 0.25s ease;
+  }
+  #connections-username-input::placeholder { color: #4a4a50; }
+  #connections-username-input:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  #connections-request-btn {
+    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    font-size: 10px; padding: 6px 10px; border-radius: 3px; cursor: pointer; transition: background 0.2s ease;
+  }
+  #connections-request-btn:hover { background: rgba(255,255,255,0.1); }
+  #connections-status { font-size: 10px; color: #7fd99a; margin-top: 7px; min-height: 12px; }
+  #connections-status.err { color: #e8432c; }
 
   .legend-inline { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 40px; }
   .legend-item { display: flex; align-items: center; gap: 9px; font-size: 11px; color: #85858c; letter-spacing: 0.3px; }
@@ -358,6 +431,13 @@
 </div>
 
 <div id="app-shell" style="display:none">
+<div id="pending-note-banner">
+  <div id="pending-note-kind"></div>
+  <div id="pending-note-text"></div>
+  <div id="pending-note-actions">
+    <button id="pending-note-dismiss">Got it</button>
+  </div>
+</div>
 <div id="sidebar">
   <div>
     <h1 id="app-title">ARI V2</h1>
@@ -386,6 +466,12 @@
     <div id="selected-memory-text"></div>
     <div id="selected-memory-meta"></div>
     <div id="selected-memory-date"></div>
+    <div id="correct-memory-trigger">That's not right</div>
+    <div id="correct-memory-form">
+      <textarea id="correct-memory-input" rows="2" placeholder="What's actually true?"></textarea>
+      <button id="correct-memory-submit">Fix it</button>
+      <div id="correct-memory-status"></div>
+    </div>
   </div>
 
   <div id="companion-panel">
@@ -394,6 +480,16 @@
     <div id="companion-note"></div>
     <div id="companion-pair-code"></div>
     <div id="companion-actions"></div>
+  </div>
+
+  <div id="connections-panel">
+    <div class="sm-label">Connections</div>
+    <div id="connections-list"></div>
+    <div id="connections-request">
+      <input id="connections-username-input" type="text" placeholder="Their username" />
+      <button id="connections-request-btn">Connect</button>
+    </div>
+    <div id="connections-status"></div>
   </div>
 
   <div class="legend-inline">
@@ -475,7 +571,10 @@ function startApp() {
       initThinkingWatcher();
       initSelectedMemoryClose();
       initMemorySearch();
+      initCorrectMemory();
       initCompanion();
+      initConnections();
+      initPendingNotes();
       setInterval(renderSidebarStats, 5000); // live tick — vitals cool down in real time, no reload needed
 
       if (allNodes.length === 0) {
@@ -1188,6 +1287,219 @@ function initSelectedMemoryClose() {
     document.getElementById('selected-memory').classList.remove('show');
     selectedId = null;
   });
+}
+
+// Merges a corrected memory back into the live graph in place — no fly-in
+// animation, since this is an edit to something already there, not a new
+// memory arriving.
+function applyMemoryUpdate(updatedNode) {
+  const existing = allNodes.find((n) => n.id === updatedNode.id);
+  if (existing) Object.assign(existing, updatedNode);
+  else allNodes.push(updatedNode);
+
+  // rebuild links for the updated node, since its tags may have changed
+  allLinks = allLinks.filter((l) => l.source !== updatedNode.id && l.source?.id !== updatedNode.id && l.target !== updatedNode.id && l.target?.id !== updatedNode.id);
+  for (const other of allNodes) {
+    if (other.id === updatedNode.id) continue;
+    const shared = (updatedNode.tags || []).filter((t) => (other.tags || []).includes(t));
+    if (shared.length > 0) allLinks.push({ source: updatedNode.id, target: other.id, value: shared.length });
+  }
+
+  if (Graph) Graph.graphData({ nodes: allNodes, links: allLinks });
+  if (selectedId === updatedNode.id) showSelectedMemory(updatedNode);
+  renderSidebarStats();
+}
+
+// "That's not right" — lets a correction actually rewrite the memory (and
+// anything directly contradicted by it), instead of the graph just quietly
+// holding a fact the user already said is wrong.
+function initCorrectMemory() {
+  const trigger = document.getElementById('correct-memory-trigger');
+  const form = document.getElementById('correct-memory-form');
+  const input = document.getElementById('correct-memory-input');
+  const submitBtn = document.getElementById('correct-memory-submit');
+  const status = document.getElementById('correct-memory-status');
+
+  trigger.addEventListener('click', () => {
+    form.classList.toggle('show');
+    if (form.classList.contains('show')) input.focus();
+  });
+
+  submitBtn.addEventListener('click', async () => {
+    const correction = input.value.trim();
+    if (!correction || selectedId === null) return;
+
+    submitBtn.disabled = true;
+    status.textContent = 'Fixing…';
+    status.className = '';
+
+    try {
+      const res = await fetch('/api/correct-memory', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedId, correction }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Correction failed');
+
+      data.nodes.forEach(applyMemoryUpdate);
+      input.value = '';
+      form.classList.remove('show');
+      status.textContent = `Updated ${data.nodes.length} ${data.nodes.length === 1 ? 'memory' : 'memories'}`;
+    } catch (err) {
+      status.textContent = err.message;
+      status.className = 'err';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+// Surfaces things the Superself noticed on its own — a dreaming insight, a
+// curiosity question, a Companion file-change — even outside of an active
+// voice conversation. Polls rather than pushes, so nothing ever reaches the
+// user outside a session they actually opened.
+const PENDING_NOTE_LABELS = { insight: 'Something it realized', curiosity: 'Something it wants to ask', companion: 'Noticed on your computer' };
+
+function initPendingNotes() {
+  const banner = document.getElementById('pending-note-banner');
+  const kindEl = document.getElementById('pending-note-kind');
+  const textEl = document.getElementById('pending-note-text');
+  let current = null;
+
+  async function poll() {
+    if (banner.classList.contains('show')) return; // don't interrupt one already showing
+    const { notes } = await fetch('/api/pending-notes', { credentials: 'same-origin' }).then((r) => r.json());
+    if (notes.length === 0) return;
+    current = notes[0];
+    kindEl.textContent = PENDING_NOTE_LABELS[current.kind] || 'On its mind';
+    textEl.textContent = current.text;
+    banner.classList.add('show');
+  }
+
+  document.getElementById('pending-note-dismiss').addEventListener('click', async () => {
+    banner.classList.remove('show');
+    const dismissed = current;
+    current = null;
+    if (dismissed) {
+      await fetch('/api/pending-notes/dismiss', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: dismissed.id }),
+      });
+    }
+  });
+
+  poll();
+  setInterval(poll, 20000);
+}
+
+// Private, invite-only introductions between two people's Superselves — no
+// directory to browse, has to be the exact username. Only ever shows topic
+// overlap after both sides accept, never raw memory content.
+function initConnections() {
+  const listEl = document.getElementById('connections-list');
+  const input = document.getElementById('connections-username-input');
+  const requestBtn = document.getElementById('connections-request-btn');
+  const statusEl = document.getElementById('connections-status');
+
+  function showStatus(text, isError) {
+    statusEl.textContent = text;
+    statusEl.className = isError ? 'err' : '';
+  }
+
+  async function refresh() {
+    const { connections } = await fetch('/api/connections', { credentials: 'same-origin' }).then((r) => r.json());
+    listEl.innerHTML = '';
+    if (connections.length === 0) {
+      listEl.innerHTML = '<div class="connection-row" style="color:#4a4a50;">No connections yet</div>';
+      return;
+    }
+
+    connections.forEach((c) => {
+      const row = document.createElement('div');
+      row.className = 'connection-row';
+      const name = c.other ? `${c.other.displayName} (@${c.other.username})` : 'Unknown';
+
+      if (c.status === 'pending' && c.direction === 'incoming') {
+        row.innerHTML = `<span class="conn-name">${name}</span> wants to connect<br>`;
+        const acceptBtn = document.createElement('button');
+        acceptBtn.textContent = 'Accept';
+        acceptBtn.addEventListener('click', () => respond(c.id, true));
+        const declineBtn = document.createElement('button');
+        declineBtn.textContent = 'Decline';
+        declineBtn.addEventListener('click', () => respond(c.id, false));
+        row.appendChild(acceptBtn);
+        row.appendChild(declineBtn);
+      } else if (c.status === 'pending') {
+        row.innerHTML = `<span class="conn-name">${name}</span><br><span class="conn-state">Waiting for them to accept</span>`;
+      } else if (c.status === 'accepted') {
+        row.innerHTML = `<span class="conn-name">${name}</span><br><span class="conn-state">Connected</span><br>`;
+        const overlapBtn = document.createElement('button');
+        overlapBtn.textContent = 'See what you share';
+        overlapBtn.addEventListener('click', () => showOverlap(c.id, row));
+        row.appendChild(overlapBtn);
+      } else {
+        row.innerHTML = `<span class="conn-name">${name}</span><br><span class="conn-state">Declined</span>`;
+      }
+      listEl.appendChild(row);
+    });
+  }
+
+  async function respond(id, accept) {
+    const res = await fetch('/api/connections/respond', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, accept }),
+    });
+    const data = await res.json();
+    if (!res.ok) return showStatus(data.error, true);
+    refresh();
+  }
+
+  async function showOverlap(id, row) {
+    const res = await fetch('/api/connections/overlap', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok) return showStatus(data.error, true);
+
+    const existing = row.querySelector('.overlap-tags');
+    if (existing) existing.remove();
+    const tagsEl = document.createElement('div');
+    tagsEl.className = 'overlap-tags';
+    tagsEl.innerHTML = data.shared.length
+      ? data.shared.map((t) => `<span class="sm-tag">${t}</span>`).join('')
+      : '<span class="conn-state">Nothing in common yet</span>';
+    row.appendChild(tagsEl);
+  }
+
+  requestBtn.addEventListener('click', async () => {
+    const username = input.value.trim();
+    if (!username) return;
+    requestBtn.disabled = true;
+    try {
+      const res = await fetch('/api/connections/request', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      input.value = '';
+      showStatus('Request sent', false);
+      refresh();
+    } catch (err) {
+      showStatus(err.message, true);
+    } finally {
+      requestBtn.disabled = false;
+    }
+  });
+
+  refresh();
 }
 
 // Pairs the local Companion app (companion/companion.js) that lets this

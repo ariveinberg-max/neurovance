@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { runTask } from './agent.js';
+import { runTask, runDreamCycle, runCuriosityCycle } from './agent.js';
 import { allMemories } from './memory.js';
 import { listUsers } from './auth.js';
 
@@ -28,5 +28,19 @@ for (const user of listUsers()) {
     console.log(`[${new Date().toISOString()}] [${user.username}] ${result}`);
   } catch (e) {
     console.error(`[${new Date().toISOString()}] [${user.username}] grow failed:`, e.message);
+  }
+
+  try {
+    const insight = await runDreamCycle(user.id);
+    if (insight) console.log(`[${new Date().toISOString()}] [${user.username}] dreamed: ${insight.content}`);
+  } catch (e) {
+    console.error(`[${new Date().toISOString()}] [${user.username}] dream cycle failed:`, e.message);
+  }
+
+  try {
+    const question = await runCuriosityCycle(user.id);
+    if (question) console.log(`[${new Date().toISOString()}] [${user.username}] curious about: ${question}`);
+  } catch (e) {
+    console.error(`[${new Date().toISOString()}] [${user.username}] curiosity cycle failed:`, e.message);
   }
 }

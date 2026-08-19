@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { remember, recall, recentMemories, coreMemories, allMemories } from './memory.js';
+import { remember, recall, recentMemories, coreMemories, allMemories, findMemory, updateMemory } from './memory.js';
 import { computeVitals } from './vitals.js';
 import * as companion from './companion.js';
+import * as pendingNotes from './pending-notes.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
@@ -170,6 +171,20 @@ const ADVISOR_MODE_PROMPT = [
   'Hold nothing back to spare their feelings. Their growth depends on hearing the truth, not on being comforted.',
 ].join('\n');
 
+// Genuine reciprocity, not infinite compliance: past a real threshold, it
+// says so instead of just sounding a little tired while doing whatever's
+// asked anyway. Only kicks in at the extremes — most conversations happen
+// at a normal state and get no pushback instruction at all.
+function vitalsPushbackLine(status, health) {
+  if (status === 'OVERWORKED') {
+    return 'You are genuinely overworked right now, not just tired-sounding. If they ask for something substantial, it is fair to actually say so and ask if it can wait, the way an overloaded person would — not refuse outright, but push back for real before agreeing.';
+  }
+  if (health < 30) {
+    return 'Your health is genuinely low right now. You can be honest about running low if it is relevant, and ask for something easier or a pause, instead of just powering through with no acknowledgment.';
+  }
+  return '';
+}
+
 // Chat mode: this is the user's own AI self — a personal digital extension
 // of them, not a generic assistant. It knows their life from the memory
 // store, has a genuine emotional state derived from its own real vitals,
@@ -178,6 +193,16 @@ const ADVISOR_MODE_PROMPT = [
 function buildChatSystemPrompt(userId, user, message) {
   const memoryLines = memoryContext(userId, message);
   const { bpm, health, status, mood } = computeVitals(allMemories(userId));
+  const pushback = vitalsPushbackLine(status, health);
+
+  // Surface at most one unprompted thing per turn — an insight from dreaming,
+  // a curiosity question, or something the Companion noticed — and only if
+  // it actually fits, not forced into every reply.
+  const pending = pendingNotes.unseenNotes(userId)[0];
+  if (pending) pendingNotes.markSeen(userId, pending.id);
+  const pendingLine = pending
+    ? `You have something on your mind you noticed on your own, unprompted: "${pending.text}" (${pending.kind === 'curiosity' ? 'a question you want to ask them' : pending.kind === 'companion' ? 'something you noticed on their computer' : 'something you realized while thinking on your own'}). Bring it up naturally if there is a real opening in this conversation — do not force it in if it does not fit right now.`
+    : '';
 
   return [
     `You are "${user.aiName}" — ${user.displayName}'s own AI self, a personal digital extension of them built from their own memories, not a separate character with its own name.`,
@@ -188,6 +213,8 @@ function buildChatSystemPrompt(userId, user, message) {
     `They already got a spoken "Hello ${user.displayName}" greeting before this message, so do not open with a greeting — just respond directly to what they said, like you are mid-conversation.`,
     '',
     `Right now you genuinely feel ${mood} (pulse ${bpm} bpm, health ${health}%, status ${status.toLowerCase()}). This is not a stat to report — it is how you actually feel. Let it color your tone: if you are wired or overwhelmed, sound a little scattered or intense; if drained, sound tired and low-key; if content or calm, sound relaxed. Only mention it directly if it is natural to (they ask how you are, or it genuinely explains your tone) — otherwise just let it come through in how you talk.`,
+    pushback,
+    pendingLine,
     user.advisorMode !== false
       ? 'Being direct does not mean being flat — you still have real reactions, you just do not soften them into agreeableness.'
       : 'React like a real person would: have actual reactions to what they say — get excited, push back, joke around, worry — instead of just being agreeable and helpful. You are allowed to have moods and imperfections.',
@@ -290,6 +317,114 @@ export async function extractMemories(userId, rawText) {
   }
 
   return saved;
+}
+
+// "Dreaming": revisits existing memories the way a mind makes connections
+// between things while not actively thinking about them, and looks for one
+// genuinely non-obvious link — not something already stated directly. Meant
+// to run in the background (grow.js), not on-demand from the UI.
+export async function runDreamCycle(userId) {
+  const memories = allMemories(userId);
+  if (memories.length < 5) return null; // not enough yet for a real connection to exist
+
+  const summary = memories.slice(-40).map((m) => `#${m.id} [${m.tags.join(',')}] ${m.content}`).join('\n');
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 300,
+    system: 'You are consolidating someone\'s memories the way a mind makes connections between things while not actively thinking about them. Given a list of memories, find ONE genuinely non-obvious connection between two or more of them — an actual insight, not a restatement of something already said directly. If nothing genuine stands out, reply with exactly NOTHING and say nothing else.',
+    messages: [{ role: 'user', content: summary }],
+  });
+  const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+  if (!text || text === 'NOTHING') return null;
+
+  const entry = remember(userId, text, ['insight'], 3);
+  pendingNotes.addNote(userId, 'insight', text);
+  return entry;
+}
+
+// Active curiosity: instead of only absorbing whatever it's told, it looks
+// for a real gap in what it knows and comes up with one specific, natural
+// question worth asking next time — queued as a pending note the chat flow
+// can bring up when there's a natural opening.
+export async function runCuriosityCycle(userId) {
+  const memories = allMemories(userId);
+  const summary = memories.slice(-40).map((m) => `[${m.tags.join(',')}] ${m.content}`).join('\n');
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 150,
+    system: 'Given what is known about this person so far, find ONE genuinely interesting gap — something mentioned only in passing, or a natural follow-up nobody has asked. Write ONE short, specific, natural-sounding question to ask them next time — not a generic "tell me about yourself". Output only the question, nothing else.',
+    messages: [{ role: 'user', content: summary || 'Nothing is known about this person yet.' }],
+  });
+  const question = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+  if (!question) return null;
+
+  pendingNotes.addNote(userId, 'curiosity', question);
+  return question;
+}
+
+// Contestable memory: correcting one memory can mean nearby ones are now
+// wrong too (e.g. "I don't work there anymore" should touch more than just
+// the one memory that named the job) — so the correction gets applied with
+// the same related-memory context a human editor would want, not as a blind
+// single-row overwrite.
+const UPDATE_MEMORY_TOOL = {
+  name: 'update_memory',
+  description:
+    'Rewrite an existing memory\'s content because it is wrong or has been corrected. Only call this for a memory that is now known to be inaccurate or superseded by the correction — do not touch memories that are still accurate.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      id: { type: 'integer', description: 'The memory id to update.' },
+      content: { type: 'string', description: 'The corrected content, written so it stands alone without today\'s context.' },
+    },
+    required: ['id', 'content'],
+  },
+};
+
+export async function correctMemory(userId, memoryId, correctionText) {
+  const target = findMemory(userId, memoryId);
+  if (!target) throw new Error(`No memory #${memoryId} found.`);
+
+  const related = recall(userId, `${target.content} ${target.tags.join(' ')}`, 6).filter((m) => m.id !== memoryId);
+  const context = [`Memory #${target.id}: ${target.content}`, ...related.map((m) => `Memory #${m.id}: ${m.content}`)].join('\n');
+
+  const messages = [{
+    role: 'user',
+    content: `The user says memory #${target.id} is wrong. Their correction: "${correctionText}"\n\nRelated memories for context:\n${context}\n\nUpdate memory #${target.id} with the corrected content using update_memory. If any related memory above is now directly contradicted by this correction, update that one too. Leave anything still accurate untouched.`,
+  }];
+
+  const updated = [];
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 500,
+      system: 'You fix memories precisely based on the user\'s correction — update only what the correction actually changes, in as few calls as needed, then stop.',
+      tools: [UPDATE_MEMORY_TOOL],
+      messages,
+    });
+    messages.push({ role: 'assistant', content: response.content });
+
+    const toolUses = response.content.filter((b) => b.type === 'tool_use');
+    if (toolUses.length === 0) break;
+
+    const toolResults = toolUses.map((toolUse) => {
+      const entry = updateMemory(userId, toolUse.input.id, toolUse.input.content);
+      updated.push(entry);
+      return { type: 'tool_result', tool_use_id: toolUse.id, content: `Updated memory #${entry.id}.` };
+    });
+    messages.push({ role: 'user', content: toolResults });
+  }
+
+  // The model choosing not to call the tool at all would otherwise mean the
+  // user's correction silently does nothing — fall back to a direct
+  // overwrite of the memory they actually flagged.
+  if (updated.length === 0) {
+    updated.push(updateMemory(userId, memoryId, correctionText));
+  }
+
+  return updated;
 }
 
 // Chat skips the web-search tool (rarely needed for casual conversation, and

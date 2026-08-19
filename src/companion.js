@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import * as pendingNotes from './pending-notes.js';
 
 // Lets a user's own agent reach a small, read-only, explicitly-scoped folder
 // on their own computer, plus open URLs in their own Safari — via a local
@@ -106,6 +107,14 @@ export function attach(server) {
         liveConnections.set(userId, ws);
         saveRecord(userId, { ...loadRecord(userId), lastSeen: new Date().toISOString() });
         ws.send(JSON.stringify({ type: 'reconnect_result', ok: true }));
+        return;
+      }
+
+      // Ambient presence: the Companion watches the shared folder itself and
+      // tells us when something changes — this only ever queues a note the
+      // user sees inside a session they opened, never a push notification.
+      if (msg.type === 'event' && msg.name === 'file_changed' && userId) {
+        pendingNotes.addNote(userId, 'companion', `I noticed "${msg.data.filename}" changed in your Neurovance folder.`);
         return;
       }
 

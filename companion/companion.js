@@ -8,7 +8,7 @@
 // not on the server — the server only ever sees what this file lets it see.
 import WebSocket from 'ws';
 import { createInterface } from 'readline';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, watch } from 'fs';
 import { homedir, hostname } from 'os';
 import { join, resolve, sep } from 'path';
 import { execFile } from 'child_process';
@@ -87,10 +87,13 @@ function handleCommand(action, params) {
   throw new Error(`Unknown action: ${action}`);
 }
 
+let activeWs = null;
+
 function connect(userId) {
   const ws = new WebSocket(SERVER_WS_URL);
 
   ws.on('open', () => {
+    activeWs = ws;
     if (userId) ws.send(JSON.stringify({ type: 'reconnect', userId }));
   });
 
@@ -125,6 +128,7 @@ function connect(userId) {
   });
 
   ws.on('close', () => {
+    if (activeWs === ws) activeWs = null;
     console.log('Disconnected — retrying in 5s...');
     setTimeout(() => connect(userId), 5000);
   });
@@ -132,6 +136,29 @@ function connect(userId) {
   ws.on('error', (e) => console.error('Connection error:', e.message));
 
   return ws;
+}
+
+// Ambient presence: notice when something changes in the shared folder and
+// tell the server, so the Superself can bring it up on its own later —
+// debounced per filename since a single save often fires several raw fs
+// events, and skipping the very first tick avoids reporting the README.txt
+// that ensureAllowedRoot() just created on a fresh folder.
+const watchDebounce = new Map();
+function watchAllowedRoot() {
+  try {
+    watch(ALLOWED_ROOT, { recursive: true }, (eventType, filename) => {
+      if (!filename || filename === 'README.txt') return;
+      clearTimeout(watchDebounce.get(filename));
+      watchDebounce.set(filename, setTimeout(() => {
+        watchDebounce.delete(filename);
+        if (activeWs?.readyState === WebSocket.OPEN) {
+          activeWs.send(JSON.stringify({ type: 'event', name: 'file_changed', data: { filename } }));
+        }
+      }, 800));
+    });
+  } catch (e) {
+    console.error('Could not watch the Neurovance folder for changes:', e.message);
+  }
 }
 
 function promptForCode() {
@@ -147,6 +174,7 @@ function promptForCode() {
 
 ensureAllowedRoot();
 console.log(`Neurovance Companion\nThis computer will only ever share files from:\n  ${ALLOWED_ROOT}\n`);
+watchAllowedRoot();
 
 const config = loadConfig();
 if (config?.userId) {
