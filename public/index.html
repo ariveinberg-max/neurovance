@@ -169,6 +169,24 @@
     font-size: 10px; color: #63636a; margin-top: 8px;
   }
 
+  /* ---------- Companion — pairs a local app on the user's own computer ---------- */
+  #companion-panel { margin-top: 24px; }
+  #companion-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px; }
+  #companion-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: #9a9aa2; }
+  #companion-status.online { color: #7fd99a; }
+  #companion-note { font-size: 10px; color: #63636a; line-height: 1.5; margin-top: 6px; max-width: 200px; }
+  #companion-pair-code {
+    font-family: 'Share Tech Mono', monospace; font-size: 20px; letter-spacing: 5px; color: #eaeaec;
+    margin-top: 10px; display: none;
+  }
+  #companion-panel button, #companion-panel a.companion-btn {
+    display: inline-block; font-size: 10px; letter-spacing: 0.5px; color: #9a9aa2;
+    background: rgba(255,255,255,0.06); border: none; padding: 6px 10px; border-radius: 3px;
+    cursor: pointer; margin-top: 8px; margin-right: 6px; text-decoration: none; font-family: 'Inter', sans-serif;
+    transition: background 0.2s ease;
+  }
+  #companion-panel button:hover, #companion-panel a.companion-btn:hover { background: rgba(255,255,255,0.1); }
+
   .legend-inline { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 40px; }
   .legend-item { display: flex; align-items: center; gap: 9px; font-size: 11px; color: #85858c; letter-spacing: 0.3px; }
   .swatch { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
@@ -370,6 +388,14 @@
     <div id="selected-memory-date"></div>
   </div>
 
+  <div id="companion-panel">
+    <div class="sm-label">Companion</div>
+    <div id="companion-status">Checking…</div>
+    <div id="companion-note"></div>
+    <div id="companion-pair-code"></div>
+    <div id="companion-actions"></div>
+  </div>
+
   <div class="legend-inline">
     <div class="legend-item"><span class="swatch" style="background:#e8432c"></span>Critical memory</div>
     <div class="legend-item"><span class="swatch" style="background:#c8c9cf"></span>Key memory</div>
@@ -449,6 +475,7 @@ function startApp() {
       initThinkingWatcher();
       initSelectedMemoryClose();
       initMemorySearch();
+      initCompanion();
       setInterval(renderSidebarStats, 5000); // live tick — vitals cool down in real time, no reload needed
 
       if (allNodes.length === 0) {
@@ -1161,6 +1188,58 @@ function initSelectedMemoryClose() {
     document.getElementById('selected-memory').classList.remove('show');
     selectedId = null;
   });
+}
+
+// Pairs the local Companion app (companion/companion.js) that lets this
+// user's own Superself read from one folder they chose on their own
+// computer, and open Safari links there — nothing else on their machine is
+// ever reachable. Renders one of three states: not paired, paired+offline
+// (companion installed but not currently running), paired+online.
+function initCompanion() {
+  const statusEl = document.getElementById('companion-status');
+  const noteEl = document.getElementById('companion-note');
+  const codeEl = document.getElementById('companion-pair-code');
+  const actionsEl = document.getElementById('companion-actions');
+
+  async function refresh() {
+    const status = await fetch('/api/companion/status', { credentials: 'same-origin' }).then((r) => r.json());
+    codeEl.style.display = 'none';
+    codeEl.textContent = '';
+
+    if (!status.paired) {
+      statusEl.textContent = 'Not paired';
+      statusEl.className = '';
+      noteEl.textContent = 'Pair a computer to let this Superself read files you choose and open Safari links.';
+      actionsEl.innerHTML = '<button id="companion-pair-btn">Pair a computer</button>';
+      document.getElementById('companion-pair-btn').addEventListener('click', startPairing);
+      return;
+    }
+
+    statusEl.textContent = status.online ? `Online — ${status.hostname}` : `Paired, offline — ${status.hostname}`;
+    statusEl.className = status.online ? 'online' : '';
+    noteEl.textContent = status.online ? '' : 'Open the Companion app on that computer to reconnect it.';
+    actionsEl.innerHTML = '<button id="companion-unpair-btn">Unpair</button>';
+    document.getElementById('companion-unpair-btn').addEventListener('click', async () => {
+      await fetch('/api/companion/unpair', { method: 'POST', credentials: 'same-origin' });
+      refresh();
+    });
+  }
+
+  async function startPairing() {
+    const { code } = await fetch('/api/companion/pair-code', { method: 'POST', credentials: 'same-origin' }).then((r) => r.json());
+    codeEl.textContent = code;
+    codeEl.style.display = 'block';
+    noteEl.innerHTML = 'Download the Companion app below, unzip it, then in Terminal run <code>npm install && npm start</code> inside it and enter this code when asked. Code expires in 10 minutes.';
+    actionsEl.innerHTML = '<a class="companion-btn" href="/downloads/neurovance-companion.zip" download>Download Companion</a>';
+    // Poll for pairing to complete rather than requiring a manual refresh —
+    // the whole point is the user is off in Terminal, not watching this tab.
+    const poll = setInterval(async () => {
+      const status = await fetch('/api/companion/status', { credentials: 'same-origin' }).then((r) => r.json());
+      if (status.paired) { clearInterval(poll); refresh(); }
+    }, 3000);
+  }
+
+  refresh();
 }
 
 // Dims every node whose content and tags don't match the search text, so the

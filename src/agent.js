@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { remember, recall, recentMemories, coreMemories, allMemories } from './memory.js';
 import { computeVitals } from './vitals.js';
+import * as companion from './companion.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
@@ -33,6 +34,70 @@ const SEARCH_TOOL = {
     required: ['query'],
   },
 };
+
+// Companion tools — only offered when this user has actually paired the
+// local Companion app (agent.js never assumes it's there). Read-only by
+// design for now: listing/reading a folder the user chose, and opening a
+// Safari link. Write/delete comes later, behind an explicit confirmation
+// step, the same way the waitlist broadcast requires one before it sends.
+const COMPANION_LIST_FILES_TOOL = {
+  name: 'list_local_files',
+  description:
+    'List files and folders inside the user\'s local Neurovance folder on their own computer, via their paired Companion app. Read-only, and scoped to that one folder only — nothing else on their computer is reachable.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      subpath: { type: 'string', description: 'Relative path inside the allowed folder — empty string for the root, or e.g. "notes" for a subfolder.' },
+    },
+  },
+};
+
+const COMPANION_READ_FILE_TOOL = {
+  name: 'read_local_file',
+  description:
+    'Read a text file inside the user\'s local Neurovance folder, via their paired Companion app. Read-only, scoped to that one folder, capped at 200KB per file.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Relative path to the file inside the allowed folder.' },
+    },
+    required: ['path'],
+  },
+};
+
+const COMPANION_OPEN_URL_TOOL = {
+  name: 'open_url_in_browser',
+  description:
+    'Open a URL in the user\'s own Safari on their computer, via their paired Companion app, so they see it appear live. Only https:// URLs.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'A full https:// URL.' },
+    },
+    required: ['url'],
+  },
+};
+
+function companionTools(userId) {
+  return companion.isPaired(userId)
+    ? [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL]
+    : [];
+}
+
+async function handleCompanionTool(userId, toolUse) {
+  if (toolUse.name === 'list_local_files') {
+    const files = await companion.sendCommand(userId, 'list_files', { subpath: toolUse.input.subpath || '' });
+    return JSON.stringify(files);
+  }
+  if (toolUse.name === 'read_local_file') {
+    return await companion.sendCommand(userId, 'read_file', { path: toolUse.input.path });
+  }
+  if (toolUse.name === 'open_url_in_browser') {
+    const result = await companion.sendCommand(userId, 'open_url', { url: toolUse.input.url });
+    return `Opened in Safari: ${result.opened}`;
+  }
+  return null;
+}
 
 async function searchWeb(query) {
   const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
@@ -80,11 +145,15 @@ function memoryContext(userId, query) {
 
 function buildTaskSystemPrompt(userId, task) {
   const memoryLines = memoryContext(userId, task);
+  const hasCompanion = companion.isPaired(userId);
   return [
     'You are an autonomous agent brain with persistent memory across conversations.',
     'Use the remember tool whenever you learn something worth keeping for next time.',
     'Use the search_web tool when a task needs a fact or topic you are not confident about.',
     'Do not remember trivial or one-off details — only durable facts, preferences, or lessons.',
+    hasCompanion
+      ? 'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything. You can also open_url_in_browser to open a link in their real Safari. Do not imply you can see or touch anything beyond that one folder.'
+      : 'This user has not paired a Companion app, so you have no access to their computer, files, or browser — only memory and web search.',
     memoryLines ? `\nRelevant memories from before:\n${memoryLines}` : '\nNo relevant memories yet.',
   ].join('\n');
 }
@@ -161,6 +230,14 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens) {
           return { type: 'tool_result', tool_use_id: toolUse.id, content: `Search failed: ${e.message}`, is_error: true };
         }
       }
+      if (['list_local_files', 'read_local_file', 'open_url_in_browser'].includes(toolUse.name)) {
+        try {
+          const result = await handleCompanionTool(userId, toolUse);
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: result };
+        } catch (e) {
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: e.message, is_error: true };
+        }
+      }
       return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Unknown tool.', is_error: true };
     }));
 
@@ -169,7 +246,8 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens) {
 }
 
 export async function runTask(userId, task) {
-  return runLoop(userId, buildTaskSystemPrompt(userId, task), task, [MEMORY_TOOL, SEARCH_TOOL], 1024);
+  const tools = [MEMORY_TOOL, SEARCH_TOOL, ...companionTools(userId)];
+  return runLoop(userId, buildTaskSystemPrompt(userId, task), task, tools, 1024);
 }
 
 // Turns a raw dump of text (typed or pasted, however messy) into individual

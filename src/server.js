@@ -8,6 +8,7 @@ import { allMemories, remember } from './memory.js';
 import { chatReply, getLastRecall, extractMemories } from './agent.js';
 import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
+import * as companion from './companion.js';
 import { sendVerificationCode, sendWaitlistNotification, sendBroadcast } from './mailer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -110,7 +111,7 @@ function sendJson(res, status, body) {
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
+  '.svg': 'image/svg+xml', '.zip': 'application/zip',
 };
 
 // ---------- OAuth (Google / GitHub) — standard authorization-code flow,
@@ -214,7 +215,7 @@ async function handleOAuthCallback(req, res, provider) {
   }
 }
 
-createServer(async (req, res) => {
+const server = createServer(async (req, res) => {
   // ---------- Waitlist — public, no auth, called cross-origin from the
   // marketing site, so it needs its own CORS handling ----------
 
@@ -439,6 +440,23 @@ createServer(async (req, res) => {
       return sendJson(res, 200, buildGraph(user.id));
     }
 
+    // ---------- Companion — lets this user's agent read from one folder on
+    // their own computer, and open Safari links there, via the local
+    // companion app they install and pair themselves (see /companion). ----------
+
+    if (req.url === '/api/companion/pair-code' && req.method === 'POST') {
+      return sendJson(res, 200, { code: companion.generatePairingCode(user.id) });
+    }
+
+    if (req.url === '/api/companion/status') {
+      return sendJson(res, 200, companion.companionStatus(user.id));
+    }
+
+    if (req.url === '/api/companion/unpair' && req.method === 'POST') {
+      companion.unpair(user.id);
+      return sendJson(res, 200, { ok: true });
+    }
+
     if (req.url === '/api/last-recall') {
       return sendJson(res, 200, getLastRecall(user.id));
     }
@@ -534,4 +552,7 @@ createServer(async (req, res) => {
     res.writeHead(500);
     res.end('Server error');
   }
-}).listen(PORT, () => console.log(`Brain graph running at http://localhost:${PORT}`));
+});
+
+companion.attach(server);
+server.listen(PORT, () => console.log(`Brain graph running at http://localhost:${PORT}`));
