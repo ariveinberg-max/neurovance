@@ -14,8 +14,8 @@
 // the server only ever sees what this file lets it see.
 import WebSocket from 'ws';
 import { createInterface } from 'readline';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, watch } from 'fs';
-import { homedir, hostname } from 'os';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, watch, unlinkSync } from 'fs';
+import { homedir, hostname, tmpdir } from 'os';
 import { join, resolve, sep } from 'path';
 import { execFile } from 'child_process';
 
@@ -143,6 +143,44 @@ function escapeForAppleScript(js) {
   return js.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+// Best-effort screenshot of just Safari's window, so the web app can show
+// what the Superself is actually looking at while it browses. Requires
+// macOS Screen Recording permission on whatever launched this process (the
+// same "only the process ancestry that was actually granted it" rule as
+// Full Disk Access) — if it's not granted, this quietly returns null rather
+// than failing the action it's attached to. A missing preview is a much
+// smaller problem than a broken click.
+function captureSafariScreenshot() {
+  return new Promise((resolve) => {
+    execFile('osascript', ['-e', 'tell application "Safari" to get bounds of front window'], (err, stdout) => {
+      if (err) return resolve(null);
+      const bounds = stdout.trim().split(',').map((n) => parseInt(n.trim(), 10));
+      if (bounds.length !== 4 || bounds.some((n) => Number.isNaN(n))) return resolve(null);
+      const [x1, y1, x2, y2] = bounds;
+      const w = x2 - x1;
+      const h = y2 - y1;
+      if (w <= 0 || h <= 0) return resolve(null);
+      const tmpFile = join(tmpdir(), `neurovance-frame-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
+      execFile('screencapture', ['-x', '-t', 'jpg', '-R', `${x1},${y1},${w},${h}`, tmpFile], (err2) => {
+        if (err2) return resolve(null);
+        try {
+          const data = readFileSync(tmpFile);
+          unlinkSync(tmpFile);
+          resolve(data.length > 0 ? data.toString('base64') : null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+  });
+}
+
+// Gives the page a moment to actually render before grabbing the frame —
+// otherwise a click/navigation screenshot is just the pre-change state.
+function captureSafariScreenshotAfterDelay(ms) {
+  return new Promise((resolve) => setTimeout(() => captureSafariScreenshot().then(resolve), ms));
+}
+
 function runSafariJS(js) {
   const script = `tell application "Safari" to do JavaScript "${escapeForAppleScript(js)}" in front document`;
   return new Promise((res, rej) => {
@@ -224,9 +262,10 @@ function handleCommand(action, params) {
     // AppleScript string literal or reach a shell at all.
     const safeUrl = url.replace(/"/g, '');
     return new Promise((res, rej) => {
-      execFile('osascript', ['-e', `tell application "Safari" to open location "${safeUrl}"`], (err) => {
-        if (err) rej(new Error('Could not open Safari: ' + err.message));
-        else res({ opened: safeUrl });
+      execFile('osascript', ['-e', `tell application "Safari" to open location "${safeUrl}"`], async (err) => {
+        if (err) { rej(new Error('Could not open Safari: ' + err.message)); return; }
+        const screenshot = await captureSafariScreenshotAfterDelay(1200);
+        res({ opened: safeUrl, screenshot });
       });
     });
   }
@@ -273,9 +312,10 @@ function handleCommand(action, params) {
     const text = params.text || '';
     if (!text) return Promise.reject(new Error('No text given to click.'));
     const js = buildClickScript(text);
-    return runSafariJS(js).then((result) => {
+    return runSafariJS(js).then(async (result) => {
       if (result === 'NOT_FOUND') throw new Error(`Could not find anything matching "${text}" to click on the current page.`);
-      return { result };
+      const screenshot = await captureSafariScreenshotAfterDelay(700);
+      return { result, screenshot };
     });
   }
 
@@ -287,10 +327,11 @@ function handleCommand(action, params) {
     const { label, text, submit } = params;
     if (!label || text === undefined) return Promise.reject(new Error('Need both a field label and text to type.'));
     const js = buildTypeScript(label, text, !!submit);
-    return runSafariJS(js).then((result) => {
+    return runSafariJS(js).then(async (result) => {
       if (result === 'NOT_FOUND') throw new Error(`Could not find a field matching "${label}" on the current page.`);
       if (result === 'BLOCKED_PASSWORD') throw new Error('Refusing to type into a password field — the Companion never handles credentials.');
-      return { result };
+      const screenshot = await captureSafariScreenshotAfterDelay(submit ? 1200 : 400);
+      return { result, screenshot };
     });
   }
 

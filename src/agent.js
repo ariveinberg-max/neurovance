@@ -158,6 +158,7 @@ async function handleCompanionTool(userId, toolUse) {
   }
   if (toolUse.name === 'open_url_in_browser') {
     const result = await companion.sendCommand(userId, 'open_url', { url: toolUse.input.url });
+    companion.setLatestFrame(userId, result.screenshot);
     return `Opened in Safari: ${result.opened}`;
   }
   if (toolUse.name === 'read_current_browser_page') {
@@ -166,6 +167,7 @@ async function handleCompanionTool(userId, toolUse) {
   }
   if (toolUse.name === 'click_page_element') {
     const result = await companion.sendCommand(userId, 'click_page_element', { text: toolUse.input.text });
+    companion.setLatestFrame(userId, result.screenshot);
     return result.result;
   }
   if (toolUse.name === 'type_into_page_field') {
@@ -174,6 +176,7 @@ async function handleCompanionTool(userId, toolUse) {
       text: toolUse.input.text,
       submit: !!toolUse.input.submit,
     });
+    companion.setLatestFrame(userId, result.screenshot);
     return result.result;
   }
   return null;

@@ -278,6 +278,30 @@
   #talk-send:hover { background: rgba(255,255,255,0.14); }
   #talk-send:disabled { opacity: 0.5; cursor: default; }
 
+  /* ---------- Browser mirror — a live-ish preview of what the Superself is
+     looking at in the user's own Safari while a browsing task runs, floated
+     translucently over the app rather than a real screen-share window. ---------- */
+  #browser-mirror {
+    position: fixed; top: 64px; left: 50%; transform: translateX(-50%) translateY(-10px);
+    width: min(640px, 82vw); max-height: 58vh;
+    border: 1px solid rgba(255,255,255,0.16); border-radius: 10px;
+    background: rgba(10,10,11,0.55); box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+    overflow: hidden; opacity: 0; pointer-events: none; z-index: 35;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+  #browser-mirror.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #browser-mirror-label {
+    display: flex; align-items: center; gap: 7px; padding: 8px 12px;
+    font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: #9a9aa2; border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  #browser-mirror-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #e8432c; flex-shrink: 0;
+    animation: browser-mirror-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes browser-mirror-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  #browser-mirror-img { display: block; width: 100%; height: auto; max-height: calc(58vh - 34px); object-fit: contain; opacity: 0.9; }
+
   /* ---------- Companion — pairs a local app on the user's own computer ---------- */
   #companion-panel { margin-top: 24px; }
   #companion-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px; }
@@ -610,6 +634,11 @@
       </div>
     </div>
   </div>
+</div>
+
+<div id="browser-mirror">
+  <div id="browser-mirror-label"><span id="browser-mirror-dot"></span>Watching your Safari</div>
+  <img id="browser-mirror-img" alt="Live preview of what the Superself is looking at" />
 </div>
 
 <button id="talk-toggle">Talk</button>
@@ -1688,6 +1717,37 @@ function initTalkDrawer() {
     });
   });
 
+  // While a task is running, poll for whatever the Companion last saw in the
+  // user's own Safari and float it as a translucent preview over the app —
+  // not a real screen share, just "here's roughly what it's looking at
+  // right now", refreshed each time the agent does something on the page.
+  const mirror = document.getElementById('browser-mirror');
+  const mirrorImg = document.getElementById('browser-mirror-img');
+  let mirrorPollTimer = null;
+  let lastFrameTs = 0;
+
+  function startMirrorPolling() {
+    if (mirrorPollTimer) return;
+    mirrorPollTimer = setInterval(async () => {
+      try {
+        const res = await fetch('/api/companion/latest-frame', { credentials: 'same-origin' });
+        const data = await res.json();
+        if (data.data && data.ts !== lastFrameTs) {
+          lastFrameTs = data.ts;
+          mirrorImg.src = 'data:image/jpeg;base64,' + data.data;
+          mirror.classList.add('visible');
+        }
+      } catch {
+        // a missed poll just means the preview doesn't update this tick — not worth surfacing
+      }
+    }, 900);
+  }
+
+  function stopMirrorPolling(hideAfterMs) {
+    if (mirrorPollTimer) { clearInterval(mirrorPollTimer); mirrorPollTimer = null; }
+    setTimeout(() => mirror.classList.remove('visible'), hideAfterMs ?? 0);
+  }
+
   async function refreshGraphAfterTask() {
     const data = await fetch('/api/graph', { credentials: 'same-origin' }).then((r) => r.json());
     allNodes = data.nodes;
@@ -1707,6 +1767,7 @@ function initTalkDrawer() {
 
     if (mode === 'task') {
       pushTranscript('status', 'Working on it — this can take a moment…');
+      startMirrorPolling();
       try {
         const res = await fetch('/api/task', {
           method: 'POST', credentials: 'same-origin',
@@ -1721,6 +1782,8 @@ function initTalkDrawer() {
       } catch (err) {
         talkTranscript.pop();
         pushTranscript('error', err.message);
+      } finally {
+        stopMirrorPolling(2500); // keep the last frame up briefly, then fade
       }
     } else {
       try {
