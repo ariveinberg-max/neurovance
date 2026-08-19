@@ -264,7 +264,6 @@ const server = createServer(async (req, res) => {
 
   if (req.url === '/api/admin/waitlist' && req.method === 'GET') {
     res.setHeader('Access-Control-Allow-Origin', WAITLIST_CORS_ORIGIN);
-    console.log(`[admin-key-debug] env length=${process.env.ADMIN_KEY?.length} header length=${req.headers['x-admin-key']?.length} match=${req.headers['x-admin-key'] === process.env.ADMIN_KEY}`);
     if (!process.env.ADMIN_KEY || req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
       return sendJson(res, 401, { error: 'Unauthorized.' });
     }
