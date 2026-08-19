@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // Neurovance Companion — runs on your own computer, not in the cloud.
 //
-// What it can do: read files inside one folder (~/Documents/Neurovance) and
-// open https:// links in Safari, only when your own paired Superself asks.
+// What it can do: read files inside one folder (~/Documents/Neurovance),
+// open https:// links in Safari, and read the text of whatever's already
+// showing in Safari's front tab — only when your own paired Superself asks.
 // What it can't do: touch anything outside that folder, write or delete
-// anything, or run arbitrary commands. That boundary is enforced right here,
-// not on the server — the server only ever sees what this file lets it see.
+// anything, run arbitrary commands, log into anything, or fill in a form —
+// reading a page only ever sees what you already loaded yourself. That
+// boundary is enforced right here, not on the server — the server only
+// ever sees what this file lets it see.
 import WebSocket from 'ws';
 import { createInterface } from 'readline';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, watch } from 'fs';
@@ -80,6 +83,37 @@ function handleCommand(action, params) {
       execFile('osascript', ['-e', `tell application "Safari" to open location "${safeUrl}"`], (err) => {
         if (err) rej(new Error('Could not open Safari: ' + err.message));
         else res({ opened: safeUrl });
+      });
+    });
+  }
+
+  // Reads whatever is already rendered in the user's own front Safari tab —
+  // deliberately nothing more. This never logs in, fills in a form, or
+  // touches a credential; it only sees a page after the human already did
+  // that part themselves. Only the front tab, never every open tab.
+  if (action === 'read_safari_content') {
+    const script = [
+      'tell application "Safari"',
+      '  if (count of windows) is 0 then error "Safari has no windows open."',
+      '  set pageURL to URL of front document',
+      '  set pageTitle to name of front document',
+      '  set pageText to do JavaScript "document.body.innerText" in front document',
+      '  return pageURL & "|||NEUROVANCE|||" & pageTitle & "|||NEUROVANCE|||" & pageText',
+      'end tell',
+    ].join('\n');
+    return new Promise((res, rej) => {
+      execFile('osascript', ['-e', script], (err, stdout) => {
+        if (err) {
+          if (/not allowed to send Apple events|1743/.test(err.message)) {
+            rej(new Error('Safari has JavaScript-from-AppleScript turned off. Enable it: Safari > Settings > Advanced > check "Show features for web developers", then the new Develop menu > check "Allow JavaScript from Apple Events".'));
+          } else {
+            rej(new Error('Could not read the Safari page: ' + err.message));
+          }
+          return;
+        }
+        const [url, title, ...rest] = stdout.trim().split('|||NEUROVANCE|||');
+        const text = rest.join('|||NEUROVANCE|||'); // in case the delimiter-lookalike ever appears in real page text
+        res({ url, title, text: text.slice(0, 8000) });
       });
     });
   }

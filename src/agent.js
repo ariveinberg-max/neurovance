@@ -91,9 +91,16 @@ const COMPANION_OPEN_URL_TOOL = {
   },
 };
 
+const COMPANION_READ_BROWSER_TOOL = {
+  name: 'read_current_browser_page',
+  description:
+    'Read the visible text of whatever page is currently open in the user\'s own Safari (front tab only), via their paired Companion app. Only ever sees a page AFTER the user has already loaded and logged into it themselves — this cannot log in, fill in a form, or touch a credential. Only use this when the user has actually asked you to check or read something on their screen, e.g. right after asking them to log in somewhere. Never assume something is open unless they said so.',
+  input_schema: { type: 'object', properties: {} },
+};
+
 async function companionTools(userId) {
   return (await companion.isPaired(userId))
-    ? [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL]
+    ? [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL]
     : [];
 }
 
@@ -108,6 +115,10 @@ async function handleCompanionTool(userId, toolUse) {
   if (toolUse.name === 'open_url_in_browser') {
     const result = await companion.sendCommand(userId, 'open_url', { url: toolUse.input.url });
     return `Opened in Safari: ${result.opened}`;
+  }
+  if (toolUse.name === 'read_current_browser_page') {
+    const result = await companion.sendCommand(userId, 'read_safari_content', {});
+    return `Page: ${result.title} (${result.url})\n\n${result.text}`;
   }
   return null;
 }
@@ -158,18 +169,22 @@ async function memoryContext(userId, query) {
     .join('\n');
 }
 
-async function buildTaskSystemPrompt(userId, task) {
+async function buildTaskSystemPrompt(userId, user, task) {
   const [memoryLines, hasCompanion] = await Promise.all([
     memoryContext(userId, task),
     companion.isPaired(userId),
   ]);
   return [
-    'You are an autonomous agent brain with persistent memory across conversations.',
+    `You are "${user?.aiName || 'this user\'s Superself'}" — ${user?.displayName || 'their'} own AI self, working through a task on your own, not a generic assistant.`,
+    user?.advisorMode !== false
+      ? 'Be direct and brief about what you actually did or found — state the result plainly, the way a competent person reporting back would, not a customer-service bot. No emoji. No "Let me know if there\'s anything else you need!" or "Hope this helps!" filler — end when you have said the actual result.'
+      : 'Report back warmly but still plainly — say what you actually did or found, without padding it with generic assistant filler phrases or emoji.',
+    'If something is genuinely ambiguous, ask ONE specific clarifying question instead of guessing — but don\'t pad the question with apology or filler either.',
     'Use the remember tool whenever you learn something worth keeping for next time.',
     'Use the search_web tool when a task needs a fact or topic you are not confident about.',
     'Do not remember trivial or one-off details — only durable facts, preferences, or lessons.',
     hasCompanion
-      ? 'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything. You can also open_url_in_browser to open a link in their real Safari. Do not imply you can see or touch anything beyond that one folder.'
+      ? 'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything. You can also open_url_in_browser to open a link in their real Safari, and read_current_browser_page to read whatever is already showing in their front Safari tab (only after they have loaded/logged into it themselves — you can never log in or fill in a form for them). Do not imply you can see or touch anything beyond that.'
       : 'This user has not paired a Companion app, so you have no access to their computer, files, or browser — only memory and web search.',
     memoryLines ? `\nRelevant memories from before:\n${memoryLines}` : '\nNo relevant memories yet.',
   ].join('\n');
@@ -295,7 +310,7 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
 export async function runTask(userId, user, task) {
   const [extraTools, system] = await Promise.all([
     companionTools(userId),
-    buildTaskSystemPrompt(userId, task),
+    buildTaskSystemPrompt(userId, user, task),
   ]);
   const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools];
   return runLoop(userId, system, task, tools, 1024, resolveModel(user?.model));
