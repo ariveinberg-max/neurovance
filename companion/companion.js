@@ -3,13 +3,15 @@
 //
 // What it can do: read files inside one folder (~/Documents/Neurovance),
 // open https:// links in Safari, read the text of whatever's already
-// showing in Safari's front tab, and read your saved Safari bookmarks —
-// only when your own paired Superself asks.
-// What it can't do: touch anything outside that folder, write or delete
-// anything, run arbitrary commands, log into anything, or fill in a form —
-// reading a page only ever sees what you already loaded yourself. That
-// boundary is enforced right here, not on the server — the server only
-// ever sees what this file lets it see.
+// showing in Safari's front tab, read your saved Safari bookmarks, click
+// links/buttons on the current page, and type into fields — only when your
+// own paired Superself asks.
+// What it can't do: touch anything outside that folder, write or delete a
+// local file, run arbitrary commands, or type into a password field —
+// that last one is refused unconditionally right here, no matter what it's
+// asked to do. Reading a page only ever sees what you already loaded
+// yourself. These boundaries are enforced right here, not on the server —
+// the server only ever sees what this file lets it see.
 import WebSocket from 'ws';
 import { createInterface } from 'readline';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, watch } from 'fs';
@@ -133,6 +135,70 @@ function parsePlist(xml) {
   return parseValue(p).value;
 }
 
+// Embeds arbitrary JS source as the content of an AppleScript double-quoted
+// string literal — the two escapes AppleScript string literals actually
+// need. JSON.stringify already handles JS-string escaping one layer in;
+// this is the outer layer for the AppleScript parser itself.
+function escapeForAppleScript(js) {
+  return js.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function runSafariJS(js) {
+  const script = `tell application "Safari" to do JavaScript "${escapeForAppleScript(js)}" in front document`;
+  return new Promise((res, rej) => {
+    execFile('osascript', ['-e', script], { maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
+      if (err) {
+        if (/not allowed to send Apple events|1743/.test(err.message)) {
+          rej(new Error('Safari has JavaScript-from-AppleScript turned off. Enable it: Safari > Settings > Advanced > check "Show features for web developers", then the new Develop menu > check "Allow JavaScript from Apple Events".'));
+        } else if (/front document|no windows/i.test(err.message)) {
+          rej(new Error('Safari has no windows open.'));
+        } else {
+          rej(new Error('Safari script failed: ' + err.message));
+        }
+        return;
+      }
+      res(stdout.trim());
+    });
+  });
+}
+
+function buildClickScript(text) {
+  const parts = [
+    'var t=' + JSON.stringify(text.toLowerCase()) + ';',
+    'var els=Array.from(document.querySelectorAll(\'a, button, [role="button"], input[type="submit"], input[type="button"], summary, [onclick]\'));',
+    "var match=els.find(function(el){var label=(el.innerText||el.value||el.getAttribute('aria-label')||'').trim().toLowerCase();return label.indexOf(t)!==-1;});",
+    "if(!match)return 'NOT_FOUND';",
+    "match.scrollIntoView({block:'center'});",
+    'match.click();',
+    "return 'CLICKED: '+(match.innerText||match.value||match.getAttribute('aria-label')||'').trim().slice(0,120);",
+  ];
+  return '(function(){' + parts.join('') + '})()';
+}
+
+function buildTypeScript(label, text, submit) {
+  const parts = [
+    'var l=' + JSON.stringify(label.toLowerCase()) + ';',
+    'var val=' + JSON.stringify(text) + ';',
+    "var els=Array.from(document.querySelectorAll('input, textarea'));",
+    "var match=els.find(function(el){var hay=((el.placeholder||'')+' '+(el.getAttribute('aria-label')||'')+' '+(el.name||'')+' '+(el.id||'')).toLowerCase();return hay.indexOf(l)!==-1;});",
+    "if(!match)return 'NOT_FOUND';",
+    "if(match.type==='password')return 'BLOCKED_PASSWORD';",
+    'match.focus();',
+    'match.value=val;',
+    "match.dispatchEvent(new Event('input',{bubbles:true}));",
+    "match.dispatchEvent(new Event('change',{bubbles:true}));",
+  ];
+  if (submit) {
+    parts.push(
+      "var down=new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true});match.dispatchEvent(down);",
+      "var up=new KeyboardEvent('keyup',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true});match.dispatchEvent(up);",
+      'if(match.form&&match.form.requestSubmit)match.form.requestSubmit();'
+    );
+  }
+  parts.push("return 'TYPED';");
+  return '(function(){' + parts.join('') + '})()';
+}
+
 function handleCommand(action, params) {
   if (action === 'list_files') {
     const dir = resolveScoped(params.subpath || '');
@@ -193,6 +259,38 @@ function handleCommand(action, params) {
         const text = rest.join('|||NEUROVANCE|||'); // in case the delimiter-lookalike ever appears in real page text
         res({ url, title, text: text.slice(0, 8000) });
       });
+    });
+  }
+
+  // Clicks a link/button on the current front-tab page, matched by its
+  // visible text (not a CSS selector — the model only ever sees rendered
+  // text via read_current_browser_page, never markup, so text is the only
+  // thing it can reasonably target). Free to use for ordinary navigation;
+  // the server's system prompt is what tells the model to pause and confirm
+  // before clicking anything consequential — this action itself has no
+  // concept of "safe" vs "not", it just clicks what it's told.
+  if (action === 'click_page_element') {
+    const text = params.text || '';
+    if (!text) return Promise.reject(new Error('No text given to click.'));
+    const js = buildClickScript(text);
+    return runSafariJS(js).then((result) => {
+      if (result === 'NOT_FOUND') throw new Error(`Could not find anything matching "${text}" to click on the current page.`);
+      return { result };
+    });
+  }
+
+  // Types into an input/textarea matched by its placeholder, aria-label,
+  // name, or id. Hard-refuses password fields unconditionally — regardless
+  // of what it's asked to type or why — since the Companion never handles
+  // credentials, full stop.
+  if (action === 'type_into_page_field') {
+    const { label, text, submit } = params;
+    if (!label || text === undefined) return Promise.reject(new Error('Need both a field label and text to type.'));
+    const js = buildTypeScript(label, text, !!submit);
+    return runSafariJS(js).then((result) => {
+      if (result === 'NOT_FOUND') throw new Error(`Could not find a field matching "${label}" on the current page.`);
+      if (result === 'BLOCKED_PASSWORD') throw new Error('Refusing to type into a password field — the Companion never handles credentials.');
+      return { result };
     });
   }
 

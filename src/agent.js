@@ -105,7 +105,35 @@ const COMPANION_READ_BOOKMARKS_TOOL = {
   input_schema: { type: 'object', properties: {} },
 };
 
-const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL];
+const COMPANION_CLICK_TOOL = {
+  name: 'click_page_element',
+  description:
+    'Click a link or button on whatever page is currently open in the user\'s own Safari, matched by its visible text (not a CSS selector — match the text you can actually see on the page, e.g. from read_current_browser_page). Free to use for ordinary navigation, search, and lookups. Before using this to click anything that completes a purchase/payment, sends a message, or deletes/cancels/removes an account or data — stop and confirm with the user first instead of calling this.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      text: { type: 'string', description: 'The visible text of the link or button to click, e.g. "Sign in" or "Next".' },
+    },
+    required: ['text'],
+  },
+};
+
+const COMPANION_TYPE_TOOL = {
+  name: 'type_into_page_field',
+  description:
+    'Type text into an input or textarea on the current Safari page, matched by its placeholder/label text. Never works on password fields — refuses those unconditionally. Set submit:true to also press Enter after typing (e.g. for a search box). Free to use for search boxes, lookup forms, and filters. Before using this to fill in and submit anything that completes a purchase/payment, sends a message, or contains sensitive personal data going to a new destination — stop and confirm with the user first instead of calling this.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      label: { type: 'string', description: 'Text identifying the field, e.g. "search" or "email".' },
+      text: { type: 'string', description: 'The text to type into it.' },
+      submit: { type: 'boolean', description: 'If true, press Enter after typing (default false).' },
+    },
+    required: ['label', 'text'],
+  },
+};
+
+const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL];
 // Derived from the tool list itself, not hand-maintained separately — a
 // tool added to ALL_COMPANION_TOOLS above without also being added to a
 // second hardcoded name list here is exactly how read_current_browser_page
@@ -135,6 +163,18 @@ async function handleCompanionTool(userId, toolUse) {
   if (toolUse.name === 'read_current_browser_page') {
     const result = await companion.sendCommand(userId, 'read_safari_content', {});
     return `Page: ${result.title} (${result.url})\n\n${result.text}`;
+  }
+  if (toolUse.name === 'click_page_element') {
+    const result = await companion.sendCommand(userId, 'click_page_element', { text: toolUse.input.text });
+    return result.result;
+  }
+  if (toolUse.name === 'type_into_page_field') {
+    const result = await companion.sendCommand(userId, 'type_into_page_field', {
+      label: toolUse.input.label,
+      text: toolUse.input.text,
+      submit: !!toolUse.input.submit,
+    });
+    return result.result;
   }
   return null;
 }
@@ -202,7 +242,12 @@ async function buildTaskSystemPrompt(userId, user, task) {
     'Use the search_web tool when a task needs a fact or topic you are not confident about.',
     'Do not remember trivial or one-off details — only durable facts, preferences, or lessons.',
     hasCompanion
-      ? 'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything. You can also open_url_in_browser to open a link in their real Safari, read_current_browser_page to read whatever is already showing in their front Safari tab (only after they have loaded/logged into it themselves — you can never log in or fill in a form for them), and read_safari_bookmarks to search their saved bookmarks for a link before asking them to type one. Do not imply you can see or touch anything beyond that.'
+      ? [
+          'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything there.',
+          'In their real Safari you can: open_url_in_browser, read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks, click_page_element (click a link/button by its visible text), and type_into_page_field (type into a field by its label, optionally submit:true to press Enter). Use these freely for ordinary browsing — navigating, searching, filling in lookup forms, following links to find something. Do not ask permission first for that kind of thing; just go do it and report back.',
+          'The one hard line: before you complete an actual payment/purchase, click something that sends a message on their behalf, or click something that deletes/cancels/removes an account or their data — STOP. Say exactly what you are about to do and why, then end your turn and wait for their next message to actually confirm it before doing it. Do not do it in the same turn you proposed it in.',
+          'type_into_page_field will never type into a password field no matter what — never try to work around that or ask them to paste a password to you either.',
+        ].join(' ')
       : 'This user has not paired a Companion app, so you have no access to their computer, files, or browser — only memory and web search.',
     memoryLines ? `\nRelevant memories from before:\n${memoryLines}` : '\nNo relevant memories yet.',
   ].join('\n');
