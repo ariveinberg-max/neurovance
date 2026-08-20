@@ -6,13 +6,14 @@
 // showing in Safari's front tab, read your saved Safari bookmarks, click
 // links/buttons on the current page, type into fields, list what's
 // clickable and where it sits on screen, go back, search your real
-// Contacts by name, send a real iMessage (to one person or several), and
-// add a real calendar event, reminder, or note — only when your own
-// paired Superself asks. Sending a message only ever happens after
-// you've confirmed you actually want it sent (enforced by the Superself's
-// own instructions, not by this file — this file just does what it's
-// told); adding to your own calendar/reminders/notes doesn't need that
-// since it never reaches anyone but you.
+// Contacts by name, send a real iMessage (to one person or several), add a
+// real calendar event, reminder, or note, and read/send real email — only
+// when your own paired Superself asks. Sending a message or an email only
+// ever happens after you've confirmed you actually want it sent (enforced
+// by the Superself's own instructions, not by this file — this file just
+// does what it's told); reading your inbox and adding to your own
+// calendar/reminders/notes doesn't need that since none of it reaches
+// anyone but you.
 // What it can't do: touch anything outside that folder, write or delete a
 // local file, run arbitrary commands, edit/add/remove a contact, or type
 // into a password field — that last one is refused unconditionally right
@@ -284,6 +285,44 @@ function buildAddNoteScript(title, body) {
   ].join('\n');
 }
 
+// Reads the N most recent inbox messages — Mail.app lists them newest
+// first already, so message 1 is the latest. Subject/sender only, no body
+// text, to keep this fast and avoid pulling in huge HTML email bodies for
+// a simple "what's in my inbox" glance.
+function buildReadEmailsScript(limit) {
+  const n = Math.max(1, Math.min(20, Number(limit) || 10));
+  return [
+    'tell application "Mail"',
+    '  set totalCount to count of messages of inbox',
+    '  set msgCount to totalCount',
+    `  if msgCount > ${n} then set msgCount to ${n}`,
+    '  if msgCount is 0 then return "NOT_FOUND"',
+    '  set resultText to ""',
+    '  repeat with i from 1 to msgCount',
+    '    set m to message i of inbox',
+    '    set isRead to read status of m',
+    '    set resultText to resultText & (subject of m) & "::" & (sender of m) & "::" & (isRead as string) & "|||ROW|||"',
+    '  end repeat',
+    '  return resultText',
+    'end tell',
+  ].join('\n');
+}
+
+function buildSendEmailScript(recipient, subject, body) {
+  const safeRecipient = escapeForAppleScript(recipient);
+  const safeSubject = escapeForAppleScript(subject);
+  const safeBody = escapeForAppleScript(body);
+  return [
+    'tell application "Mail"',
+    `  set newMessage to make new outgoing message with properties {subject:"${safeSubject}", content:"${safeBody}", visible:false}`,
+    '  tell newMessage',
+    `    make new to recipient at end of to recipients with properties {address:"${safeRecipient}"}`,
+    '    send',
+    '  end tell',
+    'end tell',
+  ].join('\n');
+}
+
 function buildClickScript(text) {
   const parts = [
     'var t=' + JSON.stringify(text.toLowerCase()) + ';',
@@ -527,6 +566,33 @@ function handleCommand(action, params) {
     return runAppleScript(buildAddNoteScript(title, body))
       .then(() => ({ added: true, title }))
       .catch((e) => { throw new Error('Could not add the note: ' + e.message); });
+  }
+
+  // Reads the inbox (read-only, subject/sender/read-status only, no body
+  // text) so it can actually glance at what's there before being asked
+  // to do anything with it.
+  if (action === 'read_recent_emails') {
+    return runAppleScript(buildReadEmailsScript(params.limit)).then((result) => {
+      if (result === 'NOT_FOUND') return { emails: [] };
+      const rows = result.split('|||ROW|||').filter(Boolean);
+      const emails = rows.map((row) => {
+        const [subject, sender, isRead] = row.split('::');
+        return { subject: (subject || '').trim(), sender: (sender || '').trim(), read: (isRead || '').trim() === 'true' };
+      });
+      return { emails };
+    });
+  }
+
+  // Sends a real email from the user's own Mail app — reaches another
+  // person, same category as send_text_message. The server's system
+  // prompt is what makes the model confirm with the user first; this
+  // action itself just sends what it's told.
+  if (action === 'send_email') {
+    const { recipient, subject, body } = params;
+    if (!recipient || !subject || !body) return Promise.reject(new Error('Need a recipient, subject, and body.'));
+    return runAppleScript(buildSendEmailScript(recipient, subject, body))
+      .then(() => ({ sent: true, recipient }))
+      .catch((e) => { throw new Error('Could not send the email: ' + e.message); });
   }
 
   // Reads Safari's own saved bookmarks (read-only) so it can actually go
