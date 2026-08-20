@@ -94,12 +94,34 @@ export async function listUsers() {
 // Custom-branded model tiers — Neurovance's own names, not Anthropic's.
 // Starting with two: a fast one and a normal-speed one.
 export const MODEL_TIERS = ['pulse', 'core'];
-const DEFAULT_MODEL_TIER = 'core';
+
+// Paid plan gates the Core model tier only — never the Companion, which
+// stays free for everyone; it's the product's actual differentiator, and
+// paywalling it would hurt adoption more than it protects revenue. Core
+// costs more per reply than Pulse, so gating it (not a feature) is what
+// actually protects margin as usage grows. New signups default to 'free'
+// and 'pulse' together; every account that existed before this gate was
+// introduced was grandfathered to 'paid' in one pass (see
+// src/grandfather-paid-plan.js) so nobody already using Core lost it.
+export const PLANS = ['free', 'paid'];
+const DEFAULT_PLAN = 'free';
+
+export async function setPlan(userId, plan) {
+  if (!PLANS.includes(plan)) throw new Error(`Unknown plan: ${plan}`);
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.plan = plan;
+  await saveUser(user);
+  return user;
+}
 
 export async function setModelTier(userId, tier) {
   if (!MODEL_TIERS.includes(tier)) throw new Error(`Unknown model tier: ${tier}`);
   const user = await findUserById(userId);
   if (!user) throw new Error('No such user.');
+  if (tier === 'core' && user.plan !== 'paid') {
+    throw new Error('Core is a paid feature — upgrade to switch to it.');
+  }
   user.model = tier;
   await saveUser(user);
   return user;
@@ -232,7 +254,8 @@ export async function finishSignup({ email, verifiedToken, username, displayName
     passwordHash: record.passwordHash,
     displayName: displayName.trim(),
     aiName: aiName.trim(),
-    model: DEFAULT_MODEL_TIER,
+    plan: DEFAULT_PLAN,
+    model: 'pulse', // free-tier default — Core requires 'paid', see setModelTier
     createdAt: new Date().toISOString(),
   };
   await saveUser(user);
@@ -409,7 +432,8 @@ export async function finishOAuthSignup({ pendingToken, username, displayName, a
     oauthId: record.providerId,
     displayName: displayName.trim(),
     aiName: aiName.trim(),
-    model: DEFAULT_MODEL_TIER,
+    plan: DEFAULT_PLAN,
+    model: 'pulse', // free-tier default — Core requires 'paid', see setModelTier
     createdAt: new Date().toISOString(),
   };
   await saveUser(user);

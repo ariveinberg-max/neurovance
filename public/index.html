@@ -293,6 +293,9 @@
     transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
   }
   .model-tier.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
+  .model-tier.locked { opacity: 0.6; }
+  .model-tier.locked::after { content: ' · Paid'; font-size: 8px; letter-spacing: 0.5px; }
+  #model-tier-note { font-size: 10px; color: var(--text-muted); margin-top: 6px; min-height: 12px; }
   #talk-transcript { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
   .talk-msg { font-size: 12.5px; line-height: 1.55; max-width: 88%; }
   .talk-msg .talk-role {
@@ -372,6 +375,8 @@
   }
   .personality-mode.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
   #personality-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
+  #settings-plan-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); }
+  #settings-plan-status .plan-paid { color: var(--accent-green); }
   #voice-select {
     width: 100%; background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.14);
     border-radius: 4px; color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 11px; padding: 7px 8px; outline: none;
@@ -733,6 +738,11 @@
     </div>
 
     <div class="settings-section">
+      <div class="sm-label">Plan</div>
+      <div id="settings-plan-status"></div>
+    </div>
+
+    <div class="settings-section">
       <div class="sm-label">Theme</div>
       <div id="theme-tabs">
         <button class="theme-mode" data-mode="dark">Dark</button>
@@ -853,6 +863,7 @@
       <button class="model-tier" data-tier="pulse">Pulse 2.1</button>
       <button class="model-tier active" data-tier="core">Core 1.1</button>
     </div>
+    <div id="model-tier-note"></div>
   </div>
   <div id="talk-transcript"></div>
   <div id="talk-input-row">
@@ -911,11 +922,11 @@ let pendingEmail = null;
 let pendingVerifiedToken = null;
 let oauthPendingToken = null;
 
-function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword }) {
+function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword, plan }) {
   currentIdentity = {
     displayName, aiName, model: model || 'core', advisorMode: advisorMode !== false,
     username: username || currentIdentity.username, email: email || currentIdentity.email,
-    hasPassword: hasPassword !== false,
+    hasPassword: hasPassword !== false, plan: plan || currentIdentity.plan || 'free',
   };
   document.getElementById('app-title').textContent = aiName;
   document.getElementById('app-subtitle').textContent = `${displayName}'s Superself`;
@@ -2008,13 +2019,17 @@ function initTalkDrawer() {
     input.placeholder = mode === 'task' ? 'Give it something to do…' : 'Say something…';
   }));
 
-  // Model tier — Pulse (fast) / Core (normal), Neurovance's own names.
-  // Only ever changes this one user's own chat + tasks.
+  // Model tier — Pulse (fast, free) / Core (smarter, paid), Neurovance's
+  // own names. Only ever changes this one user's own chat + tasks.
   const modelTabs = document.querySelectorAll('.model-tier');
+  const modelTierNote = document.getElementById('model-tier-note');
   modelTabs.forEach((btn) => {
     if (btn.dataset.tier === currentIdentity.model) {
       modelTabs.forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
+    }
+    if (btn.dataset.tier === 'core' && currentIdentity.plan !== 'paid') {
+      btn.classList.add('locked');
     }
     btn.addEventListener('click', async () => {
       if (btn.classList.contains('active')) return;
@@ -2024,7 +2039,12 @@ function initTalkDrawer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tier }),
       });
-      if (!res.ok) return;
+      const data = await res.json();
+      if (!res.ok) {
+        modelTierNote.textContent = data.error || 'Could not switch models.';
+        return;
+      }
+      modelTierNote.textContent = '';
       currentIdentity.model = tier;
       modelTabs.forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
@@ -2164,6 +2184,11 @@ function initSettings() {
   document.getElementById('settings-trigger').addEventListener('click', () => backdrop.classList.add('open'));
   document.getElementById('settings-modal-close').addEventListener('click', () => backdrop.classList.remove('open'));
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
+
+  const planStatusEl = document.getElementById('settings-plan-status');
+  planStatusEl.innerHTML = currentIdentity.plan === 'paid'
+    ? '<span class="plan-paid">Paid</span> — Core 1.1 unlocked'
+    : 'Free — Core 1.1 requires upgrading ($5/mo)';
 
   // Theme — client-side only (like voice), applied via a tiny inline script
   // at the top of <head> too so a saved preference is set before the page

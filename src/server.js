@@ -134,6 +134,7 @@ function identityPayload(user) {
     email: user.email,
     hasPassword: !!user.passwordHash,
     model: user.model || 'core',
+    plan: user.plan || 'free',
     advisorMode: user.advisorMode !== false,
   };
 }
