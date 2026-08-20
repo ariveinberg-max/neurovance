@@ -296,10 +296,33 @@
   }
   #companion-panel button:hover, #companion-panel a.companion-btn:hover { background: rgba(255,255,255,0.1); }
 
-  /* ---------- Settings — personality tone + speech voice ---------- */
-  #settings-panel { margin-top: 24px; }
-  #settings-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px; }
-  #voice-label { margin-top: 14px; }
+  /* ---------- Settings — a real modal, not more stuff crammed into the
+     sidebar. Personality tone + speech voice live here; more settings
+     (model tier, appearance, etc.) belong in this same modal later
+     instead of scattering across the app again. ---------- */
+  #settings-trigger {
+    font-size: 9px; letter-spacing: 1px; color: #4a4a50; cursor: pointer; text-transform: uppercase;
+    margin-top: 10px; transition: color 0.2s ease;
+  }
+  #settings-trigger:hover { color: #9a9aa2; }
+
+  #settings-modal-backdrop {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 60;
+    align-items: center; justify-content: center;
+  }
+  #settings-modal-backdrop.open { display: flex; }
+  #settings-modal {
+    width: 360px; max-width: 90vw; max-height: 80vh; overflow-y: auto;
+    background: #0e0e10; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px;
+    padding: 22px 24px; box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+  }
+  #settings-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  #settings-modal-title { font-size: 13px; font-weight: 600; letter-spacing: 1px; color: #eaeaec; }
+  #settings-modal-close { color: #63636a; cursor: pointer; font-size: 13px; padding: 4px; transition: color 0.2s ease; }
+  #settings-modal-close:hover { color: #d6d6d9; }
+  .settings-section { margin-bottom: 20px; }
+  .settings-section:last-child { margin-bottom: 0; }
+  .settings-section .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 8px; }
   #personality-tabs { display: flex; gap: 6px; }
   .personality-mode {
     background: none; border: 1px solid rgba(255,255,255,0.1); color: #63636a; font-family: 'Share Tech Mono', monospace;
@@ -307,10 +330,10 @@
     transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
   }
   .personality-mode.active { color: #7fd99a; background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
-  #personality-note { font-size: 10px; color: #63636a; line-height: 1.5; margin-top: 6px; max-width: 200px; }
+  #personality-note { font-size: 10px; color: #63636a; line-height: 1.5; margin-top: 8px; }
   #voice-select {
-    width: 100%; max-width: 220px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 4px; color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px 8px; outline: none;
+    width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 4px; color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 11px; padding: 7px 8px; outline: none;
   }
   #voice-select:focus { border-color: rgba(210,230,255,0.5); }
 
@@ -566,18 +589,6 @@
     <div id="companion-actions"></div>
   </div>
 
-  <div id="settings-panel">
-    <div class="sm-label">Personality</div>
-    <div id="personality-tabs">
-      <button class="personality-mode" data-mode="advisor">Advisor</button>
-      <button class="personality-mode" data-mode="companion">Companion</button>
-    </div>
-    <div id="personality-note"></div>
-
-    <div class="sm-label" id="voice-label">Voice</div>
-    <select id="voice-select"></select>
-  </div>
-
   <div id="connections-panel">
     <div class="sm-label">Connections</div>
     <div id="connections-list"></div>
@@ -593,7 +604,31 @@
     <div class="legend-item"><span class="swatch" style="background:#c8c9cf"></span>Key memory</div>
     <div class="legend-item"><span class="swatch" style="background:#6b6c74"></span>Standard memory</div>
     <div id="brand-tag">NEUROVANCE</div>
+    <div id="settings-trigger">Settings</div>
     <div id="logout-link">Log out</div>
+  </div>
+</div>
+
+<div id="settings-modal-backdrop">
+  <div id="settings-modal">
+    <div id="settings-modal-header">
+      <div id="settings-modal-title">Settings</div>
+      <div id="settings-modal-close">✕</div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">Personality</div>
+      <div id="personality-tabs">
+        <button class="personality-mode" data-mode="advisor">Advisor</button>
+        <button class="personality-mode" data-mode="companion">Companion</button>
+      </div>
+      <div id="personality-note"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">Voice</div>
+      <select id="voice-select"></select>
+    </div>
   </div>
 </div>
 
@@ -1837,6 +1872,11 @@ function initCompanion() {
 let selectedVoice = null;
 
 function initSettings() {
+  const backdrop = document.getElementById('settings-modal-backdrop');
+  document.getElementById('settings-trigger').addEventListener('click', () => backdrop.classList.add('open'));
+  document.getElementById('settings-modal-close').addEventListener('click', () => backdrop.classList.remove('open'));
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
+
   const tabs = document.querySelectorAll('.personality-mode');
   const note = document.getElementById('personality-note');
   const NOTES = {
