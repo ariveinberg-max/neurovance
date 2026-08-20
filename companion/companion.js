@@ -5,14 +5,17 @@
 // open https:// links in Safari, read the text of whatever's already
 // showing in Safari's front tab, read your saved Safari bookmarks, click
 // links/buttons on the current page, type into fields, list what's
-// clickable and where it sits on screen, and go back — only when your own
-// paired Superself asks.
+// clickable and where it sits on screen, go back, search your real
+// Contacts by name, and send a real iMessage — only when your own paired
+// Superself asks, and only after you've confirmed you actually want that
+// message sent (enforced by the Superself's own instructions, not by this
+// file — this file just sends what it's told).
 // What it can't do: touch anything outside that folder, write or delete a
-// local file, run arbitrary commands, or type into a password field —
-// that last one is refused unconditionally right here, no matter what it's
-// asked to do. Reading a page only ever sees what you already loaded
-// yourself. These boundaries are enforced right here, not on the server —
-// the server only ever sees what this file lets it see.
+// local file, run arbitrary commands, edit/add/remove a contact, or type
+// into a password field — that last one is refused unconditionally right
+// here, no matter what it's asked to do. Reading a page only ever sees
+// what you already loaded yourself. These boundaries are enforced right
+// here, not on the server — the server only ever sees what this file lets it see.
 import WebSocket from 'ws';
 import { createInterface } from 'readline';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, watch } from 'fs';
@@ -161,6 +164,58 @@ function runSafariJS(js) {
       res(stdout.trim());
     });
   });
+}
+
+// Generic AppleScript runner for anything outside Safari — Contacts lookup,
+// sending a message. No "activate" line here on purpose: reading a contact
+// or sending a text doesn't need to yank focus onto some other app the way
+// a visible browser action does.
+function runAppleScript(script) {
+  return new Promise((res, rej) => {
+    execFile('osascript', ['-e', script], { maxBuffer: 2 * 1024 * 1024 }, (err, stdout) => {
+      if (err) return rej(new Error(err.message));
+      res(stdout.trim());
+    });
+  });
+}
+
+function buildFindContactScript(query) {
+  const safeQuery = escapeForAppleScript(query);
+  return [
+    'tell application "Contacts"',
+    `  set matches to every person whose name contains "${safeQuery}"`,
+    '  if (count of matches) is 0 then return "NOT_FOUND"',
+    '  set resultText to ""',
+    '  set matchCount to count of matches',
+    '  if matchCount > 5 then set matchCount to 5',
+    '  repeat with i from 1 to matchCount',
+    '    set p to item i of matches',
+    '    set personName to name of p',
+    '    set phoneStr to ""',
+    '    repeat with ph in phones of p',
+    '      set phoneStr to phoneStr & (value of ph) & ", "',
+    '    end repeat',
+    '    set emailStr to ""',
+    '    repeat with em in emails of p',
+    '      set emailStr to emailStr & (value of em) & ", "',
+    '    end repeat',
+    '    set resultText to resultText & personName & "::" & phoneStr & "::" & emailStr & "|||ROW|||"',
+    '  end repeat',
+    '  return resultText',
+    'end tell',
+  ].join('\n');
+}
+
+function buildSendMessageScript(recipient, text) {
+  const safeRecipient = escapeForAppleScript(recipient);
+  const safeText = escapeForAppleScript(text);
+  return [
+    'tell application "Messages"',
+    '  set targetService to 1st service whose service type = iMessage',
+    `  set targetBuddy to buddy "${safeRecipient}" of targetService`,
+    `  send "${safeText}" to targetBuddy`,
+    'end tell',
+  ].join('\n');
 }
 
 function buildClickScript(text) {
@@ -339,6 +394,41 @@ function handleCommand(action, params) {
         throw new Error('Could not read the page\'s clickable elements.');
       }
     });
+  }
+
+  // Reads the user's own Contacts (read-only) so a request like "text mom"
+  // can resolve to an actual phone number/email instead of asking them to
+  // type one. Never writes/edits a contact, only searches by name.
+  if (action === 'find_contact') {
+    const query = params.query || '';
+    if (!query) return Promise.reject(new Error('No name given to search for.'));
+    return runAppleScript(buildFindContactScript(query)).then((result) => {
+      if (result === 'NOT_FOUND') return { contacts: [] };
+      const rows = result.split('|||ROW|||').filter(Boolean);
+      const contacts = rows.map((row) => {
+        const [name, phones, emails] = row.split('::');
+        return {
+          name: (name || '').trim(),
+          phones: (phones || '').split(',').map((s) => s.trim()).filter(Boolean),
+          emails: (emails || '').split(',').map((s) => s.trim()).filter(Boolean),
+        };
+      });
+      return { contacts };
+    });
+  }
+
+  // Sends a real iMessage on the user's behalf — the one Companion action
+  // that reaches another person, not just the user's own stuff. The
+  // server's system prompt is what makes the model stop and confirm with
+  // the user before ever calling this, same as it already does for
+  // payments and deletions; this action itself has no concept of "safe"
+  // vs "not", it just sends what it's told, exactly like click_page_element.
+  if (action === 'send_text_message') {
+    const { recipient, text } = params;
+    if (!recipient || !text) return Promise.reject(new Error('Need both a recipient and message text.'));
+    return runAppleScript(buildSendMessageScript(recipient, text))
+      .then(() => ({ sent: true, recipient }))
+      .catch((e) => { throw new Error('Could not send the message: ' + e.message); });
   }
 
   // Reads Safari's own saved bookmarks (read-only) so it can actually go
