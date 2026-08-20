@@ -479,6 +479,11 @@
     transition: filter 3s ease;
   }
   body.dormant #graph { filter: brightness(0.82) contrast(1.05) saturate(0.8); }
+  /* That dimming filter darkens the whole canvas rectangle uniformly — on
+     the near-black dark-theme canvas the dimming is imperceptible, but on
+     the light-theme canvas it visibly darkens the panel into its own boxed
+     rectangle against the unfiltered page around it. Light mode skips it. */
+  :root[data-theme="light"] body.dormant #graph { filter: none; }
   #empty {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     color: var(--text-muted); font-size: 13px; text-align: center; max-width: 320px;
@@ -907,6 +912,11 @@ function framePath(idx, mode) {
   return mode === 'light' ? `/turntable/angle-${idx}-light.png` : `/turntable/angle-${idx}.png`;
 }
 let refreshBodyFrameTheme = null;
+// The containment shell (wireframe ball around the memory nodes) is a light
+// grey by design — invisible against the light canvas bg, needs to go dark.
+function shellColorFor(mode) {
+  return mode === 'light' ? 0x3a3a42 : 0xa8a8b2;
+}
 let bodyControls = null;
 let shellMaterial = null, currentBpm = 60, displayedBpm = 60, isDormant = false, isOverworked = false, voiceActive = false;
 
@@ -1357,7 +1367,7 @@ function initGraph(data) {
 
   try {
     const shellGeo = new THREE.IcosahedronGeometry(RADIUS * 1.22, 2);
-    shellMaterial = new THREE.MeshBasicMaterial({ color: 0xa8a8b2, wireframe: true, transparent: true, opacity: 0.22 });
+    shellMaterial = new THREE.MeshBasicMaterial({ color: shellColorFor(document.documentElement.dataset.theme || 'dark'), wireframe: true, transparent: true, opacity: 0.22 });
     Graph.scene().add(new THREE.Mesh(shellGeo, shellMaterial));
   } catch (e) { console.warn('Shell skipped:', e); }
 
@@ -2276,6 +2286,7 @@ function initSettings() {
       themeTabs.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
       if (Graph) Graph.backgroundColor(graphBgFor(mode));
       if (refreshBodyFrameTheme) refreshBodyFrameTheme(mode);
+      if (shellMaterial) shellMaterial.color.setHex(shellColorFor(mode));
     });
   });
 
