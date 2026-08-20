@@ -438,7 +438,7 @@ const server = createServer(async (req, res) => {
   if (req.url === '/api/me') {
     const { user } = await getSessionAndUser(req);
     if (!user) return sendJson(res, 401, { ok: false });
-    sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName, username: user.username, model: user.model || 'core' });
+    sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName, username: user.username, model: user.model || 'core', advisorMode: user.advisorMode !== false });
     return;
   }
 
@@ -463,6 +463,22 @@ const server = createServer(async (req, res) => {
         }
         await auth.setModelTier(user.id, tier);
         return sendJson(res, 200, { ok: true, model: tier });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Personality — brutally-honest advisor vs. warm companion.
+    // Only ever changes this one user's own tone, never anyone else's. ----------
+
+    if (req.url === '/api/advisor-mode' && req.method === 'POST') {
+      try {
+        const { advisorMode } = await readJsonBody(req);
+        if (typeof advisorMode !== 'boolean') {
+          return sendJson(res, 400, { error: 'advisorMode must be true or false.' });
+        }
+        await auth.setAdvisorMode(user.id, advisorMode);
+        return sendJson(res, 200, { ok: true, advisorMode });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }

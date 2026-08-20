@@ -296,6 +296,24 @@
   }
   #companion-panel button:hover, #companion-panel a.companion-btn:hover { background: rgba(255,255,255,0.1); }
 
+  /* ---------- Settings — personality tone + speech voice ---------- */
+  #settings-panel { margin-top: 24px; }
+  #settings-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px; }
+  #voice-label { margin-top: 14px; }
+  #personality-tabs { display: flex; gap: 6px; }
+  .personality-mode {
+    background: none; border: 1px solid rgba(255,255,255,0.1); color: #63636a; font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 10px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .personality-mode.active { color: #7fd99a; background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
+  #personality-note { font-size: 10px; color: #63636a; line-height: 1.5; margin-top: 6px; max-width: 200px; }
+  #voice-select {
+    width: 100%; max-width: 220px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 4px; color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px 8px; outline: none;
+  }
+  #voice-select:focus { border-color: rgba(210,230,255,0.5); }
+
   /* ---------- Connections — private introductions between two Superselves ---------- */
   #connections-panel { margin-top: 24px; }
   #connections-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px; }
@@ -548,6 +566,18 @@
     <div id="companion-actions"></div>
   </div>
 
+  <div id="settings-panel">
+    <div class="sm-label">Personality</div>
+    <div id="personality-tabs">
+      <button class="personality-mode" data-mode="advisor">Advisor</button>
+      <button class="personality-mode" data-mode="companion">Companion</button>
+    </div>
+    <div id="personality-note"></div>
+
+    <div class="sm-label" id="voice-label">Voice</div>
+    <select id="voice-select"></select>
+  </div>
+
   <div id="connections-panel">
     <div class="sm-label">Connections</div>
     <div id="connections-list"></div>
@@ -661,6 +691,7 @@ function startApp() {
       initMemorySearch();
       initCorrectMemory();
       initCompanion();
+      initSettings();
       initConnections();
       initPendingNotes();
       initTalkDrawer();
@@ -683,8 +714,8 @@ let pendingEmail = null;
 let pendingVerifiedToken = null;
 let oauthPendingToken = null;
 
-function applyIdentity({ displayName, aiName, model }) {
-  currentIdentity = { displayName, aiName, model: model || 'core' };
+function applyIdentity({ displayName, aiName, model, advisorMode }) {
+  currentIdentity = { displayName, aiName, model: model || 'core', advisorMode: advisorMode !== false };
   document.getElementById('app-title').textContent = aiName;
   document.getElementById('app-subtitle').textContent = `${displayName}'s Superself`;
 }
@@ -1800,6 +1831,65 @@ function initCompanion() {
   refresh();
 }
 
+// Personality tone (server-side, follows the account everywhere) and speech
+// voice (client-side — which voices exist depends on this browser/device,
+// so it's stored per-browser rather than synced to the account).
+let selectedVoice = null;
+
+function initSettings() {
+  const tabs = document.querySelectorAll('.personality-mode');
+  const note = document.getElementById('personality-note');
+  const NOTES = {
+    advisor: 'Brutally honest — challenges you, no sugarcoating.',
+    companion: 'Warm and personal — reacts like a real person, no tough love.',
+  };
+
+  function setActiveTab(advisorMode) {
+    const mode = advisorMode ? 'advisor' : 'companion';
+    tabs.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+    note.textContent = NOTES[mode];
+  }
+  setActiveTab(currentIdentity.advisorMode);
+
+  tabs.forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (btn.classList.contains('active')) return;
+      const advisorMode = btn.dataset.mode === 'advisor';
+      const res = await fetch('/api/advisor-mode', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ advisorMode }),
+      });
+      if (!res.ok) return;
+      currentIdentity.advisorMode = advisorMode;
+      setActiveTab(advisorMode);
+    });
+  });
+
+  // Voices load asynchronously (and sometimes only after this event fires,
+  // depending on the browser), so populate now AND on the change event.
+  const voiceSelect = document.getElementById('voice-select');
+  const VOICE_STORAGE_KEY = 'neurovance_voice_name';
+
+  function populateVoices() {
+    const voices = speechSynthesis.getVoices();
+    if (!voices.length) return;
+    const savedName = localStorage.getItem(VOICE_STORAGE_KEY);
+    voiceSelect.innerHTML = voices.map((v) => `<option value="${v.name}">${v.name} (${v.lang})</option>`).join('');
+    const match = voices.find((v) => v.name === savedName) || voices.find((v) => v.default) || voices[0];
+    voiceSelect.value = match.name;
+    selectedVoice = match;
+  }
+
+  voiceSelect.addEventListener('change', () => {
+    selectedVoice = speechSynthesis.getVoices().find((v) => v.name === voiceSelect.value) || null;
+    localStorage.setItem(VOICE_STORAGE_KEY, voiceSelect.value);
+  });
+
+  populateVoices();
+  speechSynthesis.addEventListener('voiceschanged', populateVoices);
+}
+
 // Dims every node whose content and tags don't match the search text, so the
 // sphere itself becomes the filtered view instead of a separate list.
 // Dims non-matching nodes toward near-black via their actual material color
@@ -2174,6 +2264,7 @@ function initVoiceAssistant() {
     voiceActive = true; // sphere/links pulse faster while it's actually talking
 
     const utter = new SpeechSynthesisUtterance(text);
+    if (selectedVoice) utter.voice = selectedVoice;
     utter.onboundary = () => {
       mouthEl.style.transform = 'translate(-50%, -50%) scaleY(2.4)';
       setTimeout(() => { mouthEl.style.transform = 'translate(-50%, -50%) scaleY(1)'; }, 90);

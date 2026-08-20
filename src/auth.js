@@ -105,6 +105,17 @@ export async function setModelTier(userId, tier) {
   return user;
 }
 
+// Whether this user's Superself is a brutally-honest advisor (the product
+// default) or a warm companion — was a code-level escape hatch before, now
+// a real per-user setting like model tier above.
+export async function setAdvisorMode(userId, advisorMode) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.advisorMode = !!advisorMode;
+  await saveUser(user);
+  return user;
+}
+
 // ---------- Email + password signup, verified by a code sent to that email,
 // username picked only after verification succeeds ----------
 
