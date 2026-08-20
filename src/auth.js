@@ -116,6 +116,44 @@ export async function setAdvisorMode(userId, advisorMode) {
   return user;
 }
 
+export async function setUsername(userId, newUsername) {
+  const normalized = newUsername.trim().toLowerCase();
+  if (!normalized) throw new Error('Username cannot be empty.');
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  if (normalized === user.username) return user;
+  const existing = await findUserByUsername(normalized);
+  if (existing) throw new Error('That username is already taken.');
+  user.username = normalized;
+  await saveUser(user);
+  return user;
+}
+
+export async function setAiName(userId, newAiName) {
+  const trimmed = newAiName.trim();
+  if (!trimmed) throw new Error('Name cannot be empty.');
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.aiName = trimmed;
+  await saveUser(user);
+  return user;
+}
+
+// Requires the current password when one exists (a password-based account
+// changing its own password) — an OAuth-only account (passwordHash: null)
+// is setting one for the first time, so there's nothing to verify yet.
+export async function changePassword(userId, currentPassword, newPassword) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  if (user.passwordHash && !(currentPassword && verifyPassword(currentPassword, user.passwordHash))) {
+    throw new Error('Current password is incorrect.');
+  }
+  if (!isStrongPassword(newPassword)) throw new Error(PASSWORD_ERROR);
+  user.passwordHash = hashPassword(newPassword);
+  await saveUser(user);
+  return user;
+}
+
 // ---------- Email + password signup, verified by a code sent to that email,
 // username picked only after verification succeeds ----------
 
@@ -200,6 +238,123 @@ export async function finishSignup({ email, verifiedToken, username, displayName
   await saveUser(user);
   await deletePendingSignup(normalizedEmail);
 
+  return user;
+}
+
+// ---------- Forgot password — same code-then-token shape as signup
+// verification above, in its own collection so an in-progress reset can
+// never collide with an in-progress signup for the same email. ----------
+
+async function getPasswordReset(email) {
+  return getDoc('passwordResets', email);
+}
+async function savePasswordReset(email, record) {
+  await setDoc('passwordResets', email, record);
+}
+async function deletePasswordReset(email) {
+  await deleteDoc('passwordResets', email);
+}
+
+// Always returns quietly (never throws for "no such account") — the server
+// sends the same "check your email" response either way, so this can't be
+// used to probe which emails have accounts. Returns null when there's
+// nothing to email; the caller simply skips sending in that case.
+export async function startPasswordReset(email) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = await findUserByEmail(normalizedEmail);
+  if (!user) return null;
+  const code = generateCode();
+  await savePasswordReset(normalizedEmail, {
+    email: normalizedEmail,
+    code,
+    verified: false,
+    resetToken: null,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + CODE_EXPIRY_MS,
+  });
+  return code;
+}
+
+export async function verifyPasswordResetCode({ email, code }) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const record = await getPasswordReset(normalizedEmail);
+  if (!record) throw new Error('No reset in progress for that email — request a new code.');
+  if (Date.now() > record.expiresAt) throw new Error('That code expired — request a new one.');
+  if (record.code !== String(code).trim()) throw new Error('Wrong code.');
+
+  record.verified = true;
+  record.resetToken = randomBytes(24).toString('hex');
+  record.resetTokenExpiresAt = Date.now() + VERIFIED_TOKEN_EXPIRY_MS;
+  await savePasswordReset(normalizedEmail, record);
+  return record.resetToken;
+}
+
+export async function finishPasswordReset({ email, resetToken, newPassword }) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const record = await getPasswordReset(normalizedEmail);
+  if (!record || !record.verified || record.resetToken !== resetToken) {
+    throw new Error('Reset verification expired or invalid — start over.');
+  }
+  if (Date.now() > record.resetTokenExpiresAt) throw new Error('That verification expired — start over.');
+  if (!isStrongPassword(newPassword)) throw new Error(PASSWORD_ERROR);
+
+  const user = await findUserByEmail(normalizedEmail);
+  if (!user) throw new Error('No such account.');
+  user.passwordHash = hashPassword(newPassword);
+  await saveUser(user);
+  await deletePasswordReset(normalizedEmail);
+  return user;
+}
+
+// ---------- Change email — requires the current password (when the account
+// has one) before even starting, then a code sent to the NEW address to
+// prove it's actually reachable, the same two-factor shape signup itself
+// uses. Keyed by userId, not email, since this is an already-authenticated
+// action, not a public one. ----------
+
+async function getPendingEmailChange(userId) {
+  return getDoc('pendingEmailChanges', userId);
+}
+async function savePendingEmailChange(userId, record) {
+  await setDoc('pendingEmailChanges', userId, record);
+}
+async function deletePendingEmailChange(userId) {
+  await deleteDoc('pendingEmailChanges', userId);
+}
+
+export async function startEmailChange(userId, newEmail, currentPassword) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  if (user.passwordHash && !(currentPassword && verifyPassword(currentPassword, user.passwordHash))) {
+    throw new Error('Current password is incorrect.');
+  }
+  const normalizedEmail = newEmail.trim().toLowerCase();
+  if (normalizedEmail === user.email) throw new Error('That is already your email.');
+  if (await findUserByEmail(normalizedEmail)) throw new Error('That email is already in use.');
+
+  const code = generateCode();
+  await savePendingEmailChange(userId, {
+    userId,
+    newEmail: normalizedEmail,
+    code,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + CODE_EXPIRY_MS,
+  });
+  return { code, newEmail: normalizedEmail };
+}
+
+export async function finishEmailChange(userId, code) {
+  const record = await getPendingEmailChange(userId);
+  if (!record) throw new Error('No email change in progress — start over.');
+  if (Date.now() > record.expiresAt) throw new Error('That code expired — request a new one.');
+  if (record.code !== String(code).trim()) throw new Error('Wrong code.');
+  if (await findUserByEmail(record.newEmail)) throw new Error('That email is already in use.');
+
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.email = record.newEmail;
+  await saveUser(user);
+  await deletePendingEmailChange(userId);
   return user;
 }
 

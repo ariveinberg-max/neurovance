@@ -8,9 +8,47 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Michroma&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; }
+
+  /* ---------- Theme tokens — dark is the default/original palette
+     (unchanged values, so dark mode looks exactly like it always has), light
+     is a real second palette, not an inversion filter. Applies to the app
+     chrome (sidebar, modals, forms, talk drawer); the 3D memory sphere and
+     body turntable are WebGL/canvas-rendered and stay dark regardless of
+     theme — that's a separate rendering layer CSS variables can't reach. ---------- */
+  :root {
+    --bg: #050505;
+    --surface: #0a0a0b;
+    --surface-alt: #0d0d0f;
+    --surface-modal: #0e0e10;
+    --text-bright: #eaeaec;
+    --text-primary: #d6d6d9;
+    --text-secondary: #9a9aa2;
+    --text-muted: #63636a;
+    --text-faint: #4a4a50;
+    --accent-green: #7fd99a;
+    --accent-green-bright: #b8ffcf;
+    --accent-red: #e8432c;
+    --overlay-rgb: 255, 255, 255;
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f1ee;
+    --surface: #ffffff;
+    --surface-alt: #ffffff;
+    --surface-modal: #ffffff;
+    --text-bright: #0b0b0c;
+    --text-primary: #26262a;
+    --text-secondary: #55555c;
+    --text-muted: #7c7c84;
+    --text-faint: #a4a4ac;
+    --accent-green: #1f9d54;
+    --accent-green-bright: #147a3f;
+    --accent-red: #c8341e;
+    --overlay-rgb: 0, 0, 0;
+  }
+
   html, body {
-    margin: 0; height: 100%; background: #050505; overflow: hidden;
-    font-family: 'Inter', -apple-system, sans-serif; color: #d6d6d9;
+    margin: 0; height: 100%; background: var(--bg); overflow: hidden;
+    font-family: 'Inter', -apple-system, sans-serif; color: var(--text-primary);
   }
   body { display: flex; }
   #app-shell { display: flex; width: 100%; height: 100vh; }
@@ -24,287 +62,290 @@
   }
   #brand-lockup {
     align-self: center; margin-bottom: 8px; font-family: 'Michroma', sans-serif;
-    font-size: 20px; letter-spacing: 4px; color: #f2f3f5;
+    font-size: 20px; letter-spacing: 4px; color: var(--text-bright);
   }
-  #brand-lockup .dot { color: #e8432c; }
+  #brand-lockup .dot { color: var(--accent-red); }
   #brand-tag {
     font-family: 'Michroma', sans-serif; font-size: 9px; letter-spacing: 1.5px;
-    color: #4a4a50; cursor: default;
+    color: var(--text-faint); cursor: default;
   }
   #auth-card h1 {
     font-size: 14px; font-weight: 600; letter-spacing: 4px; margin: 0;
-    background: linear-gradient(180deg, #ffffff, #9a9aa2);
+    background: linear-gradient(180deg, var(--text-bright), var(--text-secondary));
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  #auth-card .subtitle { font-size: 9px; letter-spacing: 2px; color: #63636a; text-transform: uppercase; margin-top: 6px; margin-bottom: 8px; }
+  #auth-card .subtitle { font-size: 9px; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; margin-top: 6px; margin-bottom: 8px; }
   .auth-screen { display: flex; flex-direction: column; gap: 16px; }
   .auth-field {
-    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
-    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 13px; padding: 0 0 8px 0;
+    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
+    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 13px; padding: 0 0 8px 0;
     outline: none; transition: border-color 0.25s ease;
   }
-  .auth-field::placeholder { color: #4a4a50; }
+  .auth-field::placeholder { color: var(--text-faint); }
   .auth-field:focus { border-bottom-color: rgba(210,230,255,0.6); }
   .password-field { position: relative; }
   .password-field .auth-field { padding-right: 42px; }
   .toggle-password {
     position: absolute; right: 0; bottom: 8px; background: none; border: none;
-    color: #63636a; font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 0.5px;
+    color: var(--text-muted); font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 0.5px;
     text-transform: uppercase; cursor: pointer; padding: 0; transition: color 0.2s ease;
   }
-  .toggle-password:hover { color: #9a9aa2; }
+  .toggle-password:hover { color: var(--text-secondary); }
   .remember-me {
-    display: flex; align-items: center; gap: 8px; font-size: 11px; color: #9a9aa2;
+    display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-secondary);
     cursor: pointer; user-select: none; margin-top: -4px;
   }
-  .remember-me input { accent-color: #6b6c74; cursor: pointer; }
+  .remember-me input { accent-color: var(--text-muted); cursor: pointer; }
   .oauth-divider {
-    display: flex; align-items: center; gap: 10px; color: #4a4a50; font-size: 10px;
+    display: flex; align-items: center; gap: 10px; color: var(--text-faint); font-size: 10px;
     letter-spacing: 1px; text-transform: uppercase; margin: 2px 0;
   }
-  .oauth-divider::before, .oauth-divider::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
+  .oauth-divider::before, .oauth-divider::after { content: ''; flex: 1; height: 1px; background: rgba(var(--overlay-rgb),0.1); }
   .oauth-btn {
-    display: block; text-align: center; background: none; border: 1px solid rgba(255,255,255,0.14);
-    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12px; letter-spacing: 0.3px;
+    display: block; text-align: center; background: none; border: 1px solid rgba(var(--overlay-rgb),0.14);
+    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; letter-spacing: 0.3px;
     padding: 10px; border-radius: 3px; text-decoration: none; transition: border-color 0.2s ease, background 0.2s ease;
   }
-  .oauth-btn:hover { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.04); }
+  .oauth-btn:hover { border-color: rgba(var(--overlay-rgb),0.3); background: rgba(var(--overlay-rgb),0.04); }
   .auth-submit {
-    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
     font-size: 12px; letter-spacing: 0.5px; padding: 10px; border-radius: 3px; cursor: pointer;
     transition: background 0.2s ease; margin-top: 4px;
   }
-  .auth-submit:hover { background: rgba(255,255,255,0.1); }
-  .auth-toggle { font-size: 11px; color: #63636a; cursor: pointer; text-align: center; }
-  .auth-toggle span { color: #9a9aa2; text-decoration: underline; }
-  .auth-error { font-size: 11px; color: #e8432c; min-height: 14px; }
-  #password-reqs { display: flex; flex-direction: column; gap: 5px; margin-top: -6px; }
-  #password-reqs .req { font-size: 10.5px; color: #63636a; letter-spacing: 0.3px; transition: color 0.2s ease; }
-  #password-reqs .req::before { content: '✕  '; }
-  #password-reqs .req.met { color: #7fd99a; }
-  #password-reqs .req.met::before { content: '✓  '; }
+  .auth-submit:hover { background: rgba(var(--overlay-rgb),0.1); }
+  .auth-toggle { font-size: 11px; color: var(--text-muted); cursor: pointer; text-align: center; }
+  .auth-toggle span { color: var(--text-secondary); text-decoration: underline; }
+  .auth-error { font-size: 11px; color: var(--accent-red); min-height: 14px; }
+  .password-reqs { display: flex; flex-direction: column; gap: 5px; margin-top: -6px; }
+  .password-reqs .req { font-size: 10.5px; color: var(--text-muted); letter-spacing: 0.3px; transition: color 0.2s ease; }
+  .password-reqs .req::before { content: '✕  '; }
+  .password-reqs .req.met { color: var(--accent-green); }
+  .password-reqs .req.met::before { content: '✓  '; }
+  .remember-row { display: flex; align-items: center; justify-content: space-between; margin-top: -4px; }
+  .remember-row .remember-me { margin-top: 0; }
+  .remember-row .auth-toggle { font-size: 10.5px; }
   #logout-link {
-    font-size: 9px; letter-spacing: 1px; color: #4a4a50; cursor: pointer; text-transform: uppercase;
+    font-size: 9px; letter-spacing: 1px; color: var(--text-faint); cursor: pointer; text-transform: uppercase;
     margin-top: 10px; transition: color 0.2s ease;
   }
-  #logout-link:hover { color: #9a9aa2; }
+  #logout-link:hover { color: var(--text-secondary); }
 
   /* ---------- Sidebar ---------- */
   #sidebar {
     width: 260px; min-width: 260px; height: 100vh; z-index: 10;
     padding: 32px 26px; display: flex; flex-direction: column;
-    border-right: 1px solid rgba(255,255,255,0.07);
+    border-right: 1px solid rgba(var(--overlay-rgb),0.07);
   }
   h1 {
     font-size: 14px; font-weight: 600; letter-spacing: 4px; margin: 0;
-    background: linear-gradient(180deg, #ffffff, #9a9aa2);
+    background: linear-gradient(180deg, var(--text-bright), var(--text-secondary));
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .subtitle { font-size: 9px; letter-spacing: 2px; color: #63636a; text-transform: uppercase; margin-top: 6px; }
+  .subtitle { font-size: 9px; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; margin-top: 6px; }
 
   .hero { margin-top: 56px; }
   .hero-mood {
-    font-size: 24px; font-weight: 500; color: #eaeaec; line-height: 1.3;
+    font-size: 24px; font-weight: 500; color: var(--text-bright); line-height: 1.3;
   }
-  .hero-label { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: #63636a; margin-top: 10px; }
+  .hero-label { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--text-muted); margin-top: 10px; }
 
   .stat-small {
-    font-family: 'Share Tech Mono', monospace; font-size: 12px; color: #63636a;
+    font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--text-muted);
     margin-top: 18px; letter-spacing: 0.5px;
   }
 
   /* ---------- Add-memory bar — an underline, not a boxed input ---------- */
   #add-memory { margin-top: 26px; }
   #memory-input {
-    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
-    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
+    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
+    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
     outline: none; transition: border-color 0.25s ease;
     resize: none; min-height: 34px; max-height: 140px; line-height: 1.5;
   }
-  #memory-input::placeholder { color: #4a4a50; }
+  #memory-input::placeholder { color: var(--text-faint); }
   #memory-input:focus { border-bottom-color: rgba(210,230,255,0.6); }
   #add-memory-hint {
-    font-size: 9px; color: #4a4a50; margin-top: 6px; letter-spacing: 0.3px;
+    font-size: 9px; color: var(--text-faint); margin-top: 6px; letter-spacing: 0.3px;
   }
   #add-memory-status {
-    font-size: 10px; letter-spacing: 0.5px; color: #7fd99a; margin-top: 7px; height: 12px;
+    font-size: 10px; letter-spacing: 0.5px; color: var(--accent-green); margin-top: 7px; height: 12px;
     opacity: 0; transition: opacity 0.4s ease;
   }
   #add-memory-status.show { opacity: 1; }
 
   /* ---------- Memory search ---------- */
   #memory-search {
-    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
-    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
+    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
+    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
     outline: none; transition: border-color 0.25s ease; margin-top: 18px;
   }
-  #memory-search::placeholder { color: #4a4a50; }
+  #memory-search::placeholder { color: var(--text-faint); }
   #memory-search:focus { border-bottom-color: rgba(210,230,255,0.6); }
-  #search-count { font-size: 10px; color: #63636a; margin-top: 6px; height: 12px; }
+  #search-count { font-size: 10px; color: var(--text-muted); margin-top: 6px; height: 12px; }
 
   /* ---------- Selected memory readout — click a node in the sphere ---------- */
   #selected-memory {
-    margin-top: 22px; font-size: 12px; line-height: 1.5; color: #c8c9cf;
+    margin-top: 22px; font-size: 12px; line-height: 1.5; color: var(--text-primary);
     max-height: 220px; overflow-y: auto; padding-right: 4px; position: relative;
     opacity: 0; transform: translateY(-4px);
     transition: opacity 0.35s ease, transform 0.35s ease;
   }
   #selected-memory.show { opacity: 1; transform: translateY(0); }
   #selected-memory .sm-label {
-    font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px;
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px;
   }
   #selected-memory-close {
-    position: absolute; top: -2px; right: 0; cursor: pointer; color: #63636a;
+    position: absolute; top: -2px; right: 0; cursor: pointer; color: var(--text-muted);
     font-size: 13px; line-height: 1; padding: 4px; transition: color 0.2s ease;
   }
-  #selected-memory-close:hover { color: #d6d6d9; }
+  #selected-memory-close:hover { color: var(--text-primary); }
   #selected-memory-meta {
     display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
   }
   .sm-tag {
-    font-size: 9px; letter-spacing: 0.5px; color: #9a9aa2; background: rgba(255,255,255,0.06);
+    font-size: 9px; letter-spacing: 0.5px; color: var(--text-secondary); background: rgba(var(--overlay-rgb),0.06);
     border-radius: 3px; padding: 3px 7px;
   }
   .sm-tag-clickable { cursor: pointer; transition: color 0.15s ease, background 0.15s ease; }
-  .sm-tag-clickable:hover { color: #eceef0; background: rgba(255,255,255,0.12); }
+  .sm-tag-clickable:hover { color: var(--text-bright); background: rgba(var(--overlay-rgb),0.12); }
   #selected-memory-date {
-    font-size: 10px; color: #63636a; margin-top: 8px;
+    font-size: 10px; color: var(--text-muted); margin-top: 8px;
   }
   #correct-memory-trigger {
-    font-size: 10px; letter-spacing: 0.3px; color: #63636a; text-decoration: underline;
+    font-size: 10px; letter-spacing: 0.3px; color: var(--text-muted); text-decoration: underline;
     cursor: pointer; margin-top: 10px; display: inline-block; transition: color 0.2s ease;
   }
-  #correct-memory-trigger:hover { color: #9a9aa2; }
+  #correct-memory-trigger:hover { color: var(--text-secondary); }
   #correct-memory-form { display: none; margin-top: 10px; }
   #correct-memory-form.show { display: block; }
   #correct-memory-input {
-    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
-    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
+    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
+    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
     outline: none; resize: none; transition: border-color 0.25s ease;
   }
-  #correct-memory-input::placeholder { color: #4a4a50; }
+  #correct-memory-input::placeholder { color: var(--text-faint); }
   #correct-memory-input:focus { border-bottom-color: rgba(210,230,255,0.6); }
   #correct-memory-submit {
-    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
     font-size: 10px; letter-spacing: 0.5px; padding: 6px 10px; border-radius: 3px; cursor: pointer;
     margin-top: 8px; transition: background 0.2s ease;
   }
-  #correct-memory-submit:hover { background: rgba(255,255,255,0.1); }
+  #correct-memory-submit:hover { background: rgba(var(--overlay-rgb),0.1); }
   #correct-memory-submit:disabled { opacity: 0.5; cursor: default; }
-  #correct-memory-status { font-size: 10px; color: #7fd99a; margin-top: 7px; min-height: 12px; }
-  #correct-memory-status.err { color: #e8432c; }
+  #correct-memory-status { font-size: 10px; color: var(--accent-green); margin-top: 7px; min-height: 12px; }
+  #correct-memory-status.err { color: var(--accent-red); }
 
   /* ---------- Pending notes — things it noticed on its own ---------- */
   #pending-note-banner {
     position: fixed; top: 24px; left: 50%; transform: translateX(-50%) translateY(-10px);
-    max-width: 420px; background: #0d0d0f; border: 1px solid rgba(255,255,255,0.12);
+    max-width: 420px; background: var(--surface-alt); border: 1px solid rgba(var(--overlay-rgb),0.12);
     border-radius: 6px; padding: 16px 18px; z-index: 50;
     opacity: 0; visibility: hidden; transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s;
   }
   #pending-note-banner.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
   #pending-note-kind {
     font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase;
-    color: #63636a; margin-bottom: 8px;
+    color: var(--text-muted); margin-bottom: 8px;
   }
-  #pending-note-text { font-size: 13px; line-height: 1.5; color: #d6d6d9; }
+  #pending-note-text { font-size: 13px; line-height: 1.5; color: var(--text-primary); }
   #pending-note-actions { margin-top: 12px; }
   #pending-note-dismiss {
-    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
     font-size: 11px; padding: 6px 12px; border-radius: 3px; cursor: pointer; transition: background 0.2s ease;
   }
-  #pending-note-dismiss:hover { background: rgba(255,255,255,0.1); }
+  #pending-note-dismiss:hover { background: rgba(var(--overlay-rgb),0.1); }
 
   /* ---------- Talk drawer — text chat + task assignment, and a real
      transcript for voice conversations too, which otherwise vanish the
      moment they're spoken. ---------- */
   #talk-toggle {
     position: fixed; bottom: 24px; right: 24px; z-index: 40;
-    background: #0d0d0f; border: 1px solid rgba(255,255,255,0.14); color: #d6d6d9;
+    background: var(--surface-alt); border: 1px solid rgba(var(--overlay-rgb),0.14); color: var(--text-primary);
     font-family: 'Inter', sans-serif; font-size: 12px; letter-spacing: 0.3px;
     padding: 11px 18px; border-radius: 20px; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease;
   }
-  #talk-toggle:hover { background: #141416; border-color: rgba(255,255,255,0.28); }
+  #talk-toggle:hover { background: var(--surface); border-color: rgba(var(--overlay-rgb),0.28); }
   #talk-drawer {
     position: fixed; bottom: 0; right: 0; z-index: 41;
     width: 360px; max-width: 92vw; height: 480px; max-height: 78vh;
-    background: #0a0a0b; border: 1px solid rgba(255,255,255,0.12); border-bottom: none;
+    background: var(--surface); border: 1px solid rgba(var(--overlay-rgb),0.12); border-bottom: none;
     border-top-left-radius: 10px; display: flex; flex-direction: column;
     transform: translateY(100%); transition: transform 0.3s ease;
   }
   #talk-drawer.open { transform: translateY(0); }
   #talk-header {
-    padding: 14px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
+    padding: 14px 16px 10px; border-bottom: 1px solid rgba(var(--overlay-rgb),0.08); flex-shrink: 0;
   }
   #talk-header-top { display: flex; align-items: center; justify-content: space-between; }
   #talk-mode-tabs { display: flex; gap: 6px; }
   .talk-mode {
-    background: none; border: none; color: #63636a; font-family: 'Inter', sans-serif;
+    background: none; border: none; color: var(--text-muted); font-family: 'Inter', sans-serif;
     font-size: 11px; letter-spacing: 0.3px; padding: 5px 10px; border-radius: 4px; cursor: pointer;
     transition: color 0.2s ease, background 0.2s ease;
   }
-  .talk-mode.active { color: #d6d6d9; background: rgba(255,255,255,0.07); }
-  #talk-close { color: #63636a; cursor: pointer; font-size: 13px; padding: 4px; transition: color 0.2s ease; }
-  #talk-close:hover { color: #d6d6d9; }
+  .talk-mode.active { color: var(--text-primary); background: rgba(var(--overlay-rgb),0.07); }
+  #talk-close { color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 4px; transition: color 0.2s ease; }
+  #talk-close:hover { color: var(--text-primary); }
   #model-tabs { display: flex; gap: 6px; margin-top: 8px; }
   .model-tier {
-    background: none; border: 1px solid rgba(255,255,255,0.1); color: #63636a; font-family: 'Share Tech Mono', monospace;
+    background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
     font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 10px; cursor: pointer;
     transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
   }
-  .model-tier.active { color: #7fd99a; background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
+  .model-tier.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
   #talk-transcript { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
   .talk-msg { font-size: 12.5px; line-height: 1.55; max-width: 88%; }
   .talk-msg .talk-role {
     font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
-    color: #63636a; margin-bottom: 3px; display: block;
+    color: var(--text-muted); margin-bottom: 3px; display: block;
   }
-  .talk-user { align-self: flex-end; text-align: right; color: #d6d6d9; }
-  .talk-assistant { align-self: flex-start; color: #c8c9cf; }
-  .talk-task-result { align-self: stretch; color: #c8c9cf; background: rgba(255,255,255,0.04); border-radius: 6px; padding: 10px 12px; max-width: 100%; }
-  .talk-status { align-self: center; color: #63636a; font-size: 11px; font-style: italic; }
-  .talk-error { align-self: flex-start; color: #e8432c; }
-  #talk-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; }
+  .talk-user { align-self: flex-end; text-align: right; color: var(--text-primary); }
+  .talk-assistant { align-self: flex-start; color: var(--text-primary); }
+  .talk-task-result { align-self: stretch; color: var(--text-primary); background: rgba(var(--overlay-rgb),0.04); border-radius: 6px; padding: 10px 12px; max-width: 100%; }
+  .talk-status { align-self: center; color: var(--text-muted); font-size: 11px; font-style: italic; }
+  .talk-error { align-self: flex-start; color: var(--accent-red); }
+  #talk-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid rgba(var(--overlay-rgb),0.08); flex-shrink: 0; }
   #talk-input {
-    flex: 1; background: none; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px;
-    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 12.5px; padding: 8px 10px;
+    flex: 1; background: none; border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 6px;
+    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12.5px; padding: 8px 10px;
     outline: none; resize: none; max-height: 90px; transition: border-color 0.25s ease;
   }
-  #talk-input::placeholder { color: #4a4a50; }
+  #talk-input::placeholder { color: var(--text-faint); }
   #talk-input:focus { border-color: rgba(210,230,255,0.5); }
   #talk-send {
-    background: rgba(255,255,255,0.08); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    background: rgba(var(--overlay-rgb),0.08); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
     font-size: 11px; padding: 0 14px; border-radius: 6px; cursor: pointer; transition: background 0.2s ease;
   }
-  #talk-send:hover { background: rgba(255,255,255,0.14); }
+  #talk-send:hover { background: rgba(var(--overlay-rgb),0.14); }
   #talk-send:disabled { opacity: 0.5; cursor: default; }
 
   /* ---------- Companion — pairs a local app on the user's own computer ---------- */
   #companion-panel { margin-top: 24px; }
-  #companion-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px; }
-  #companion-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: #9a9aa2; }
-  #companion-status.online { color: #7fd99a; }
-  #companion-note { font-size: 10px; color: #63636a; line-height: 1.5; margin-top: 6px; max-width: 200px; }
+  #companion-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  #companion-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); }
+  #companion-status.online { color: var(--accent-green); }
+  #companion-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 6px; max-width: 200px; }
   #companion-pair-code {
-    font-family: 'Share Tech Mono', monospace; font-size: 20px; letter-spacing: 5px; color: #eaeaec;
+    font-family: 'Share Tech Mono', monospace; font-size: 20px; letter-spacing: 5px; color: var(--text-bright);
     margin-top: 10px; display: none;
   }
   #companion-panel button, #companion-panel a.companion-btn {
-    display: inline-block; font-size: 10px; letter-spacing: 0.5px; color: #9a9aa2;
-    background: rgba(255,255,255,0.06); border: none; padding: 6px 10px; border-radius: 3px;
+    display: inline-block; font-size: 10px; letter-spacing: 0.5px; color: var(--text-secondary);
+    background: rgba(var(--overlay-rgb),0.06); border: none; padding: 6px 10px; border-radius: 3px;
     cursor: pointer; margin-top: 8px; margin-right: 6px; text-decoration: none; font-family: 'Inter', sans-serif;
     transition: background 0.2s ease;
   }
-  #companion-panel button:hover, #companion-panel a.companion-btn:hover { background: rgba(255,255,255,0.1); }
+  #companion-panel button:hover, #companion-panel a.companion-btn:hover { background: rgba(var(--overlay-rgb),0.1); }
 
   /* ---------- Settings — a real modal, not more stuff crammed into the
      sidebar. Personality tone + speech voice live here; more settings
      (model tier, appearance, etc.) belong in this same modal later
      instead of scattering across the app again. ---------- */
   #settings-trigger {
-    font-size: 9px; letter-spacing: 1px; color: #4a4a50; cursor: pointer; text-transform: uppercase;
+    font-size: 9px; letter-spacing: 1px; color: var(--text-faint); cursor: pointer; text-transform: uppercase;
     margin-top: 10px; transition: color 0.2s ease;
   }
-  #settings-trigger:hover { color: #9a9aa2; }
+  #settings-trigger:hover { color: var(--text-secondary); }
 
   #settings-modal-backdrop {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 60;
@@ -313,68 +354,104 @@
   #settings-modal-backdrop.open { display: flex; }
   #settings-modal {
     width: 360px; max-width: 90vw; max-height: 80vh; overflow-y: auto;
-    background: #0e0e10; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px;
+    background: var(--surface-modal); border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 10px;
     padding: 22px 24px; box-shadow: 0 30px 80px rgba(0,0,0,0.6);
   }
   #settings-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
-  #settings-modal-title { font-size: 13px; font-weight: 600; letter-spacing: 1px; color: #eaeaec; }
-  #settings-modal-close { color: #63636a; cursor: pointer; font-size: 13px; padding: 4px; transition: color 0.2s ease; }
-  #settings-modal-close:hover { color: #d6d6d9; }
+  #settings-modal-title { font-size: 13px; font-weight: 600; letter-spacing: 1px; color: var(--text-bright); }
+  #settings-modal-close { color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 4px; transition: color 0.2s ease; }
+  #settings-modal-close:hover { color: var(--text-primary); }
   .settings-section { margin-bottom: 20px; }
   .settings-section:last-child { margin-bottom: 0; }
-  .settings-section .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 8px; }
+  .settings-section .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; }
   #personality-tabs { display: flex; gap: 6px; }
   .personality-mode {
-    background: none; border: 1px solid rgba(255,255,255,0.1); color: #63636a; font-family: 'Share Tech Mono', monospace;
+    background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
     font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 10px; cursor: pointer;
     transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
   }
-  .personality-mode.active { color: #7fd99a; background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
-  #personality-note { font-size: 10px; color: #63636a; line-height: 1.5; margin-top: 8px; }
+  .personality-mode.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
+  #personality-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
   #voice-select {
-    width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 4px; color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 11px; padding: 7px 8px; outline: none;
+    width: 100%; background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.14);
+    border-radius: 4px; color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 11px; padding: 7px 8px; outline: none;
   }
   #voice-select:focus { border-color: rgba(210,230,255,0.5); }
+  #theme-tabs { display: flex; gap: 6px; }
+  .theme-mode {
+    background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 10px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .theme-mode.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
+
+  .settings-field { display: flex; gap: 8px; }
+  .settings-input {
+    flex: 1; min-width: 0; background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.14);
+    border-radius: 4px; color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; padding: 7px 9px;
+    outline: none; width: 100%; transition: border-color 0.2s ease;
+  }
+  .settings-input::placeholder { color: var(--text-faint); }
+  .settings-input:focus { border-color: rgba(210,230,255,0.5); }
+  .settings-save-btn {
+    flex-shrink: 0; background: rgba(var(--overlay-rgb),0.08); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
+    font-size: 11px; padding: 0 12px; border-radius: 4px; cursor: pointer; transition: background 0.2s ease;
+  }
+  .settings-save-btn:hover { background: rgba(var(--overlay-rgb),0.14); }
+  .settings-save-btn:disabled { opacity: 0.5; cursor: default; }
+  .settings-field-status { font-size: 10.5px; color: var(--text-muted); margin-top: 6px; min-height: 13px; }
+  .settings-field-status.error { color: var(--accent-red); }
+  .settings-field-status.success { color: var(--accent-green); }
+  #settings-email-current { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+  #settings-email-change-trigger {
+    font-size: 10px; letter-spacing: 0.5px; color: var(--text-muted); cursor: pointer; text-decoration: underline;
+    text-underline-offset: 2px; width: fit-content;
+  }
+  #settings-email-change-trigger:hover { color: var(--text-secondary); }
+  #settings-email-change-form { display: none; flex-direction: column; gap: 8px; margin-top: 10px; }
+  #settings-email-change-form.open { display: flex; }
+  #settings-email-code-row { display: none; gap: 8px; }
+  #settings-email-code-row.open { display: flex; }
+  #settings-current-password-input { width: 100%; }
 
   /* ---------- Connections — private introductions between two Superselves ---------- */
   #connections-panel { margin-top: 24px; }
-  #connections-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #63636a; margin-bottom: 6px; }
+  #connections-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
   #connections-list { display: flex; flex-direction: column; gap: 8px; }
-  .connection-row { font-size: 11px; color: #9a9aa2; line-height: 1.6; }
-  .connection-row .conn-name { color: #d6d6d9; }
-  .connection-row .conn-state { color: #63636a; font-size: 10px; }
+  .connection-row { font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
+  .connection-row .conn-name { color: var(--text-primary); }
+  .connection-row .conn-state { color: var(--text-muted); font-size: 10px; }
   .connection-row button {
-    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
     font-size: 9px; letter-spacing: 0.3px; padding: 4px 8px; border-radius: 3px; cursor: pointer;
     margin-top: 4px; margin-right: 5px; transition: background 0.2s ease;
   }
-  .connection-row button:hover { background: rgba(255,255,255,0.1); }
+  .connection-row button:hover { background: rgba(var(--overlay-rgb),0.1); }
   .connection-row .overlap-tags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 5px; }
   #connections-request { display: flex; gap: 6px; margin-top: 12px; }
   #connections-username-input {
-    flex: 1; min-width: 0; background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.14);
-    color: #d6d6d9; font-family: 'Inter', sans-serif; font-size: 11px; padding: 0 0 6px 0; outline: none;
+    flex: 1; min-width: 0; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
+    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 11px; padding: 0 0 6px 0; outline: none;
     transition: border-color 0.25s ease;
   }
-  #connections-username-input::placeholder { color: #4a4a50; }
+  #connections-username-input::placeholder { color: var(--text-faint); }
   #connections-username-input:focus { border-bottom-color: rgba(210,230,255,0.6); }
   #connections-request-btn {
-    background: rgba(255,255,255,0.06); border: none; color: #d6d6d9; font-family: 'Inter', sans-serif;
+    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
     font-size: 10px; padding: 6px 10px; border-radius: 3px; cursor: pointer; transition: background 0.2s ease;
   }
-  #connections-request-btn:hover { background: rgba(255,255,255,0.1); }
-  #connections-status { font-size: 10px; color: #7fd99a; margin-top: 7px; min-height: 12px; }
-  #connections-status.err { color: #e8432c; }
+  #connections-request-btn:hover { background: rgba(var(--overlay-rgb),0.1); }
+  #connections-status { font-size: 10px; color: var(--accent-green); margin-top: 7px; min-height: 12px; }
+  #connections-status.err { color: var(--accent-red); }
 
   .legend-inline { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 40px; }
-  .legend-item { display: flex; align-items: center; gap: 9px; font-size: 11px; color: #85858c; letter-spacing: 0.3px; }
+  .legend-item { display: flex; align-items: center; gap: 9px; font-size: 11px; color: var(--text-secondary); letter-spacing: 0.3px; }
   .swatch { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
 
-  .status-active { color: #b8ffcf; }
-  .status-idle { color: #d6d6d9; }
-  .status-dormant { color: #63636a; }
-  .status-overworked { color: #e8432c; }
+  .status-active { color: var(--accent-green-bright); }
+  .status-idle { color: var(--text-primary); }
+  .status-dormant { color: var(--text-muted); }
+  .status-overworked { color: var(--accent-red); }
 
   /* ---------- Main ---------- */
   #main { flex: 1; display: flex; flex-direction: column; height: 100vh; min-width: 0; }
@@ -387,7 +464,7 @@
   body.dormant #graph { filter: brightness(0.82) contrast(1.05) saturate(0.8); }
   #empty {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    color: #63636a; font-size: 13px; text-align: center; max-width: 320px;
+    color: var(--text-muted); font-size: 13px; text-align: center; max-width: 320px;
   }
 
   /* ---------- Neural link — a thin pulsing line between the sphere and the
@@ -430,11 +507,11 @@
   }
   #voice-status {
     position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3;
-    color: #7fd99a; font-size: 10px; letter-spacing: 1px; text-align: center; max-width: 90%;
+    color: var(--accent-green); font-size: 10px; letter-spacing: 1px; text-align: center; max-width: 90%;
     transition: color 0.3s ease;
   }
-  #voice-status.thinking { color: #c8c9cf; }
-  #voice-status.error { color: #e8432c; }
+  #voice-status.thinking { color: var(--text-primary); }
+  #voice-status.error { color: var(--accent-red); }
   #mouth-indicator {
     position: absolute; left: 50%; top: 22%; transform: translate(-50%, -50%) scaleY(1);
     width: 12px; height: 3px; border-radius: 3px; background: rgba(210,230,255,0.75);
@@ -444,7 +521,7 @@
 
   #blink-overlay {
     position: absolute; left: 50%; top: 15.5%; transform: translate(-50%, -50%);
-    width: 32px; height: 4px; border-radius: 2px; background: #050505;
+    width: 32px; height: 4px; border-radius: 2px; background: var(--bg);
     opacity: 0; pointer-events: none; z-index: 3; transition: opacity 0.05s ease;
   }
 
@@ -458,23 +535,31 @@
   #ecg-canvas { display: block; }
 
   .panel-title {
-    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; color: #4a4a50; font-weight: 400;
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--text-faint); font-weight: 400;
   }
 
   #monitor-readouts { flex: 0 1 auto; display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; row-gap: 6px; }
   .readout { display: flex; flex-direction: column; }
   .readout-value {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 30px; font-weight: 400; line-height: 1; color: #d6d6d9;
+    font-size: 30px; font-weight: 400; line-height: 1; color: var(--text-primary);
     font-variant-numeric: tabular-nums;
   }
   .readout-label {
-    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; color: #4a4a50; margin-top: 8px;
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--text-faint); margin-top: 8px;
   }
-  .readout-pulse .readout-value { color: #7fd99a; transition: color 0.6s ease; }
-  .readout-pulse.overworked .readout-value { color: #e8432c; }
+  .readout-pulse .readout-value { color: var(--accent-green); transition: color 0.6s ease; }
+  .readout-pulse.overworked .readout-value { color: var(--accent-red); }
   .readout-status .readout-value { font-size: 18px; letter-spacing: 1px; }
 </style>
+<script>
+  // Applied synchronously, before anything renders, so a returning user
+  // with light mode saved never sees a flash of the dark default first.
+  (function () {
+    var saved = localStorage.getItem('neurovance_theme');
+    if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+  })();
+</script>
 </head>
 <body>
 
@@ -492,7 +577,10 @@
         <input class="auth-field" id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
         <button type="button" class="toggle-password" data-target="login-password">Show</button>
       </div>
-      <label class="remember-me"><input type="checkbox" id="login-remember" checked />Remember me</label>
+      <div class="remember-row">
+        <label class="remember-me"><input type="checkbox" id="login-remember" checked />Remember me</label>
+        <div class="auth-toggle" id="goto-forgot"><span>Forgot password?</span></div>
+      </div>
       <div class="auth-error" id="login-error"></div>
       <button class="auth-submit" id="login-submit">Sign in</button>
       <div class="oauth-divider"><span>or</span></div>
@@ -501,13 +589,41 @@
       <div class="auth-toggle" id="goto-signup">Don't have an account? <span>Sign up</span></div>
     </div>
 
+    <div id="screen-forgot-email" class="auth-screen" style="display:none">
+      <input class="auth-field" id="forgot-email" type="email" placeholder="Email" autocomplete="email" />
+      <div class="auth-error" id="forgot-email-error"></div>
+      <button class="auth-submit" id="forgot-email-submit">Send code</button>
+      <div class="auth-toggle" id="goto-login-from-forgot">Back to <span>sign in</span></div>
+    </div>
+
+    <div id="screen-forgot-code" class="auth-screen" style="display:none">
+      <div class="subtitle" id="forgot-code-sent-to"></div>
+      <input class="auth-field" id="forgot-code" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" />
+      <div class="auth-error" id="forgot-code-error"></div>
+      <button class="auth-submit" id="forgot-code-submit">Verify</button>
+    </div>
+
+    <div id="screen-forgot-newpassword" class="auth-screen" style="display:none">
+      <div class="password-field">
+        <input class="auth-field" id="forgot-new-password" type="password" placeholder="New password" autocomplete="new-password" />
+        <button type="button" class="toggle-password" data-target="forgot-new-password">Show</button>
+      </div>
+      <div id="forgot-password-reqs" class="password-reqs">
+        <div class="req" id="forgot-req-length">At least 8 characters</div>
+        <div class="req" id="forgot-req-upper">One uppercase letter</div>
+        <div class="req" id="forgot-req-lower">One lowercase letter</div>
+      </div>
+      <div class="auth-error" id="forgot-newpassword-error"></div>
+      <button class="auth-submit" id="forgot-newpassword-submit">Reset password</button>
+    </div>
+
     <div id="screen-signup-email" class="auth-screen" style="display:none">
       <input class="auth-field" id="signup-email" type="email" placeholder="Email" autocomplete="email" />
       <div class="password-field">
         <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" />
         <button type="button" class="toggle-password" data-target="signup-password">Show</button>
       </div>
-      <div id="password-reqs">
+      <div id="password-reqs" class="password-reqs">
         <div class="req" id="req-length">At least 8 characters</div>
         <div class="req" id="req-upper">One uppercase letter</div>
         <div class="req" id="req-lower">One lowercase letter</div>
@@ -617,6 +733,14 @@
     </div>
 
     <div class="settings-section">
+      <div class="sm-label">Theme</div>
+      <div id="theme-tabs">
+        <button class="theme-mode" data-mode="dark">Dark</button>
+        <button class="theme-mode" data-mode="light">Light</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <div class="sm-label">Personality</div>
       <div id="personality-tabs">
         <button class="personality-mode" data-mode="advisor">Advisor</button>
@@ -628,6 +752,44 @@
     <div class="settings-section">
       <div class="sm-label">Voice</div>
       <select id="voice-select"></select>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">Account</div>
+      <div class="settings-field">
+        <input id="settings-username-input" class="settings-input" type="text" placeholder="Username" />
+        <button class="settings-save-btn" id="settings-username-save">Save</button>
+      </div>
+      <div class="settings-field-status" id="settings-username-status"></div>
+      <div class="settings-field" style="margin-top:10px;">
+        <input id="settings-ainame-input" class="settings-input" type="text" placeholder="Superself name" />
+        <button class="settings-save-btn" id="settings-ainame-save">Save</button>
+      </div>
+      <div class="settings-field-status" id="settings-ainame-status"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">Email</div>
+      <div id="settings-email-current"></div>
+      <div id="settings-email-change-trigger">Change email</div>
+      <div id="settings-email-change-form">
+        <input id="settings-new-email-input" class="settings-input" type="email" placeholder="New email" />
+        <input id="settings-email-password-input" class="settings-input" type="password" placeholder="Current password" />
+        <button class="settings-save-btn" id="settings-email-send-code">Send code</button>
+        <div id="settings-email-code-row">
+          <input id="settings-email-code-input" class="settings-input" type="text" placeholder="6-digit code" />
+          <button class="settings-save-btn" id="settings-email-confirm-code">Confirm</button>
+        </div>
+      </div>
+      <div class="settings-field-status" id="settings-email-status"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">Password</div>
+      <input id="settings-current-password-input" class="settings-input" type="password" placeholder="Current password" />
+      <input id="settings-new-password-input" class="settings-input" type="password" placeholder="New password" style="margin-top:8px;" />
+      <button class="settings-save-btn" id="settings-password-save" style="margin-top:10px;">Change password</button>
+      <div class="settings-field-status" id="settings-password-status"></div>
     </div>
   </div>
 </div>
@@ -749,8 +911,12 @@ let pendingEmail = null;
 let pendingVerifiedToken = null;
 let oauthPendingToken = null;
 
-function applyIdentity({ displayName, aiName, model, advisorMode }) {
-  currentIdentity = { displayName, aiName, model: model || 'core', advisorMode: advisorMode !== false };
+function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword }) {
+  currentIdentity = {
+    displayName, aiName, model: model || 'core', advisorMode: advisorMode !== false,
+    username: username || currentIdentity.username, email: email || currentIdentity.email,
+    hasPassword: hasPassword !== false,
+  };
   document.getElementById('app-title').textContent = aiName;
   document.getElementById('app-subtitle').textContent = `${displayName}'s Superself`;
 }
@@ -767,6 +933,9 @@ const AUTH_SCREEN_TITLES = {
   'screen-signup-email': 'CREATE ACCOUNT',
   'screen-signup-code': 'CHECK YOUR EMAIL',
   'screen-signup-username': 'CHOOSE A USERNAME',
+  'screen-forgot-email': 'RESET PASSWORD',
+  'screen-forgot-code': 'CHECK YOUR EMAIL',
+  'screen-forgot-newpassword': 'NEW PASSWORD',
 };
 
 function goToScreen(id) {
@@ -819,6 +988,8 @@ function initAuthGate() {
 
   document.getElementById('goto-signup').addEventListener('click', () => goToScreen('screen-signup-email'));
   document.getElementById('goto-login').addEventListener('click', () => goToScreen('screen-login'));
+  document.getElementById('goto-forgot').addEventListener('click', () => goToScreen('screen-forgot-email'));
+  document.getElementById('goto-login-from-forgot').addEventListener('click', () => goToScreen('screen-login'));
 
   async function doLogin() {
     loginError.textContent = '';
@@ -844,6 +1015,112 @@ function initAuthGate() {
   }
   loginSubmit.addEventListener('click', doLogin);
   loginPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+
+  // ---------- Forgot password: emailed code -> reset token -> new password.
+  // Same three-step shape as signup verification, its own screens. ----------
+  const forgotEmail = document.getElementById('forgot-email');
+  const forgotEmailError = document.getElementById('forgot-email-error');
+  const forgotEmailSubmit = document.getElementById('forgot-email-submit');
+  const forgotCodeSentTo = document.getElementById('forgot-code-sent-to');
+
+  const forgotCode = document.getElementById('forgot-code');
+  const forgotCodeError = document.getElementById('forgot-code-error');
+  const forgotCodeSubmit = document.getElementById('forgot-code-submit');
+
+  const forgotNewPassword = document.getElementById('forgot-new-password');
+  const forgotNewPasswordError = document.getElementById('forgot-newpassword-error');
+  const forgotNewPasswordSubmit = document.getElementById('forgot-newpassword-submit');
+  const forgotReqLength = document.getElementById('forgot-req-length');
+  const forgotReqUpper = document.getElementById('forgot-req-upper');
+  const forgotReqLower = document.getElementById('forgot-req-lower');
+
+  let forgotPasswordEmail = '';
+  let forgotResetToken = '';
+
+  forgotNewPassword.addEventListener('input', () => {
+    const v = forgotNewPassword.value;
+    forgotReqLength.classList.toggle('met', v.length >= 8);
+    forgotReqUpper.classList.toggle('met', /[A-Z]/.test(v));
+    forgotReqLower.classList.toggle('met', /[a-z]/.test(v));
+  });
+
+  async function doForgotEmailStart() {
+    forgotEmailError.textContent = '';
+    const email = forgotEmail.value.trim();
+    if (!email) { forgotEmailError.textContent = 'Enter your email.'; return; }
+    forgotEmailSubmit.disabled = true;
+    try {
+      const res = await fetch('/api/forgot-password', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      forgotPasswordEmail = email;
+      forgotCodeSentTo.textContent = `If an account exists for ${email}, a code was sent.`;
+      goToScreen('screen-forgot-code');
+    } catch (err) {
+      forgotEmailError.textContent = err.message;
+    } finally {
+      forgotEmailSubmit.disabled = false;
+    }
+  }
+  forgotEmailSubmit.addEventListener('click', doForgotEmailStart);
+  forgotEmail.addEventListener('keydown', (e) => { if (e.key === 'Enter') doForgotEmailStart(); });
+
+  async function doForgotCodeVerify() {
+    forgotCodeError.textContent = '';
+    const code = forgotCode.value.trim();
+    if (!code) { forgotCodeError.textContent = 'Enter the code.'; return; }
+    forgotCodeSubmit.disabled = true;
+    try {
+      const res = await fetch('/api/reset-password-verify', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotPasswordEmail, code }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      forgotResetToken = data.resetToken;
+      goToScreen('screen-forgot-newpassword');
+    } catch (err) {
+      forgotCodeError.textContent = err.message;
+    } finally {
+      forgotCodeSubmit.disabled = false;
+    }
+  }
+  forgotCodeSubmit.addEventListener('click', doForgotCodeVerify);
+  forgotCode.addEventListener('keydown', (e) => { if (e.key === 'Enter') doForgotCodeVerify(); });
+
+  async function doForgotNewPassword() {
+    forgotNewPasswordError.textContent = '';
+    const newPassword = forgotNewPassword.value;
+    if (!newPassword) { forgotNewPasswordError.textContent = 'Enter a new password.'; return; }
+    forgotNewPasswordSubmit.disabled = true;
+    try {
+      const res = await fetch('/api/reset-password-finish', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotPasswordEmail, resetToken: forgotResetToken, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      loginUsername.value = '';
+      loginPassword.value = '';
+      loginError.textContent = '';
+      forgotEmail.value = '';
+      forgotCode.value = '';
+      forgotNewPassword.value = '';
+      goToScreen('screen-login');
+    } catch (err) {
+      forgotNewPasswordError.textContent = err.message;
+    } finally {
+      forgotNewPasswordSubmit.disabled = false;
+    }
+  }
+  forgotNewPasswordSubmit.addEventListener('click', doForgotNewPassword);
+  forgotNewPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') doForgotNewPassword(); });
 
   async function doSignupStart() {
     signupEmailError.textContent = '';
@@ -1888,6 +2165,21 @@ function initSettings() {
   document.getElementById('settings-modal-close').addEventListener('click', () => backdrop.classList.remove('open'));
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
 
+  // Theme — client-side only (like voice), applied via a tiny inline script
+  // at the top of <head> too so a saved preference is set before the page
+  // even renders, not just after this init function runs post-login.
+  const themeTabs = document.querySelectorAll('.theme-mode');
+  const currentTheme = document.documentElement.dataset.theme || 'dark';
+  themeTabs.forEach((b) => b.classList.toggle('active', b.dataset.mode === currentTheme));
+  themeTabs.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      document.documentElement.dataset.theme = mode;
+      localStorage.setItem('neurovance_theme', mode);
+      themeTabs.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+    });
+  });
+
   const tabs = document.querySelectorAll('.personality-mode');
   const note = document.getElementById('personality-note');
   const NOTES = {
@@ -1947,6 +2239,119 @@ function initSettings() {
 
   populateVoices();
   speechSynthesis.addEventListener('voiceschanged', populateVoices);
+
+  function setFieldStatus(el, message, isError) {
+    el.textContent = message;
+    el.className = 'settings-field-status' + (message ? (isError ? ' error' : ' success') : '');
+  }
+
+  // ---------- Account: username, Superself name ----------
+  const usernameInput = document.getElementById('settings-username-input');
+  const usernameStatus = document.getElementById('settings-username-status');
+  usernameInput.value = currentIdentity.username || '';
+  document.getElementById('settings-username-save').addEventListener('click', async () => {
+    const username = usernameInput.value.trim();
+    if (!username) return setFieldStatus(usernameStatus, 'Username cannot be empty.', true);
+    const res = await fetch('/api/username', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setFieldStatus(usernameStatus, data.error, true);
+    currentIdentity.username = data.username;
+    usernameInput.value = data.username;
+    setFieldStatus(usernameStatus, 'Saved.', false);
+  });
+
+  const aiNameInput = document.getElementById('settings-ainame-input');
+  const aiNameStatus = document.getElementById('settings-ainame-status');
+  aiNameInput.value = currentIdentity.aiName || '';
+  document.getElementById('settings-ainame-save').addEventListener('click', async () => {
+    const aiName = aiNameInput.value.trim();
+    if (!aiName) return setFieldStatus(aiNameStatus, 'Name cannot be empty.', true);
+    const res = await fetch('/api/ai-name', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aiName }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setFieldStatus(aiNameStatus, data.error, true);
+    currentIdentity.aiName = data.aiName;
+    document.getElementById('app-title').textContent = data.aiName;
+    setFieldStatus(aiNameStatus, 'Saved.', false);
+  });
+
+  // ---------- Email: current password (if any) confirms the request, then a
+  // code sent to the NEW address proves it's actually reachable. ----------
+  const emailCurrentEl = document.getElementById('settings-email-current');
+  const emailTrigger = document.getElementById('settings-email-change-trigger');
+  const emailForm = document.getElementById('settings-email-change-form');
+  const emailPasswordInput = document.getElementById('settings-email-password-input');
+  const newEmailInput = document.getElementById('settings-new-email-input');
+  const emailCodeRow = document.getElementById('settings-email-code-row');
+  const emailCodeInput = document.getElementById('settings-email-code-input');
+  const emailStatus = document.getElementById('settings-email-status');
+
+  emailCurrentEl.textContent = currentIdentity.email || '';
+  if (!currentIdentity.hasPassword) emailPasswordInput.style.display = 'none';
+
+  emailTrigger.addEventListener('click', () => emailForm.classList.toggle('open'));
+
+  document.getElementById('settings-email-send-code').addEventListener('click', async () => {
+    const newEmail = newEmailInput.value.trim();
+    if (!newEmail) return setFieldStatus(emailStatus, 'Enter a new email.', true);
+    const res = await fetch('/api/change-email-start', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newEmail, currentPassword: emailPasswordInput.value }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setFieldStatus(emailStatus, data.error, true);
+    emailCodeRow.classList.add('open');
+    setFieldStatus(emailStatus, `Code sent to ${newEmail}.`, false);
+  });
+
+  document.getElementById('settings-email-confirm-code').addEventListener('click', async () => {
+    const code = emailCodeInput.value.trim();
+    if (!code) return setFieldStatus(emailStatus, 'Enter the code.', true);
+    const res = await fetch('/api/change-email-finish', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setFieldStatus(emailStatus, data.error, true);
+    currentIdentity.email = data.email;
+    emailCurrentEl.textContent = data.email;
+    emailForm.classList.remove('open');
+    emailCodeRow.classList.remove('open');
+    newEmailInput.value = '';
+    emailPasswordInput.value = '';
+    emailCodeInput.value = '';
+    setFieldStatus(emailStatus, 'Email updated.', false);
+  });
+
+  // ---------- Password ----------
+  const currentPasswordInput = document.getElementById('settings-current-password-input');
+  const newPasswordInput = document.getElementById('settings-new-password-input');
+  const passwordStatus = document.getElementById('settings-password-status');
+  if (!currentIdentity.hasPassword) currentPasswordInput.style.display = 'none';
+
+  document.getElementById('settings-password-save').addEventListener('click', async () => {
+    const newPassword = newPasswordInput.value;
+    if (!newPassword) return setFieldStatus(passwordStatus, 'Enter a new password.', true);
+    const res = await fetch('/api/change-password', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: currentPasswordInput.value, newPassword }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setFieldStatus(passwordStatus, data.error, true);
+    currentPasswordInput.value = '';
+    newPasswordInput.value = '';
+    setFieldStatus(passwordStatus, 'Password changed.', false);
+  });
 }
 
 // Dims every node whose content and tags don't match the search text, so the

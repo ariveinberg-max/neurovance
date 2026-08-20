@@ -120,6 +120,24 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// The one shared shape every "you're now logged in" response sends back —
+// login, signup, oauth, and /api/me all used to build this by hand, and
+// three of the four silently dropped username/email/model/advisorMode/
+// hasPassword, which is exactly why Settings showed an empty username field
+// right after a fresh login until the next reload quietly fixed it.
+function identityPayload(user) {
+  return {
+    ok: true,
+    displayName: user.displayName,
+    aiName: user.aiName,
+    username: user.username,
+    email: user.email,
+    hasPassword: !!user.passwordHash,
+    model: user.model || 'core',
+    advisorMode: user.advisorMode !== false,
+  };
+}
+
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif',
@@ -358,7 +376,7 @@ const server = createServer(async (req, res) => {
       const user = await auth.finishSignup({ email, verifiedToken, username, displayName, aiName });
       const token = await auth.createSession(user.id);
       setSessionCookie(res, token);
-      sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
+      sendJson(res, 200, identityPayload(user));
     } catch (e) {
       sendJson(res, 400, { error: e.message });
     }
@@ -376,7 +394,50 @@ const server = createServer(async (req, res) => {
       }
       const token = await auth.createSession(user.id);
       setSessionCookie(res, token, remember !== false);
-      sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
+      sendJson(res, 200, identityPayload(user));
+    } catch (e) {
+      sendJson(res, 400, { error: e.message });
+    }
+    return;
+  }
+
+  // ---------- Forgot password: emailed code -> reset token -> new password.
+  // The "start" response is identical whether or not the email has an
+  // account — never reveals which emails are registered. ----------
+
+  if (req.url === '/api/forgot-password' && req.method === 'POST') {
+    try {
+      const { email } = await readJsonBody(req);
+      if (!email?.trim()) return sendJson(res, 400, { error: 'Email is required.' });
+      const code = await auth.startPasswordReset(email);
+      if (code) await sendVerificationCode(email.trim(), code);
+      sendJson(res, 200, { ok: true });
+    } catch (e) {
+      sendJson(res, 400, { error: e.message });
+    }
+    return;
+  }
+
+  if (req.url === '/api/reset-password-verify' && req.method === 'POST') {
+    try {
+      const { email, code } = await readJsonBody(req);
+      if (!email?.trim() || !code) return sendJson(res, 400, { error: 'Email and code are required.' });
+      const resetToken = await auth.verifyPasswordResetCode({ email, code });
+      sendJson(res, 200, { ok: true, resetToken });
+    } catch (e) {
+      sendJson(res, 400, { error: e.message });
+    }
+    return;
+  }
+
+  if (req.url === '/api/reset-password-finish' && req.method === 'POST') {
+    try {
+      const { email, resetToken, newPassword } = await readJsonBody(req);
+      if (!email?.trim() || !resetToken || !newPassword) {
+        return sendJson(res, 400, { error: 'Email, reset token, and a new password are all required.' });
+      }
+      await auth.finishPasswordReset({ email, resetToken, newPassword });
+      sendJson(res, 200, { ok: true });
     } catch (e) {
       sendJson(res, 400, { error: e.message });
     }
@@ -420,7 +481,7 @@ const server = createServer(async (req, res) => {
       const user = await auth.finishOAuthSignup({ pendingToken, username, displayName, aiName });
       const token = await auth.createSession(user.id);
       setSessionCookie(res, token);
-      sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName });
+      sendJson(res, 200, identityPayload(user));
     } catch (e) {
       sendJson(res, 400, { error: e.message });
     }
@@ -438,7 +499,7 @@ const server = createServer(async (req, res) => {
   if (req.url === '/api/me') {
     const { user } = await getSessionAndUser(req);
     if (!user) return sendJson(res, 401, { ok: false });
-    sendJson(res, 200, { ok: true, displayName: user.displayName, aiName: user.aiName, username: user.username, model: user.model || 'core', advisorMode: user.advisorMode !== false });
+    sendJson(res, 200, identityPayload(user));
     return;
   }
 
@@ -479,6 +540,64 @@ const server = createServer(async (req, res) => {
         }
         await auth.setAdvisorMode(user.id, advisorMode);
         return sendJson(res, 200, { ok: true, advisorMode });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Account settings: username, Superself name, password, email ----------
+
+    if (req.url === '/api/username' && req.method === 'POST') {
+      try {
+        const { username } = await readJsonBody(req);
+        if (!username?.trim()) return sendJson(res, 400, { error: 'Username is required.' });
+        const updated = await auth.setUsername(user.id, username);
+        return sendJson(res, 200, { ok: true, username: updated.username });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/ai-name' && req.method === 'POST') {
+      try {
+        const { aiName } = await readJsonBody(req);
+        if (!aiName?.trim()) return sendJson(res, 400, { error: 'A name is required.' });
+        const updated = await auth.setAiName(user.id, aiName);
+        return sendJson(res, 200, { ok: true, aiName: updated.aiName });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/change-password' && req.method === 'POST') {
+      try {
+        const { currentPassword, newPassword } = await readJsonBody(req);
+        if (!newPassword) return sendJson(res, 400, { error: 'A new password is required.' });
+        await auth.changePassword(user.id, currentPassword, newPassword);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/change-email-start' && req.method === 'POST') {
+      try {
+        const { newEmail, currentPassword } = await readJsonBody(req);
+        if (!newEmail?.trim()) return sendJson(res, 400, { error: 'A new email is required.' });
+        const { code, newEmail: normalized } = await auth.startEmailChange(user.id, newEmail, currentPassword);
+        await sendVerificationCode(normalized, code);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/change-email-finish' && req.method === 'POST') {
+      try {
+        const { code } = await readJsonBody(req);
+        if (!code) return sendJson(res, 400, { error: 'Code is required.' });
+        const updated = await auth.finishEmailChange(user.id, code);
+        return sendJson(res, 200, { ok: true, email: updated.email });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }
