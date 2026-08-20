@@ -485,13 +485,6 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
-    // Polled by the web app while a task is running, to show a live-ish
-    // preview of whatever the Companion last saw in the user's own Safari.
-    if (req.url === '/api/companion/latest-frame') {
-      const frame = companion.getLatestFrame(user.id);
-      return sendJson(res, 200, frame ? { ok: true, data: frame.data, url: frame.url, ts: frame.ts } : { ok: true, data: null });
-    }
-
     // ---------- Contestable memory — correcting one memory can mean nearby
     // ones need fixing too, handled with real related-memory context rather
     // than a blind single-row overwrite. ----------

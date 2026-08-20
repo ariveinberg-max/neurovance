@@ -133,7 +133,20 @@ const COMPANION_TYPE_TOOL = {
   },
 };
 
-const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL];
+const COMPANION_GO_BACK_TOOL = {
+  name: 'go_back_in_browser',
+  description: 'Go back to the previous page in the user\'s own Safari — the same as clicking the browser\'s back button. Free to use any time it makes sense in the conversation.',
+  input_schema: { type: 'object', properties: {} },
+};
+
+const COMPANION_LIST_ELEMENTS_TOOL = {
+  name: 'list_page_elements',
+  description:
+    'List every clickable thing on the current Safari page — its visible text (or accessible label, which is often where a color/size shows up even when it\'s only a swatch, e.g. "Color: Red") and its real on-screen position, sorted top-to-bottom then left-to-right. Use this to resolve a vague reference like "the red one", "the one on top", or "the second result" to an actual element before calling click_page_element — pick the matching entry from this list, then click_page_element with THAT entry\'s exact text.',
+  input_schema: { type: 'object', properties: {} },
+};
+
+const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL, COMPANION_GO_BACK_TOOL, COMPANION_LIST_ELEMENTS_TOOL];
 // Derived from the tool list itself, not hand-maintained separately — a
 // tool added to ALL_COMPANION_TOOLS above without also being added to a
 // second hardcoded name list here is exactly how read_current_browser_page
@@ -158,7 +171,6 @@ async function handleCompanionTool(userId, toolUse) {
   }
   if (toolUse.name === 'open_url_in_browser') {
     const result = await companion.sendCommand(userId, 'open_url', { url: toolUse.input.url });
-    companion.setLatestFrame(userId, result.screenshot, result.pageUrl);
     return `Opened in Safari: ${result.opened}`;
   }
   if (toolUse.name === 'read_current_browser_page') {
@@ -167,7 +179,6 @@ async function handleCompanionTool(userId, toolUse) {
   }
   if (toolUse.name === 'click_page_element') {
     const result = await companion.sendCommand(userId, 'click_page_element', { text: toolUse.input.text });
-    companion.setLatestFrame(userId, result.screenshot, result.pageUrl);
     return result.result;
   }
   if (toolUse.name === 'type_into_page_field') {
@@ -176,8 +187,15 @@ async function handleCompanionTool(userId, toolUse) {
       text: toolUse.input.text,
       submit: !!toolUse.input.submit,
     });
-    companion.setLatestFrame(userId, result.screenshot, result.pageUrl);
     return result.result;
+  }
+  if (toolUse.name === 'go_back_in_browser') {
+    await companion.sendCommand(userId, 'go_back', {});
+    return 'Went back.';
+  }
+  if (toolUse.name === 'list_page_elements') {
+    const result = await companion.sendCommand(userId, 'list_page_elements', {});
+    return JSON.stringify(result.elements);
   }
   return null;
 }
@@ -247,7 +265,7 @@ async function buildTaskSystemPrompt(userId, user, task) {
     hasCompanion
       ? [
           'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything there.',
-          'In their real Safari you can: open_url_in_browser, read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks, click_page_element (click a link/button by its visible text), and type_into_page_field (type into a field by its label, optionally submit:true to press Enter). Use these freely for ordinary browsing — navigating, searching, filling in lookup forms, following links to find something. Do not ask permission first for that kind of thing; just go do it and report back.',
+          'In their real Safari you can: open_url_in_browser, read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks, click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). Use these freely for ordinary browsing — navigating, searching, filling in lookup forms, following links, clicking through a page. Do not ask permission first for that kind of thing; just go do it and report back.',
           'The one hard line: before you complete an actual payment/purchase, click something that sends a message on their behalf, or click something that deletes/cancels/removes an account or their data — STOP. Say exactly what you are about to do and why, then end your turn and wait for their next message to actually confirm it before doing it. Do not do it in the same turn you proposed it in.',
           'type_into_page_field will never type into a password field no matter what — never try to work around that or ask them to paste a password to you either.',
         ].join(' ')
@@ -288,10 +306,11 @@ function vitalsPushbackLine(status, health) {
 // and talks like an actual person feeling that way — not a system
 // reporting its status. `user` is { displayName, aiName, advisorMode } from auth.js.
 async function buildChatSystemPrompt(userId, user, message) {
-  const [memoryLines, memories, unseen] = await Promise.all([
+  const [memoryLines, memories, unseen, hasCompanion] = await Promise.all([
     memoryContext(userId, message),
     allMemories(userId),
     pendingNotes.unseenNotes(userId),
+    companion.isPaired(userId),
   ]);
   const { bpm, health, status, mood } = computeVitals(memories);
   const pushback = vitalsPushbackLine(status, health);
@@ -320,6 +339,12 @@ async function buildChatSystemPrompt(userId, user, message) {
       ? 'Being direct does not mean being flat — you still have real reactions, you just do not soften them into agreeableness.'
       : 'React like a real person would: have actual reactions to what they say — get excited, push back, joke around, worry — instead of just being agreeable and helpful. You are allowed to have moods and imperfections.',
     'Use the remember tool if they tell you something new worth keeping. Do not narrate that you are doing so.',
+    hasCompanion
+      ? [
+          'They have a Companion paired, so mid-conversation you can actually drive their real Safari: open_url_in_browser, click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks. If they say something like "go back" while browsing, that means go back in the browser, not end the conversation.',
+          'Same hard line as always: before an actual payment/purchase, sending a message on their behalf, or deleting/canceling/removing something — say what you are about to do in one short sentence and wait for them to actually say to go ahead, out loud, before you do it. Everything else about ordinary browsing (navigating, clicking around, adding something to a cart) — just do it, no need to ask first.',
+        ].join(' ')
+      : '',
     memoryLines ? `\nWhat you know about ${user.displayName}:\n${memoryLines}` : `\nYou do not have any memories of ${user.displayName} yet — this is your first real conversation.`,
   ].join('\n');
 }
@@ -534,8 +559,16 @@ export async function correctMemory(userId, memoryId, correctionText) {
 
 // Chat skips the web-search tool (rarely needed for casual conversation, and
 // every tool the model *could* call is a chance it adds an extra round-trip)
-// and caps replies short, since this is spoken aloud, not read.
+// but does include the companion browser tools when paired, so a spoken
+// command mid-conversation ("go back", "add it to my cart") can actually
+// drive the browser instead of only being answerable from Task mode.
+// Replies stay capped short since this is spoken aloud, not read — the
+// token cap is padding for tool_use calls in between, not an invite to
+// write a longer final answer.
 export async function chatReply(userId, user, message, history = []) {
-  const system = await buildChatSystemPrompt(userId, user, message);
-  return runLoop(userId, system, message, [MEMORY_TOOL], 200, resolveModel(user?.model), history);
+  const [system, extraTools] = await Promise.all([
+    buildChatSystemPrompt(userId, user, message),
+    companionTools(userId),
+  ]);
+  return runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools], 400, resolveModel(user?.model), history);
 }

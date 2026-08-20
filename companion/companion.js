@@ -4,8 +4,9 @@
 // What it can do: read files inside one folder (~/Documents/Neurovance),
 // open https:// links in Safari, read the text of whatever's already
 // showing in Safari's front tab, read your saved Safari bookmarks, click
-// links/buttons on the current page, and type into fields — only when your
-// own paired Superself asks.
+// links/buttons on the current page, type into fields, list what's
+// clickable and where it sits on screen, and go back — only when your own
+// paired Superself asks.
 // What it can't do: touch anything outside that folder, write or delete a
 // local file, run arbitrary commands, or type into a password field —
 // that last one is refused unconditionally right here, no matter what it's
@@ -14,8 +15,8 @@
 // the server only ever sees what this file lets it see.
 import WebSocket from 'ws';
 import { createInterface } from 'readline';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, watch, unlinkSync } from 'fs';
-import { homedir, hostname, tmpdir } from 'os';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, watch } from 'fs';
+import { homedir, hostname } from 'os';
 import { join, resolve, sep } from 'path';
 import { execFile } from 'child_process';
 
@@ -143,52 +144,6 @@ function escapeForAppleScript(js) {
   return js.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-// Best-effort screenshot of just Safari's window, so the web app can show
-// what the Superself is actually looking at while it browses. Requires
-// macOS Screen Recording permission on whatever launched this process (the
-// same "only the process ancestry that was actually granted it" rule as
-// Full Disk Access) — if it's not granted, this quietly returns null rather
-// than failing the action it's attached to. A missing preview is a much
-// smaller problem than a broken click.
-function captureSafariScreenshot() {
-  return new Promise((resolve) => {
-    const script = [
-      'tell application "Safari"',
-      '  set b to bounds of front window',
-      '  set u to URL of front document',
-      '  return u & "|||NEUROVANCE|||" & (item 1 of b) & "," & (item 2 of b) & "," & (item 3 of b) & "," & (item 4 of b)',
-      'end tell',
-    ].join('\n');
-    execFile('osascript', ['-e', script], (err, stdout) => {
-      if (err) return resolve(null);
-      const [url, boundsStr] = stdout.trim().split('|||NEUROVANCE|||');
-      const bounds = (boundsStr || '').split(',').map((n) => parseInt(n.trim(), 10));
-      if (bounds.length !== 4 || bounds.some((n) => Number.isNaN(n))) return resolve(null);
-      const [x1, y1, x2, y2] = bounds;
-      const w = x2 - x1;
-      const h = y2 - y1;
-      if (w <= 0 || h <= 0) return resolve(null);
-      const tmpFile = join(tmpdir(), `neurovance-frame-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
-      execFile('screencapture', ['-x', '-t', 'jpg', '-R', `${x1},${y1},${w},${h}`, tmpFile], (err2) => {
-        if (err2) return resolve(null);
-        try {
-          const data = readFileSync(tmpFile);
-          unlinkSync(tmpFile);
-          resolve(data.length > 0 ? { data: data.toString('base64'), url } : null);
-        } catch {
-          resolve(null);
-        }
-      });
-    });
-  });
-}
-
-// Gives the page a moment to actually render before grabbing the frame —
-// otherwise a click/navigation screenshot is just the pre-change state.
-function captureSafariScreenshotAfterDelay(ms) {
-  return new Promise((resolve) => setTimeout(() => captureSafariScreenshot().then(resolve), ms));
-}
-
 function runSafariJS(js) {
   const script = `tell application "Safari" to do JavaScript "${escapeForAppleScript(js)}" in front document`;
   return new Promise((res, rej) => {
@@ -212,7 +167,11 @@ function buildClickScript(text) {
   const parts = [
     'var t=' + JSON.stringify(text.toLowerCase()) + ';',
     'var els=Array.from(document.querySelectorAll(\'a, button, [role="button"], input[type="submit"], input[type="button"], summary, [onclick]\'));',
-    "var match=els.find(function(el){var label=(el.innerText||el.value||el.getAttribute('aria-label')||'').trim().toLowerCase();return label.indexOf(t)!==-1;});",
+    "var label=function(el){return (el.innerText||el.value||el.getAttribute('aria-label')||'').trim().toLowerCase();};",
+    // Exact match first — otherwise a shorter target text that happens to be
+    // a prefix of a different element's longer text (e.g. "Red" vs.
+    // "Red (Large)") can silently click the wrong one purely by DOM order.
+    'var match=els.find(function(el){return label(el)===t;})||els.find(function(el){return label(el).indexOf(t)!==-1;});',
     "if(!match)return 'NOT_FOUND';",
     "match.scrollIntoView({block:'center'});",
     'match.click();',
@@ -245,6 +204,21 @@ function buildTypeScript(label, text, submit) {
   return '(function(){' + parts.join('') + '})()';
 }
 
+// Same clickable-element selector as buildClickScript, so anything this
+// lists is guaranteed to be something click_page_element can actually hit.
+// getBoundingClientRect().top/left gives real on-screen position — a much
+// more reliable "top" signal than DOM order, which can differ from visual
+// layout once CSS grid/flex reordering is involved.
+function buildListElementsScript() {
+  const parts = [
+    'var els=Array.from(document.querySelectorAll(\'a, button, [role="button"], input[type="submit"], input[type="button"], summary, [onclick], [role="radio"], [role="option"]\'));',
+    "var items=els.map(function(el){var r=el.getBoundingClientRect();if(r.width===0||r.height===0)return null;var text=(el.innerText||el.value||el.getAttribute('aria-label')||el.getAttribute('title')||'').trim().replace(/\\s+/g,' ').slice(0,140);if(!text)return null;return {text:text,top:Math.round(r.top),left:Math.round(r.left)};}).filter(Boolean);",
+    'items.sort(function(a,b){return a.top-b.top||a.left-b.left;});',
+    'return JSON.stringify(items.slice(0,80));',
+  ];
+  return '(function(){' + parts.join('') + '})()';
+}
+
 function handleCommand(action, params) {
   if (action === 'list_files') {
     const dir = resolveScoped(params.subpath || '');
@@ -270,12 +244,18 @@ function handleCommand(action, params) {
     // AppleScript string literal or reach a shell at all.
     const safeUrl = url.replace(/"/g, '');
     return new Promise((res, rej) => {
-      execFile('osascript', ['-e', `tell application "Safari" to open location "${safeUrl}"`], async (err) => {
-        if (err) { rej(new Error('Could not open Safari: ' + err.message)); return; }
-        const frame = await captureSafariScreenshotAfterDelay(1200);
-        res({ opened: safeUrl, screenshot: frame?.data, pageUrl: frame?.url });
+      execFile('osascript', ['-e', `tell application "Safari" to open location "${safeUrl}"`], (err) => {
+        if (err) rej(new Error('Could not open Safari: ' + err.message));
+        else res({ opened: safeUrl });
       });
     });
+  }
+
+  // Goes back in the current tab's history — the voice-mode equivalent of
+  // pressing Safari's back button, so "go back" mid-conversation actually
+  // does something instead of only meaning "go back to the app."
+  if (action === 'go_back') {
+    return runSafariJS('(function(){history.back();return "OK";})()').then(() => ({ result: 'OK' }));
   }
 
   // Reads whatever is already rendered in the user's own front Safari tab —
@@ -320,10 +300,9 @@ function handleCommand(action, params) {
     const text = params.text || '';
     if (!text) return Promise.reject(new Error('No text given to click.'));
     const js = buildClickScript(text);
-    return runSafariJS(js).then(async (result) => {
+    return runSafariJS(js).then((result) => {
       if (result === 'NOT_FOUND') throw new Error(`Could not find anything matching "${text}" to click on the current page.`);
-      const frame = await captureSafariScreenshotAfterDelay(700);
-      return { result, screenshot: frame?.data, pageUrl: frame?.url };
+      return { result };
     });
   }
 
@@ -335,11 +314,26 @@ function handleCommand(action, params) {
     const { label, text, submit } = params;
     if (!label || text === undefined) return Promise.reject(new Error('Need both a field label and text to type.'));
     const js = buildTypeScript(label, text, !!submit);
-    return runSafariJS(js).then(async (result) => {
+    return runSafariJS(js).then((result) => {
       if (result === 'NOT_FOUND') throw new Error(`Could not find a field matching "${label}" on the current page.`);
       if (result === 'BLOCKED_PASSWORD') throw new Error('Refusing to type into a password field — the Companion never handles credentials.');
-      const frame = await captureSafariScreenshotAfterDelay(submit ? 1200 : 400);
-      return { result, screenshot: frame?.data, pageUrl: frame?.url };
+      return { result };
+    });
+  }
+
+  // Lists every clickable thing on the current page — text, and its real
+  // on-screen top/left position — sorted top-to-bottom, left-to-right. This
+  // is what lets a vague spoken instruction like "the red one on top" or
+  // "the second result" resolve to an actual element: the agent reads this
+  // list, picks the right entry, then calls click_page_element with that
+  // entry's exact text. Skips anything with zero size (hidden/off-screen).
+  if (action === 'list_page_elements') {
+    return runSafariJS(buildListElementsScript()).then((result) => {
+      try {
+        return { elements: JSON.parse(result) };
+      } catch {
+        throw new Error('Could not read the page\'s clickable elements.');
+      }
     });
   }
 

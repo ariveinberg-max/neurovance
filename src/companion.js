@@ -27,26 +27,6 @@ const pairingCodes = new Map(); // code -> { userId, expiresAt }
 const liveConnections = new Map(); // userId -> WebSocket
 const pendingCommands = new Map(); // commandId -> { resolve, reject, timeout }
 
-// Most recent screenshot of the user's own Safari window, taken by the
-// Companion after any action that changes what's on screen (open/click/type)
-// — lets the web app show a live-ish preview of what the Superself is
-// actually looking at while it browses. In-memory and per-process, same as
-// the connection/command maps above: it's a live "what's happening right
-// now" signal, not something worth persisting across a restart.
-const latestFrames = new Map(); // userId -> { data, ts }
-const FRAME_MAX_AGE_MS = 2 * 60 * 1000;
-
-export function setLatestFrame(userId, base64, pageUrl) {
-  if (!base64) return;
-  latestFrames.set(userId, { data: base64, url: pageUrl || '', ts: Date.now() });
-}
-
-export function getLatestFrame(userId) {
-  const frame = latestFrames.get(userId);
-  if (!frame || Date.now() - frame.ts > FRAME_MAX_AGE_MS) return null;
-  return frame;
-}
-
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 const COMMAND_TIMEOUT_MS = 15 * 1000;
 
