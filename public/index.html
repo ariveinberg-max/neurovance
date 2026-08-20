@@ -29,6 +29,7 @@
     --accent-green-bright: #b8ffcf;
     --accent-red: #e8432c;
     --overlay-rgb: 255, 255, 255;
+    --surface-rgb: 10, 10, 11;
   }
   :root[data-theme="light"] {
     --bg: #f2f1ee;
@@ -44,6 +45,7 @@
     --accent-green-bright: #147a3f;
     --accent-red: #c8341e;
     --overlay-rgb: 0, 0, 0;
+    --surface-rgb: 255, 255, 255;
   }
 
   html, body {
@@ -265,36 +267,45 @@
     padding: 11px 18px; border-radius: 20px; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease;
   }
   #talk-toggle:hover { background: var(--surface); border-color: rgba(var(--overlay-rgb),0.28); }
-  #talk-drawer {
-    position: fixed; bottom: 0; right: 0; z-index: 41;
-    width: 360px; max-width: 92vw; height: 480px; max-height: 78vh;
-    background: var(--surface); border: 1px solid rgba(var(--overlay-rgb),0.12); border-bottom: none;
-    border-top-left-radius: 10px; display: flex; flex-direction: column;
-    transform: translateY(100%); transition: transform 0.3s ease;
+  /* A real centered modal, not a corner drawer — big enough to actually
+     live in, translucent enough that the sphere and vitals stay visible
+     behind it rather than being fully hidden by a solid panel. */
+  #talk-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 41;
+    background: rgba(0,0,0,0.45); align-items: center; justify-content: center; padding: 24px;
   }
-  #talk-drawer.open { transform: translateY(0); }
+  #talk-backdrop.open { display: flex; }
+  #talk-drawer {
+    width: 720px; max-width: 100%; height: 82vh; max-height: 820px;
+    background: rgba(var(--surface-rgb), 0.6);
+    backdrop-filter: blur(28px) saturate(150%); -webkit-backdrop-filter: blur(28px) saturate(150%);
+    border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 16px;
+    display: flex; flex-direction: column; box-shadow: 0 50px 120px rgba(0,0,0,0.5);
+    opacity: 0; transform: scale(0.96); transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  #talk-backdrop.open #talk-drawer { opacity: 1; transform: scale(1); }
   #talk-header {
-    padding: 14px 16px 10px; border-bottom: 1px solid rgba(var(--overlay-rgb),0.08); flex-shrink: 0;
+    padding: 18px 20px 14px; border-bottom: 1px solid rgba(var(--overlay-rgb),0.08); flex-shrink: 0;
   }
   #talk-header-top { display: flex; align-items: center; justify-content: space-between; }
   #talk-mode-tabs { display: flex; gap: 6px; }
   .talk-mode {
     background: none; border: none; color: var(--text-muted); font-family: 'Inter', sans-serif;
-    font-size: 11px; letter-spacing: 0.3px; padding: 5px 10px; border-radius: 4px; cursor: pointer;
+    font-size: 12.5px; letter-spacing: 0.3px; padding: 6px 12px; border-radius: 4px; cursor: pointer;
     transition: color 0.2s ease, background 0.2s ease;
   }
   .talk-mode.active { color: var(--text-primary); background: rgba(var(--overlay-rgb),0.07); }
-  #talk-close { color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 4px; transition: color 0.2s ease; }
+  #talk-close { color: var(--text-muted); cursor: pointer; font-size: 15px; padding: 4px; transition: color 0.2s ease; }
   #talk-close:hover { color: var(--text-primary); }
-  #model-tabs { display: flex; gap: 6px; margin-top: 8px; }
-  .model-tier {
-    background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
-    font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 10px; cursor: pointer;
-    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  #model-select {
+    margin-top: 10px; width: 100%; max-width: 260px;
+    background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.14);
+    border-radius: 6px; color: var(--text-primary); font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; letter-spacing: 0.5px; padding: 7px 9px; outline: none; cursor: pointer;
+    transition: border-color 0.2s ease;
   }
-  .model-tier.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
-  .model-tier.locked { opacity: 0.6; }
-  .model-tier.locked::after { content: ' · Paid'; font-size: 8px; letter-spacing: 0.5px; }
+  #model-select:focus { border-color: rgba(210,230,255,0.5); }
+  #model-select option:disabled { color: var(--text-faint); }
   #model-tier-note { font-size: 10px; color: var(--text-muted); margin-top: 6px; min-height: 12px; }
   #talk-transcript { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
   .talk-msg { font-size: 12.5px; line-height: 1.55; max-width: 88%; }
@@ -852,6 +863,7 @@
 </div>
 
 <button id="talk-toggle">Talk</button>
+<div id="talk-backdrop">
 <div id="talk-drawer">
   <div id="talk-header">
     <div id="talk-header-top">
@@ -861,10 +873,10 @@
       </div>
       <div id="talk-close">✕</div>
     </div>
-    <div id="model-tabs">
-      <button class="model-tier" data-tier="pulse">Pulse 2.1</button>
-      <button class="model-tier active" data-tier="core">Core 1.1</button>
-    </div>
+    <select id="model-select">
+      <option value="pulse">Pulse 2.1 — Free</option>
+      <option value="core">Core 1.1 — $5/mo</option>
+    </select>
     <div id="model-tier-note"></div>
   </div>
   <div id="talk-transcript"></div>
@@ -872,6 +884,7 @@
     <textarea id="talk-input" rows="1" placeholder="Say something…"></textarea>
     <button id="talk-send">Send</button>
   </div>
+</div>
 </div>
 </div>
 
@@ -2026,15 +2039,16 @@ function buildHistory() {
 // both log into the one shared transcript above.
 function initTalkDrawer() {
   const toggle = document.getElementById('talk-toggle');
-  const drawer = document.getElementById('talk-drawer');
+  const backdrop = document.getElementById('talk-backdrop');
   const closeBtn = document.getElementById('talk-close');
   const input = document.getElementById('talk-input');
   const sendBtn = document.getElementById('talk-send');
   const modeTabs = document.querySelectorAll('.talk-mode');
   let mode = 'chat';
 
-  toggle.addEventListener('click', () => drawer.classList.toggle('open'));
-  closeBtn.addEventListener('click', () => drawer.classList.remove('open'));
+  toggle.addEventListener('click', () => backdrop.classList.toggle('open'));
+  closeBtn.addEventListener('click', () => backdrop.classList.remove('open'));
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
 
   modeTabs.forEach((btn) => btn.addEventListener('click', () => {
     modeTabs.forEach((b) => b.classList.remove('active'));
@@ -2045,34 +2059,27 @@ function initTalkDrawer() {
 
   // Model tier — Pulse (fast, free) / Core (smarter, paid), Neurovance's
   // own names. Only ever changes this one user's own chat + tasks.
-  const modelTabs = document.querySelectorAll('.model-tier');
+  const modelSelect = document.getElementById('model-select');
   const modelTierNote = document.getElementById('model-tier-note');
-  modelTabs.forEach((btn) => {
-    if (btn.dataset.tier === currentIdentity.model) {
-      modelTabs.forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-    }
-    if (btn.dataset.tier === 'core' && currentIdentity.plan !== 'paid') {
-      btn.classList.add('locked');
-    }
-    btn.addEventListener('click', async () => {
-      if (btn.classList.contains('active')) return;
-      const tier = btn.dataset.tier;
-      const res = await fetch('/api/model', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        modelTierNote.textContent = data.error || 'Could not switch models.';
-        return;
-      }
-      modelTierNote.textContent = '';
-      currentIdentity.model = tier;
-      modelTabs.forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
+  modelSelect.value = currentIdentity.model;
+  if (currentIdentity.plan !== 'paid') {
+    modelSelect.querySelector('option[value="core"]').disabled = true;
+  }
+  modelSelect.addEventListener('change', async () => {
+    const tier = modelSelect.value;
+    const res = await fetch('/api/model', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier }),
     });
+    const data = await res.json();
+    if (!res.ok) {
+      modelTierNote.textContent = data.error || 'Could not switch models.';
+      modelSelect.value = currentIdentity.model; // revert the visible selection
+      return;
+    }
+    modelTierNote.textContent = '';
+    currentIdentity.model = tier;
   });
 
   async function refreshGraphAfterTask() {
