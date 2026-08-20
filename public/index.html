@@ -13,8 +13,9 @@
      (unchanged values, so dark mode looks exactly like it always has), light
      is a real second palette, not an inversion filter. Applies to the app
      chrome (sidebar, modals, forms, talk drawer); the 3D memory sphere and
-     body turntable are WebGL/canvas-rendered and stay dark regardless of
-     theme — that's a separate rendering layer CSS variables can't reach. ---------- */
+     body turntable are WebGL/canvas-rendered — a separate rendering layer
+     these CSS variables can't reach, so their own background/text colors are
+     set directly in JS to track the theme (search "graphBgFor"). ---------- */
   :root {
     --bg: #050505;
     --surface: #0a0a0b;
@@ -471,15 +472,7 @@
 
   /* ---------- Main ---------- */
   #main { flex: 1; display: flex; flex-direction: column; height: 100vh; min-width: 0; }
-  /* The sphere and body are WebGL/canvas-rendered and stay dark on purpose
-     in both themes (see note above) — they need their own permanent dark
-     "stage" with real framing, or in light mode they read as a raw black
-     box dropped onto a light page instead of an intentional viewport. */
-  #content-row {
-    display: flex; flex: 1 1 0%; min-height: 0; position: relative;
-    background: #050505; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
-    margin: 14px 14px 10px 14px; overflow: hidden;
-  }
+  #content-row { display: flex; flex: 1 1 0%; min-height: 0; position: relative; }
   #graph-wrap { position: relative; flex: 1 1 0%; min-height: 0; min-width: 0; }
   #graph {
     width: 100%; height: 100%; filter: brightness(1.05) contrast(1.08);
@@ -488,7 +481,7 @@
   body.dormant #graph { filter: brightness(0.82) contrast(1.05) saturate(0.8); }
   #empty {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    color: rgba(255,255,255,0.35); font-size: 13px; text-align: center; max-width: 320px;
+    color: var(--text-muted); font-size: 13px; text-align: center; max-width: 320px;
   }
 
   /* ---------- Neural link — a thin pulsing line between the sphere and the
@@ -514,7 +507,9 @@
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     max-height: 84%; max-width: 84%; pointer-events: none;
     opacity: 0; transition: opacity 0.9s ease-in-out;
-    mix-blend-mode: screen; /* the image's own black background vanishes into the page instead of showing as a box */
+    /* real alpha transparency baked into the PNGs themselves (converted from
+       screen-on-black glow renders), so this sits directly on the page
+       background in either theme with no blend mode or backdrop needed */
   }
   #body-wrap .frame.active { opacity: 1; }
   #glow-heart, #glow-brain {
@@ -529,16 +524,13 @@
     width: 55px; height: 55px; top: 19%;
     background: radial-gradient(circle, rgba(180,220,255,0.5) 0%, rgba(180,220,255,0) 70%);
   }
-  /* Fixed light-on-dark colors, not the theme tokens — this text sits on
-     the permanently-dark stage above, not on the page background, so it
-     must not flip to a dark-on-light color when the page goes light. */
   #voice-status {
     position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3;
-    color: #7fd99a; font-size: 10px; letter-spacing: 1px; text-align: center; max-width: 90%;
+    color: var(--accent-green); font-size: 10px; letter-spacing: 1px; text-align: center; max-width: 90%;
     transition: color 0.3s ease;
   }
-  #voice-status.thinking { color: #d6d6d9; }
-  #voice-status.error { color: #e8432c; }
+  #voice-status.thinking { color: var(--text-primary); }
+  #voice-status.error { color: var(--accent-red); }
   #mouth-indicator {
     position: absolute; left: 50%; top: 22%; transform: translate(-50%, -50%) scaleY(1);
     width: 12px; height: 3px; border-radius: 3px; background: rgba(210,230,255,0.75);
@@ -548,7 +540,7 @@
 
   #blink-overlay {
     position: absolute; left: 50%; top: 15.5%; transform: translate(-50%, -50%);
-    width: 32px; height: 4px; border-radius: 2px; background: #050505;
+    width: 32px; height: 4px; border-radius: 2px; background: var(--bg);
     opacity: 0; pointer-events: none; z-index: 3; transition: opacity 0.05s ease;
   }
 
@@ -903,6 +895,11 @@
 <script src="https://unpkg.com/three@0.150.0/build/three.min.js"></script>
 <script>
 let Graph, allNodes = [], allLinks = [], selectedId = null;
+// The graph canvas is WebGL, not CSS — its own background color has to be
+// set directly in JS to track the theme instead of just inheriting it.
+function graphBgFor(mode) {
+  return mode === 'light' ? '#f2f1ee' : '#050505';
+}
 let bodyControls = null;
 let shellMaterial = null, currentBpm = 60, displayedBpm = 60, isDormant = false, isOverworked = false, voiceActive = false;
 
@@ -1303,7 +1300,7 @@ function handleStripeRedirect() {
 function initGraph(data) {
   Graph = ForceGraph3D()(document.getElementById('graph'))
     .graphData(data)
-    .backgroundColor('#050505')
+    .backgroundColor(graphBgFor(document.documentElement.dataset.theme || 'dark'))
     .nodeLabel((n) => n.name)
     .nodeColor((n) => (n.id === selectedId ? '#ffffff' : n.color))
     .nodeVal((n) => n.val)
@@ -1590,7 +1587,8 @@ function matchesSearch(n) {
 function baseColorFor(n) {
   if (n.id === selectedId) return new THREE.Color('#ffffff');
   if (!matchesSearch(n)) {
-    return new THREE.Color(n.color).lerp(new THREE.Color('#000000'), 0.92);
+    const canvasBg = graphBgFor(document.documentElement.dataset.theme || 'dark');
+    return new THREE.Color(n.color).lerp(new THREE.Color(canvasBg), 0.92);
   }
   return new THREE.Color(n.color);
 }
@@ -2269,6 +2267,7 @@ function initSettings() {
       document.documentElement.dataset.theme = mode;
       localStorage.setItem('neurovance_theme', mode);
       themeTabs.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+      if (Graph) Graph.backgroundColor(graphBgFor(mode));
     });
   });
 
