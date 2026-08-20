@@ -471,7 +471,15 @@
 
   /* ---------- Main ---------- */
   #main { flex: 1; display: flex; flex-direction: column; height: 100vh; min-width: 0; }
-  #content-row { display: flex; flex: 1 1 0%; min-height: 0; position: relative; }
+  /* The sphere and body are WebGL/canvas-rendered and stay dark on purpose
+     in both themes (see note above) — they need their own permanent dark
+     "stage" with real framing, or in light mode they read as a raw black
+     box dropped onto a light page instead of an intentional viewport. */
+  #content-row {
+    display: flex; flex: 1 1 0%; min-height: 0; position: relative;
+    background: #050505; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+    margin: 14px 14px 10px 14px; overflow: hidden;
+  }
   #graph-wrap { position: relative; flex: 1 1 0%; min-height: 0; min-width: 0; }
   #graph {
     width: 100%; height: 100%; filter: brightness(1.05) contrast(1.08);
@@ -480,7 +488,7 @@
   body.dormant #graph { filter: brightness(0.82) contrast(1.05) saturate(0.8); }
   #empty {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    color: var(--text-muted); font-size: 13px; text-align: center; max-width: 320px;
+    color: rgba(255,255,255,0.35); font-size: 13px; text-align: center; max-width: 320px;
   }
 
   /* ---------- Neural link — a thin pulsing line between the sphere and the
@@ -521,13 +529,16 @@
     width: 55px; height: 55px; top: 19%;
     background: radial-gradient(circle, rgba(180,220,255,0.5) 0%, rgba(180,220,255,0) 70%);
   }
+  /* Fixed light-on-dark colors, not the theme tokens — this text sits on
+     the permanently-dark stage above, not on the page background, so it
+     must not flip to a dark-on-light color when the page goes light. */
   #voice-status {
     position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3;
-    color: var(--accent-green); font-size: 10px; letter-spacing: 1px; text-align: center; max-width: 90%;
+    color: #7fd99a; font-size: 10px; letter-spacing: 1px; text-align: center; max-width: 90%;
     transition: color 0.3s ease;
   }
-  #voice-status.thinking { color: var(--text-primary); }
-  #voice-status.error { color: var(--accent-red); }
+  #voice-status.thinking { color: #d6d6d9; }
+  #voice-status.error { color: #e8432c; }
   #mouth-indicator {
     position: absolute; left: 50%; top: 22%; transform: translate(-50%, -50%) scaleY(1);
     width: 12px; height: 3px; border-radius: 3px; background: rgba(210,230,255,0.75);
@@ -537,7 +548,7 @@
 
   #blink-overlay {
     position: absolute; left: 50%; top: 15.5%; transform: translate(-50%, -50%);
-    width: 32px; height: 4px; border-radius: 2px; background: var(--bg);
+    width: 32px; height: 4px; border-radius: 2px; background: #050505;
     opacity: 0; pointer-events: none; z-index: 3; transition: opacity 0.05s ease;
   }
 
