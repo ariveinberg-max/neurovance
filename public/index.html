@@ -900,6 +900,13 @@ let Graph, allNodes = [], allLinks = [], selectedId = null;
 function graphBgFor(mode) {
   return mode === 'light' ? '#f2f1ee' : '#050505';
 }
+// The turntable frames are pre-baked glow renders, one pale-blue set for
+// dark and one black set for light — a pale glow has no contrast against a
+// light page, so this can't be a filter, it needs an actual different image.
+function framePath(idx, mode) {
+  return mode === 'light' ? `/turntable/angle-${idx}-light.png` : `/turntable/angle-${idx}.png`;
+}
+let refreshBodyFrameTheme = null;
 let bodyControls = null;
 let shellMaterial = null, currentBpm = 60, displayedBpm = 60, isDormant = false, isOverworked = false, voiceActive = false;
 
@@ -2268,6 +2275,7 @@ function initSettings() {
       localStorage.setItem('neurovance_theme', mode);
       themeTabs.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
       if (Graph) Graph.backgroundColor(graphBgFor(mode));
+      if (refreshBodyFrameTheme) refreshBodyFrameTheme(mode);
     });
   });
 
@@ -2644,11 +2652,19 @@ function initBodyTurntable() {
     const next = ((idx % FRAME_COUNT) + FRAME_COUNT) % FRAME_COUNT;
     if (next === currentFrame) return;
     currentFrame = next;
-    backEl.src = `/turntable/angle-${currentFrame}.png`;
+    backEl.src = framePath(currentFrame, document.documentElement.dataset.theme || 'dark');
     backEl.classList.add('active');
     frontEl.classList.remove('active');
     const tmp = frontEl; frontEl = backEl; backEl = tmp;
   }
+
+  const initialTheme = document.documentElement.dataset.theme || 'dark';
+  frontEl.src = framePath(currentFrame, initialTheme);
+  backEl.src = framePath(currentFrame, initialTheme);
+  refreshBodyFrameTheme = (mode) => {
+    frontEl.src = framePath(currentFrame, mode);
+    backEl.src = framePath(currentFrame, mode);
+  };
 
   function startAuto() {
     stopAuto();
