@@ -6,10 +6,13 @@
 // showing in Safari's front tab, read your saved Safari bookmarks, click
 // links/buttons on the current page, type into fields, list what's
 // clickable and where it sits on screen, go back, search your real
-// Contacts by name, and send a real iMessage — only when your own paired
-// Superself asks, and only after you've confirmed you actually want that
-// message sent (enforced by the Superself's own instructions, not by this
-// file — this file just sends what it's told).
+// Contacts by name, send a real iMessage (to one person or several), and
+// add a real calendar event, reminder, or note — only when your own
+// paired Superself asks. Sending a message only ever happens after
+// you've confirmed you actually want it sent (enforced by the Superself's
+// own instructions, not by this file — this file just does what it's
+// told); adding to your own calendar/reminders/notes doesn't need that
+// since it never reaches anyone but you.
 // What it can't do: touch anything outside that folder, write or delete a
 // local file, run arbitrary commands, edit/add/remove a contact, or type
 // into a password field — that last one is refused unconditionally right
@@ -206,14 +209,77 @@ function buildFindContactScript(query) {
   ].join('\n');
 }
 
-function buildSendMessageScript(recipient, text) {
-  const safeRecipient = escapeForAppleScript(recipient);
+// One or many recipients — Messages' own AppleScript support for creating
+// a brand-new group thread from scratch is unreliable, so "group message"
+// here means the same text sent individually to each person rather than
+// one shared thread. Same practical outcome for "tell everyone X", without
+// depending on a flaky API.
+function buildSendMessageScript(recipients, text) {
+  const list = Array.isArray(recipients) ? recipients : [recipients];
   const safeText = escapeForAppleScript(text);
+  const lines = ['tell application "Messages"', '  set targetService to 1st service whose service type = iMessage'];
+  list.forEach((r, i) => {
+    const safeR = escapeForAppleScript(r);
+    lines.push(`  set targetBuddy${i} to buddy "${safeR}" of targetService`);
+    lines.push(`  send "${safeText}" to targetBuddy${i}`);
+  });
+  lines.push('end tell');
+  return lines.join('\n');
+}
+
+// AppleScript's `date` coercion wants a locale-formatted string like
+// "August 21, 2026 3:00:00 PM", not ISO 8601 — this runs on the user's own
+// Mac, so Date's local getters already reflect their real timezone, no
+// conversion needed beyond formatting.
+function toAppleScriptDate(isoString) {
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) throw new Error('Invalid date/time.');
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${hours}:${minutes}:${seconds} ${ampm}`;
+}
+
+function buildAddCalendarEventScript(title, startISO, endISO) {
+  const safeTitle = escapeForAppleScript(title);
+  const startStr = escapeForAppleScript(toAppleScriptDate(startISO));
+  const endStr = escapeForAppleScript(toAppleScriptDate(endISO));
   return [
-    'tell application "Messages"',
-    '  set targetService to 1st service whose service type = iMessage',
-    `  set targetBuddy to buddy "${safeRecipient}" of targetService`,
-    `  send "${safeText}" to targetBuddy`,
+    'tell application "Calendar"',
+    '  tell (first calendar whose writable is true)',
+    `    make new event with properties {summary:"${safeTitle}", start date:date "${startStr}", end date:date "${endStr}"}`,
+    '  end tell',
+    'end tell',
+  ].join('\n');
+}
+
+function buildAddReminderScript(title, dueISO) {
+  const safeTitle = escapeForAppleScript(title);
+  const lines = ['tell application "Reminders"', '  tell default list'];
+  if (dueISO) {
+    const dueStr = escapeForAppleScript(toAppleScriptDate(dueISO));
+    lines.push(`    make new reminder with properties {name:"${safeTitle}", remind me date:date "${dueStr}"}`);
+  } else {
+    lines.push(`    make new reminder with properties {name:"${safeTitle}"}`);
+  }
+  lines.push('  end tell', 'end tell');
+  return lines.join('\n');
+}
+
+// Notes.app derives the visible title from the first line of the body
+// itself — "name" isn't a settable property at creation time in every
+// macOS version, so this only ever sets body, title included as its
+// first line, which is the reliable, documented pattern.
+function buildAddNoteScript(title, body) {
+  const safeTitle = escapeForAppleScript(title);
+  const fullBody = body ? `${safeTitle}<br>${escapeForAppleScript(body)}` : safeTitle;
+  return [
+    'tell application "Notes"',
+    `  make new note with properties {body:"${fullBody}"}`,
     'end tell',
   ].join('\n');
 }
@@ -424,11 +490,43 @@ function handleCommand(action, params) {
   // payments and deletions; this action itself has no concept of "safe"
   // vs "not", it just sends what it's told, exactly like click_page_element.
   if (action === 'send_text_message') {
-    const { recipient, text } = params;
-    if (!recipient || !text) return Promise.reject(new Error('Need both a recipient and message text.'));
-    return runAppleScript(buildSendMessageScript(recipient, text))
-      .then(() => ({ sent: true, recipient }))
+    const { recipients, text } = params;
+    if (!recipients || !(Array.isArray(recipients) ? recipients.length : true) || !text) {
+      return Promise.reject(new Error('Need at least one recipient and message text.'));
+    }
+    return runAppleScript(buildSendMessageScript(recipients, text))
+      .then(() => ({ sent: true, recipients: Array.isArray(recipients) ? recipients : [recipients] }))
       .catch((e) => { throw new Error('Could not send the message: ' + e.message); });
+  }
+
+  // Adds a real event to the user's own calendar — their own data, no
+  // third party involved, so (unlike sending a message) this doesn't need
+  // the same confirm-first treatment; the server's system prompt is what
+  // actually decides that policy, this action just does what it's told.
+  if (action === 'add_calendar_event') {
+    const { title, startDateTime, endDateTime } = params;
+    if (!title || !startDateTime || !endDateTime) {
+      return Promise.reject(new Error('Need a title, start time, and end time.'));
+    }
+    return runAppleScript(buildAddCalendarEventScript(title, startDateTime, endDateTime))
+      .then(() => ({ added: true, title }))
+      .catch((e) => { throw new Error('Could not add the calendar event: ' + e.message); });
+  }
+
+  if (action === 'add_reminder') {
+    const { title, dueDateTime } = params;
+    if (!title) return Promise.reject(new Error('Need a title for the reminder.'));
+    return runAppleScript(buildAddReminderScript(title, dueDateTime))
+      .then(() => ({ added: true, title }))
+      .catch((e) => { throw new Error('Could not add the reminder: ' + e.message); });
+  }
+
+  if (action === 'add_note') {
+    const { title, body } = params;
+    if (!title) return Promise.reject(new Error('Need a title for the note.'));
+    return runAppleScript(buildAddNoteScript(title, body))
+      .then(() => ({ added: true, title }))
+      .catch((e) => { throw new Error('Could not add the note: ' + e.message); });
   }
 
   // Reads Safari's own saved bookmarks (read-only) so it can actually go

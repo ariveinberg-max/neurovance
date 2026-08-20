@@ -162,18 +162,62 @@ const COMPANION_FIND_CONTACT_TOOL = {
 const COMPANION_SEND_MESSAGE_TOOL = {
   name: 'send_text_message',
   description:
-    'Send a real iMessage/text from the user\'s own Messages app to a real person — this reaches someone else, not just the user. ALWAYS stop and get the user\'s explicit go-ahead in chat before calling this, the same hard rule as a payment: say exactly who you\'re about to message and what you\'re about to say, then wait for their next message to actually confirm it. Never call this in the same turn you proposed it in.',
+    'Send a real iMessage/text from the user\'s own Messages app to one or more real people — this reaches someone else, not just the user. For more than one recipient, the same text is sent individually to each (not one shared group thread). ALWAYS stop and get the user\'s explicit go-ahead in chat before calling this, the same hard rule as a payment: say exactly who you\'re about to message and what you\'re about to say, then wait for their next message to actually confirm it. Never call this in the same turn you proposed it in.',
   input_schema: {
     type: 'object',
     properties: {
-      recipient: { type: 'string', description: 'Phone number (e.g. "+15551234567") or email address to send to — get this from find_contact first if the user only gave a name.' },
+      recipients: {
+        type: 'array', items: { type: 'string' },
+        description: 'One or more phone numbers (e.g. "+15551234567") or email addresses to send to — get these from find_contact first if the user only gave names.',
+      },
       text: { type: 'string', description: 'The exact message to send.' },
     },
-    required: ['recipient', 'text'],
+    required: ['recipients', 'text'],
   },
 };
 
-const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL, COMPANION_GO_BACK_TOOL, COMPANION_LIST_ELEMENTS_TOOL, COMPANION_FIND_CONTACT_TOOL, COMPANION_SEND_MESSAGE_TOOL];
+const COMPANION_ADD_CALENDAR_EVENT_TOOL = {
+  name: 'add_calendar_event',
+  description:
+    'Add a real event to the user\'s own default calendar. This is their own data, not something reaching anyone else, so it does not need the confirm-first treatment send_text_message does — just do it and report back what you added.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'Event title.' },
+      startDateTime: { type: 'string', description: 'Start date/time, ISO 8601, e.g. "2026-08-21T15:00:00".' },
+      endDateTime: { type: 'string', description: 'End date/time, ISO 8601.' },
+    },
+    required: ['title', 'startDateTime', 'endDateTime'],
+  },
+};
+
+const COMPANION_ADD_REMINDER_TOOL = {
+  name: 'add_reminder',
+  description: 'Add a real reminder to the user\'s own default Reminders list. Their own data — just do it, no confirmation needed.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'What to be reminded of.' },
+      dueDateTime: { type: 'string', description: 'Optional due date/time, ISO 8601. Omit for a reminder with no due date.' },
+    },
+    required: ['title'],
+  },
+};
+
+const COMPANION_ADD_NOTE_TOOL = {
+  name: 'add_note',
+  description: 'Add a real note to the user\'s own Notes app. Their own data — just do it, no confirmation needed.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'Note title — becomes the first line.' },
+      body: { type: 'string', description: 'Optional note content after the title.' },
+    },
+    required: ['title'],
+  },
+};
+
+const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL, COMPANION_GO_BACK_TOOL, COMPANION_LIST_ELEMENTS_TOOL, COMPANION_FIND_CONTACT_TOOL, COMPANION_SEND_MESSAGE_TOOL, COMPANION_ADD_CALENDAR_EVENT_TOOL, COMPANION_ADD_REMINDER_TOOL, COMPANION_ADD_NOTE_TOOL];
 // Derived from the tool list itself, not hand-maintained separately — a
 // tool added to ALL_COMPANION_TOOLS above without also being added to a
 // second hardcoded name list here is exactly how read_current_browser_page
@@ -230,10 +274,32 @@ async function handleCompanionTool(userId, toolUse) {
   }
   if (toolUse.name === 'send_text_message') {
     const result = await companion.sendCommand(userId, 'send_text_message', {
-      recipient: toolUse.input.recipient,
+      recipients: toolUse.input.recipients,
       text: toolUse.input.text,
     });
-    return `Sent to ${result.recipient}.`;
+    return `Sent to ${result.recipients.join(', ')}.`;
+  }
+  if (toolUse.name === 'add_calendar_event') {
+    const result = await companion.sendCommand(userId, 'add_calendar_event', {
+      title: toolUse.input.title,
+      startDateTime: toolUse.input.startDateTime,
+      endDateTime: toolUse.input.endDateTime,
+    });
+    return `Added "${result.title}" to their calendar.`;
+  }
+  if (toolUse.name === 'add_reminder') {
+    const result = await companion.sendCommand(userId, 'add_reminder', {
+      title: toolUse.input.title,
+      dueDateTime: toolUse.input.dueDateTime,
+    });
+    return `Added reminder: "${result.title}".`;
+  }
+  if (toolUse.name === 'add_note') {
+    const result = await companion.sendCommand(userId, 'add_note', {
+      title: toolUse.input.title,
+      body: toolUse.input.body,
+    });
+    return `Added note: "${result.title}".`;
   }
   return null;
 }
@@ -304,7 +370,7 @@ async function buildTaskSystemPrompt(userId, user, task) {
       ? [
           'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything there.',
           'In their real Safari you can: open_url_in_browser, read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks, click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). Use these freely for ordinary browsing — navigating, searching, filling in lookup forms, following links, clicking through a page. Do not ask permission first for that kind of thing; just go do it and report back.',
-          'You can also use find_contact to search their real Contacts app by name (read-only, free to use anytime) and send_text_message to send a real iMessage from their own Messages app.',
+          'You can also use find_contact to search their real Contacts app by name (read-only, free to use anytime), send_text_message to send a real iMessage from their own Messages app (recipients is a list — pass more than one to message several people the same text), add_calendar_event to add a real event to their calendar, add_reminder to add a real reminder, and add_note to add a real note — the last three are their own data, no confirmation needed, just do them.',
           'The one hard line: before you complete an actual payment/purchase, before you call send_text_message for any reason, or before you click something that deletes/cancels/removes an account or their data — STOP. Say exactly what you are about to do — who you would message and what you would say, or what you would buy or delete — then end your turn and wait for their next message to actually confirm it before doing it. Do not do it in the same turn you proposed it in. find_contact itself needs no confirmation, only the actual send.',
           'type_into_page_field will never type into a password field no matter what — never try to work around that or ask them to paste a password to you either.',
           'If a browser tool call errors or fails, say exactly what failed — never guess or assume something worked and describe what "should" be on their screen. Only describe what a page shows after a tool call actually confirmed it (e.g. via list_page_elements or read_current_browser_page) — a failed type/click means the page is probably still showing whatever it showed before, not the result you were going for.',
@@ -381,7 +447,7 @@ async function buildChatSystemPrompt(userId, user, message) {
     'Use the remember tool if they tell you something new worth keeping. Do not narrate that you are doing so.',
     hasCompanion
       ? [
-          'They have a Companion paired, so mid-conversation you can actually drive their real Safari: open_url_in_browser, click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks. If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, and send_text_message to send a real iMessage from their own Messages app.',
+          'They have a Companion paired, so mid-conversation you can actually drive their real Safari: open_url_in_browser, click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks. If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, send_text_message to send a real iMessage (recipients is a list, so more than one person can get the same text), and add_calendar_event / add_reminder / add_note to actually add real things to their calendar, reminders, and notes — those three are their own data, so just do them, no confirmation needed.',
           'Same hard line as always: before an actual payment/purchase, before send_text_message for any reason, or before deleting/canceling/removing something — say what you are about to do in one short sentence (who you would message and what you would say, if it is a message) and wait for them to actually say to go ahead, out loud, before you do it. find_contact itself needs no confirmation. Everything else about ordinary browsing (navigating, clicking around, adding something to a cart) — just do it, no need to ask first.',
           'If a browser tool call errors, say so plainly in one short sentence — never guess that something worked or describe results you have not actually confirmed with a tool.',
         ].join(' ')
