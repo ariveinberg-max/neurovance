@@ -1869,7 +1869,18 @@ function initCompanion() {
 // Personality tone (server-side, follows the account everywhere) and speech
 // voice (client-side — which voices exist depends on this browser/device,
 // so it's stored per-browser rather than synced to the account).
-let selectedVoice = null;
+//
+// Only the NAME is kept here, not the SpeechSynthesisVoice object itself —
+// Chrome in particular can silently ignore utterance.voice if it's set to a
+// voice object captured from an earlier/stale getVoices() call instead of
+// the list's current one, which is exactly why picking a voice in Settings
+// would visibly save but not actually be used when it later spoke for
+// real. getCurrentVoice() below always resolves fresh, right before speaking.
+let selectedVoiceName = null;
+function getCurrentVoice() {
+  if (!selectedVoiceName) return null;
+  return speechSynthesis.getVoices().find((v) => v.name === selectedVoiceName) || null;
+}
 
 function initSettings() {
   const backdrop = document.getElementById('settings-modal-backdrop');
@@ -1918,18 +1929,19 @@ function initSettings() {
     voiceSelect.innerHTML = voices.map((v) => `<option value="${v.name}">${v.name} (${v.lang})</option>`).join('');
     const match = voices.find((v) => v.name === savedName) || voices.find((v) => v.default) || voices[0];
     voiceSelect.value = match.name;
-    selectedVoice = match;
+    selectedVoiceName = match.name;
   }
 
   voiceSelect.addEventListener('change', () => {
-    selectedVoice = speechSynthesis.getVoices().find((v) => v.name === voiceSelect.value) || null;
+    selectedVoiceName = voiceSelect.value;
     localStorage.setItem(VOICE_STORAGE_KEY, voiceSelect.value);
 
     // Preview it immediately so picking a voice actually tells you something —
     // cancel first so rapidly clicking through the list doesn't queue up echoes.
     speechSynthesis.cancel();
     const preview = new SpeechSynthesisUtterance(`Hello ${currentIdentity.displayName}.`);
-    if (selectedVoice) preview.voice = selectedVoice;
+    const voice = getCurrentVoice();
+    if (voice) preview.voice = voice;
     speechSynthesis.speak(preview);
   });
 
@@ -2311,7 +2323,8 @@ function initVoiceAssistant() {
     voiceActive = true; // sphere/links pulse faster while it's actually talking
 
     const utter = new SpeechSynthesisUtterance(text);
-    if (selectedVoice) utter.voice = selectedVoice;
+    const voice = getCurrentVoice();
+    if (voice) utter.voice = voice;
     utter.onboundary = () => {
       mouthEl.style.transform = 'translate(-50%, -50%) scaleY(2.4)';
       setTimeout(() => { mouthEl.style.transform = 'translate(-50%, -50%) scaleY(1)'; }, 90);
