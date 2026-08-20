@@ -489,7 +489,7 @@ const server = createServer(async (req, res) => {
     // preview of whatever the Companion last saw in the user's own Safari.
     if (req.url === '/api/companion/latest-frame') {
       const frame = companion.getLatestFrame(user.id);
-      return sendJson(res, 200, frame ? { ok: true, data: frame.data, ts: frame.ts } : { ok: true, data: null });
+      return sendJson(res, 200, frame ? { ok: true, data: frame.data, url: frame.url, ts: frame.ts } : { ok: true, data: null });
     }
 
     // ---------- Contestable memory — correcting one memory can mean nearby

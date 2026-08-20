@@ -278,29 +278,42 @@
   #talk-send:hover { background: rgba(255,255,255,0.14); }
   #talk-send:disabled { opacity: 0.5; cursor: default; }
 
-  /* ---------- Browser mirror — a live-ish preview of what the Superself is
-     looking at in the user's own Safari while a browsing task runs, floated
-     translucently over the app rather than a real screen-share window. ---------- */
+  /* ---------- Browser mirror — a real-window-styled live preview of what
+     the Superself is looking at in the user's own Safari while it browses.
+     Not a true embedded site (most sites, Amazon included, block being
+     iframed, and the actual clicking happens on the user's own Mac via the
+     Companion, not inside this page) — styled and behaves like a genuine
+     browser window instead: title bar with the real URL, a real close
+     button the user controls, refreshed fast enough to feel live. ---------- */
   #browser-mirror {
     position: fixed; top: 64px; left: 50%; transform: translateX(-50%) translateY(-10px);
-    width: min(640px, 82vw); max-height: 58vh;
-    border: 1px solid rgba(255,255,255,0.16); border-radius: 10px;
-    background: rgba(10,10,11,0.55); box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+    width: min(720px, 86vw); max-height: 66vh;
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 10px;
+    background: #0a0a0b; box-shadow: 0 24px 70px rgba(0,0,0,0.6);
     overflow: hidden; opacity: 0; pointer-events: none; z-index: 35;
-    transition: opacity 0.4s ease, transform 0.4s ease;
+    transition: opacity 0.3s ease, transform 0.3s ease;
   }
-  #browser-mirror.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
-  #browser-mirror-label {
-    display: flex; align-items: center; gap: 7px; padding: 8px 12px;
-    font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase;
-    color: #9a9aa2; border-bottom: 1px solid rgba(255,255,255,0.08);
+  #browser-mirror.visible { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+  #browser-mirror-bar {
+    display: flex; align-items: center; gap: 8px; padding: 9px 8px 9px 12px;
+    background: #141416; border-bottom: 1px solid rgba(255,255,255,0.08);
   }
   #browser-mirror-dot {
     width: 6px; height: 6px; border-radius: 50%; background: #e8432c; flex-shrink: 0;
     animation: browser-mirror-pulse 1.4s ease-in-out infinite;
   }
   @keyframes browser-mirror-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
-  #browser-mirror-img { display: block; width: 100%; height: auto; max-height: calc(58vh - 34px); object-fit: contain; opacity: 0.9; }
+  #browser-mirror-url {
+    flex: 1; font-family: 'Share Tech Mono', monospace; font-size: 10.5px; letter-spacing: 0.3px;
+    color: #9a9aa2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #browser-mirror-close {
+    flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; border: none; cursor: pointer;
+    background: rgba(255,255,255,0.08); color: #9a9aa2; font-size: 10px; line-height: 20px; padding: 0;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  #browser-mirror-close:hover { background: #e8432c; color: #fff; }
+  #browser-mirror-img { display: block; width: 100%; height: auto; max-height: calc(66vh - 38px); object-fit: contain; background: #050506; }
 
   /* ---------- Companion — pairs a local app on the user's own computer ---------- */
   #companion-panel { margin-top: 24px; }
@@ -637,7 +650,11 @@
 </div>
 
 <div id="browser-mirror">
-  <div id="browser-mirror-label"><span id="browser-mirror-dot"></span>Watching your Safari</div>
+  <div id="browser-mirror-bar">
+    <span id="browser-mirror-dot"></span>
+    <span id="browser-mirror-url">—</span>
+    <button id="browser-mirror-close" title="Close" aria-label="Close">✕</button>
+  </div>
   <img id="browser-mirror-img" alt="Live preview of what the Superself is looking at" />
 </div>
 
@@ -1718,15 +1735,21 @@ function initTalkDrawer() {
   });
 
   // While a task is running, poll for whatever the Companion last saw in the
-  // user's own Safari and float it as a translucent preview over the app —
-  // not a real screen share, just "here's roughly what it's looking at
-  // right now", refreshed each time the agent does something on the page.
+  // user's own Safari and show it in a browser-styled window over the app —
+  // not a true embedded site (most sites block being iframed, and the real
+  // clicking happens on the user's own Mac, not in this page), so this is
+  // the honest version: a fast-refreshing preview with a real URL bar and a
+  // close button the user actually controls, instead of auto-fading away.
   const mirror = document.getElementById('browser-mirror');
   const mirrorImg = document.getElementById('browser-mirror-img');
+  const mirrorUrl = document.getElementById('browser-mirror-url');
+  const mirrorClose = document.getElementById('browser-mirror-close');
   let mirrorPollTimer = null;
+  let mirrorClosedByUser = false;
   let lastFrameTs = 0;
 
   function startMirrorPolling() {
+    mirrorClosedByUser = false;
     if (mirrorPollTimer) return;
     mirrorPollTimer = setInterval(async () => {
       try {
@@ -1735,18 +1758,23 @@ function initTalkDrawer() {
         if (data.data && data.ts !== lastFrameTs) {
           lastFrameTs = data.ts;
           mirrorImg.src = 'data:image/jpeg;base64,' + data.data;
-          mirror.classList.add('visible');
+          if (data.url) mirrorUrl.textContent = data.url;
+          if (!mirrorClosedByUser) mirror.classList.add('visible');
         }
       } catch {
         // a missed poll just means the preview doesn't update this tick — not worth surfacing
       }
-    }, 900);
+    }, 500);
   }
 
-  function stopMirrorPolling(hideAfterMs) {
+  function stopMirrorPolling() {
     if (mirrorPollTimer) { clearInterval(mirrorPollTimer); mirrorPollTimer = null; }
-    setTimeout(() => mirror.classList.remove('visible'), hideAfterMs ?? 0);
   }
+
+  mirrorClose.addEventListener('click', () => {
+    mirrorClosedByUser = true;
+    mirror.classList.remove('visible');
+  });
 
   async function refreshGraphAfterTask() {
     const data = await fetch('/api/graph', { credentials: 'same-origin' }).then((r) => r.json());
@@ -1783,7 +1811,7 @@ function initTalkDrawer() {
         talkTranscript.pop();
         pushTranscript('error', err.message);
       } finally {
-        stopMirrorPolling(2500); // keep the last frame up briefly, then fade
+        stopMirrorPolling(); // stop polling for new frames, but leave the window open until the user closes it
       }
     } else {
       try {

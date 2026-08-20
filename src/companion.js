@@ -36,9 +36,9 @@ const pendingCommands = new Map(); // commandId -> { resolve, reject, timeout }
 const latestFrames = new Map(); // userId -> { data, ts }
 const FRAME_MAX_AGE_MS = 2 * 60 * 1000;
 
-export function setLatestFrame(userId, base64) {
+export function setLatestFrame(userId, base64, pageUrl) {
   if (!base64) return;
-  latestFrames.set(userId, { data: base64, ts: Date.now() });
+  latestFrames.set(userId, { data: base64, url: pageUrl || '', ts: Date.now() });
 }
 
 export function getLatestFrame(userId) {

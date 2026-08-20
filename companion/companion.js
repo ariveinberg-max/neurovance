@@ -152,9 +152,17 @@ function escapeForAppleScript(js) {
 // smaller problem than a broken click.
 function captureSafariScreenshot() {
   return new Promise((resolve) => {
-    execFile('osascript', ['-e', 'tell application "Safari" to get bounds of front window'], (err, stdout) => {
+    const script = [
+      'tell application "Safari"',
+      '  set b to bounds of front window',
+      '  set u to URL of front document',
+      '  return u & "|||NEUROVANCE|||" & (item 1 of b) & "," & (item 2 of b) & "," & (item 3 of b) & "," & (item 4 of b)',
+      'end tell',
+    ].join('\n');
+    execFile('osascript', ['-e', script], (err, stdout) => {
       if (err) return resolve(null);
-      const bounds = stdout.trim().split(',').map((n) => parseInt(n.trim(), 10));
+      const [url, boundsStr] = stdout.trim().split('|||NEUROVANCE|||');
+      const bounds = (boundsStr || '').split(',').map((n) => parseInt(n.trim(), 10));
       if (bounds.length !== 4 || bounds.some((n) => Number.isNaN(n))) return resolve(null);
       const [x1, y1, x2, y2] = bounds;
       const w = x2 - x1;
@@ -166,7 +174,7 @@ function captureSafariScreenshot() {
         try {
           const data = readFileSync(tmpFile);
           unlinkSync(tmpFile);
-          resolve(data.length > 0 ? data.toString('base64') : null);
+          resolve(data.length > 0 ? { data: data.toString('base64'), url } : null);
         } catch {
           resolve(null);
         }
@@ -264,8 +272,8 @@ function handleCommand(action, params) {
     return new Promise((res, rej) => {
       execFile('osascript', ['-e', `tell application "Safari" to open location "${safeUrl}"`], async (err) => {
         if (err) { rej(new Error('Could not open Safari: ' + err.message)); return; }
-        const screenshot = await captureSafariScreenshotAfterDelay(1200);
-        res({ opened: safeUrl, screenshot });
+        const frame = await captureSafariScreenshotAfterDelay(1200);
+        res({ opened: safeUrl, screenshot: frame?.data, pageUrl: frame?.url });
       });
     });
   }
@@ -314,8 +322,8 @@ function handleCommand(action, params) {
     const js = buildClickScript(text);
     return runSafariJS(js).then(async (result) => {
       if (result === 'NOT_FOUND') throw new Error(`Could not find anything matching "${text}" to click on the current page.`);
-      const screenshot = await captureSafariScreenshotAfterDelay(700);
-      return { result, screenshot };
+      const frame = await captureSafariScreenshotAfterDelay(700);
+      return { result, screenshot: frame?.data, pageUrl: frame?.url };
     });
   }
 
@@ -330,8 +338,8 @@ function handleCommand(action, params) {
     return runSafariJS(js).then(async (result) => {
       if (result === 'NOT_FOUND') throw new Error(`Could not find a field matching "${label}" on the current page.`);
       if (result === 'BLOCKED_PASSWORD') throw new Error('Refusing to type into a password field — the Companion never handles credentials.');
-      const screenshot = await captureSafariScreenshotAfterDelay(submit ? 1200 : 400);
-      return { result, screenshot };
+      const frame = await captureSafariScreenshotAfterDelay(submit ? 1200 : 400);
+      return { result, screenshot: frame?.data, pageUrl: frame?.url };
     });
   }
 
