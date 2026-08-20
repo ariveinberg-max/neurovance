@@ -1924,6 +1924,13 @@ function initSettings() {
   voiceSelect.addEventListener('change', () => {
     selectedVoice = speechSynthesis.getVoices().find((v) => v.name === voiceSelect.value) || null;
     localStorage.setItem(VOICE_STORAGE_KEY, voiceSelect.value);
+
+    // Preview it immediately so picking a voice actually tells you something —
+    // cancel first so rapidly clicking through the list doesn't queue up echoes.
+    speechSynthesis.cancel();
+    const preview = new SpeechSynthesisUtterance(`Hello ${currentIdentity.displayName}.`);
+    if (selectedVoice) preview.voice = selectedVoice;
+    speechSynthesis.speak(preview);
   });
 
   populateVoices();
