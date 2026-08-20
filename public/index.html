@@ -740,6 +740,8 @@
     <div class="settings-section">
       <div class="sm-label">Plan</div>
       <div id="settings-plan-status"></div>
+      <button class="settings-save-btn" id="settings-plan-action" style="margin-top:8px; display:none;"></button>
+      <div class="settings-field-status" id="settings-plan-error"></div>
     </div>
 
     <div class="settings-section">
@@ -922,11 +924,12 @@ let pendingEmail = null;
 let pendingVerifiedToken = null;
 let oauthPendingToken = null;
 
-function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword, plan }) {
+function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword, plan, billingConfigured }) {
   currentIdentity = {
     displayName, aiName, model: model || 'core', advisorMode: advisorMode !== false,
     username: username || currentIdentity.username, email: email || currentIdentity.email,
     hasPassword: hasPassword !== false, plan: plan || currentIdentity.plan || 'free',
+    billingConfigured: !!billingConfigured,
   };
   document.getElementById('app-title').textContent = aiName;
   document.getElementById('app-subtitle').textContent = `${displayName}'s Superself`;
@@ -1248,8 +1251,29 @@ if (oauthPendingFromUrl) {
 } else {
   fetch('/api/me', { credentials: 'same-origin' })
     .then((r) => (r.ok ? r.json() : Promise.reject()))
-    .then((data) => showApp(data))
+    .then((data) => {
+      showApp(data);
+      handleStripeRedirect();
+    })
     .catch(() => goToScreen('screen-login'));
+}
+
+// Landed back from Stripe's hosted checkout. The webhook that actually
+// flips plan to 'paid' may not have arrived yet by the time this redirect
+// does, so give it a moment and recheck once rather than showing "still
+// free" for a payment that genuinely just succeeded.
+function handleStripeRedirect() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('upgraded')) {
+    history.replaceState({}, '', window.location.pathname);
+    setTimeout(() => {
+      fetch('/api/me', { credentials: 'same-origin' })
+        .then((r) => r.json())
+        .then((data) => { if (data.plan === 'paid') window.location.reload(); });
+    }, 2000);
+  } else if (params.has('upgrade_canceled')) {
+    history.replaceState({}, '', window.location.pathname);
+  }
 }
 
 function initGraph(data) {
@@ -2186,9 +2210,34 @@ function initSettings() {
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
 
   const planStatusEl = document.getElementById('settings-plan-status');
-  planStatusEl.innerHTML = currentIdentity.plan === 'paid'
+  const planActionBtn = document.getElementById('settings-plan-action');
+  const planErrorEl = document.getElementById('settings-plan-error');
+  const isPaid = currentIdentity.plan === 'paid';
+  planStatusEl.innerHTML = isPaid
     ? '<span class="plan-paid">Paid</span> — Core 1.1 unlocked'
     : 'Free — Core 1.1 requires upgrading ($5/mo)';
+
+  if (currentIdentity.billingConfigured) {
+    planActionBtn.style.display = '';
+    planActionBtn.textContent = isPaid ? 'Manage billing' : 'Upgrade — $5/mo';
+    planActionBtn.addEventListener('click', async () => {
+      planActionBtn.disabled = true;
+      planErrorEl.textContent = '';
+      try {
+        const res = await fetch(isPaid ? '/api/billing-portal' : '/api/checkout', {
+          method: 'POST', credentials: 'same-origin',
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+        window.location.href = data.url; // Stripe's own hosted page
+      } catch (err) {
+        planErrorEl.textContent = err.message;
+        planActionBtn.disabled = false;
+      }
+    });
+  } else if (!isPaid) {
+    planStatusEl.innerHTML += ' — upgrading isn\'t available yet';
+  }
 
   // Theme — client-side only (like voice), applied via a tiny inline script
   // at the top of <head> too so a saved preference is set before the page

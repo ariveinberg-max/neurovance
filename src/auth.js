@@ -115,6 +115,25 @@ export async function setPlan(userId, plan) {
   return user;
 }
 
+// Links this user to their Stripe customer/subscription records — set once
+// at checkout, read back by the billing portal and by the webhook handler
+// when a subscription is later canceled server-side (Stripe's dashboard,
+// a failed renewal, etc.), which only ever gives us the subscription
+// object, never our own userId directly.
+export async function setStripeInfo(userId, { customerId, subscriptionId }) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  if (customerId) user.stripeCustomerId = customerId;
+  if (subscriptionId) user.stripeSubscriptionId = subscriptionId;
+  await saveUser(user);
+  return user;
+}
+
+export async function findUserByStripeSubscriptionId(subscriptionId) {
+  const users = await loadUsers();
+  return users.find((u) => u.stripeSubscriptionId === subscriptionId) || null;
+}
+
 export async function setModelTier(userId, tier) {
   if (!MODEL_TIERS.includes(tier)) throw new Error(`Unknown model tier: ${tier}`);
   const user = await findUserById(userId);

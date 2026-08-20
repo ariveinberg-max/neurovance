@@ -13,6 +13,7 @@ import * as companion from './companion.js';
 import * as connections from './connections.js';
 import { getAllDocs, setDoc } from './db.js';
 import { sendVerificationCode, sendWaitlistNotification, sendBroadcast } from './mailer.js';
+import * as billing from './stripe.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
@@ -71,6 +72,18 @@ function readJsonBody(req) {
     req.on('end', () => {
       try { resolve(body ? JSON.parse(body) : {}); } catch (e) { reject(e); }
     });
+  });
+}
+
+// Stripe webhook signature verification needs the exact raw bytes of the
+// request body — JSON.parse (or re-stringifying a parsed object) can shift
+// whitespace/key order just enough to make the signature no longer match.
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
   });
 }
 
@@ -135,6 +148,7 @@ function identityPayload(user) {
     hasPassword: !!user.passwordHash,
     model: user.model || 'core',
     plan: user.plan || 'free',
+    billingConfigured: billing.isConfigured(),
     advisorMode: user.advisorMode !== false,
   };
 }
@@ -275,6 +289,42 @@ const server = createServer(async (req, res) => {
       sendJson(res, 200, { ok: true });
     } catch (e) {
       sendJson(res, 400, { error: 'Something went wrong.' });
+    }
+    return;
+  }
+
+  // ---------- Stripe webhook — public (Stripe itself calls this, not a
+  // logged-in browser), authenticated instead by verifying Stripe's own
+  // signature on the raw body. Flips plan to 'paid' the moment a checkout
+  // actually completes, and back to 'free' the moment a subscription ends —
+  // this is the only place plan changes happen once real billing exists;
+  // the account is the source of truth, not whatever the client claims. ----------
+
+  if (req.url === '/api/stripe-webhook' && req.method === 'POST') {
+    try {
+      const rawBody = await readRawBody(req);
+      const event = billing.verifyWebhookSignature(rawBody, req.headers['stripe-signature']);
+
+      if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        const userId = session.client_reference_id;
+        if (userId) {
+          await auth.setPlan(userId, 'paid');
+          await auth.setStripeInfo(userId, { customerId: session.customer, subscriptionId: session.subscription });
+        }
+      }
+
+      if (event.type === 'customer.subscription.deleted') {
+        const subscription = event.data.object;
+        const userId = subscription.metadata?.userId;
+        const user = userId ? await auth.findUserById(userId) : await auth.findUserByStripeSubscriptionId(subscription.id);
+        if (user) await auth.setPlan(user.id, 'free');
+      }
+
+      sendJson(res, 200, { received: true });
+    } catch (e) {
+      console.error('Stripe webhook error:', e.message);
+      sendJson(res, 400, { error: e.message });
     }
     return;
   }
@@ -599,6 +649,31 @@ const server = createServer(async (req, res) => {
         if (!code) return sendJson(res, 400, { error: 'Code is required.' });
         const updated = await auth.finishEmailChange(user.id, code);
         return sendJson(res, 200, { ok: true, email: updated.email });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Billing — sends the user to Stripe's own hosted pages for
+    // both checkout and subscription management; this app never touches a
+    // card number. Plan itself only ever actually changes from the webhook
+    // above once real money moves, not from these routes directly. ----------
+
+    if (req.url === '/api/checkout' && req.method === 'POST') {
+      try {
+        if (!billing.isConfigured()) return sendJson(res, 400, { error: 'Payments are not set up yet.' });
+        const url = await billing.createCheckoutSession(user);
+        return sendJson(res, 200, { ok: true, url });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/billing-portal' && req.method === 'POST') {
+      try {
+        if (!billing.isConfigured()) return sendJson(res, 400, { error: 'Payments are not set up yet.' });
+        const url = await billing.createBillingPortalSession(user);
+        return sendJson(res, 200, { ok: true, url });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }
