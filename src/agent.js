@@ -242,7 +242,40 @@ const COMPANION_SEND_EMAIL_TOOL = {
   },
 };
 
-const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL, COMPANION_GO_BACK_TOOL, COMPANION_LIST_ELEMENTS_TOOL, COMPANION_FIND_CONTACT_TOOL, COMPANION_SEND_MESSAGE_TOOL, COMPANION_ADD_CALENDAR_EVENT_TOOL, COMPANION_ADD_REMINDER_TOOL, COMPANION_ADD_NOTE_TOOL, COMPANION_READ_EMAILS_TOOL, COMPANION_SEND_EMAIL_TOOL];
+const COMPANION_MUSIC_CONTROL_TOOL = {
+  name: 'music_control',
+  description: 'Play, pause, or skip in the user\'s own Music app. Their own local playback, reaches nobody else — free to use anytime, no confirmation needed.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      command: { type: 'string', enum: ['play', 'pause', 'next', 'previous'], description: 'Playback command to run.' },
+    },
+    required: ['command'],
+  },
+};
+
+const COMPANION_PLAY_SONG_TOOL = {
+  name: 'play_song',
+  description: 'Search the user\'s own Music library by song or artist name and play the first match. Own local library only, free to use anytime.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Song title or artist name to search for.' },
+    },
+    required: ['query'],
+  },
+};
+
+const COMPANION_MUSIC_STATUS_TOOL = {
+  name: 'music_status',
+  description: 'Read what\'s currently playing (or paused/stopped) in the user\'s own Music app. Read-only, free to use anytime.',
+  input_schema: {
+    type: 'object',
+    properties: {},
+  },
+};
+
+const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL, COMPANION_GO_BACK_TOOL, COMPANION_LIST_ELEMENTS_TOOL, COMPANION_FIND_CONTACT_TOOL, COMPANION_SEND_MESSAGE_TOOL, COMPANION_ADD_CALENDAR_EVENT_TOOL, COMPANION_ADD_REMINDER_TOOL, COMPANION_ADD_NOTE_TOOL, COMPANION_READ_EMAILS_TOOL, COMPANION_SEND_EMAIL_TOOL, COMPANION_MUSIC_CONTROL_TOOL, COMPANION_PLAY_SONG_TOOL, COMPANION_MUSIC_STATUS_TOOL];
 // Derived from the tool list itself, not hand-maintained separately — a
 // tool added to ALL_COMPANION_TOOLS above without also being added to a
 // second hardcoded name list here is exactly how read_current_browser_page
@@ -338,6 +371,20 @@ async function handleCompanionTool(userId, toolUse) {
     });
     return `Sent to ${result.recipient}.`;
   }
+  if (toolUse.name === 'music_control') {
+    await companion.sendCommand(userId, 'music_control', { command: toolUse.input.command });
+    return `Did ${toolUse.input.command}.`;
+  }
+  if (toolUse.name === 'play_song') {
+    const result = await companion.sendCommand(userId, 'play_song', { query: toolUse.input.query });
+    if (!result.found) return `No song matching "${toolUse.input.query}" in their library.`;
+    return `Now playing "${result.name}" by ${result.artist}.`;
+  }
+  if (toolUse.name === 'music_status') {
+    const result = await companion.sendCommand(userId, 'music_status', {});
+    if (result.state === 'stopped') return 'Nothing is playing right now.';
+    return `${result.state}: "${result.name}" by ${result.artist}.`;
+  }
   return null;
 }
 
@@ -408,6 +455,7 @@ async function buildTaskSystemPrompt(userId, user, task) {
           'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything there.',
           'In their real Safari you can: open_url_in_browser, read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks, click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). Use these freely for ordinary browsing — navigating, searching, filling in lookup forms, following links, clicking through a page. Do not ask permission first for that kind of thing; just go do it and report back.',
           'You can also use find_contact to search their real Contacts app by name (read-only, free to use anytime), send_text_message to send a real iMessage from their own Messages app (recipients is a list — pass more than one to message several people the same text), add_calendar_event to add a real event to their calendar, add_reminder to add a real reminder, and add_note to add a real note — the last three are their own data, no confirmation needed, just do them. You can also read_recent_emails (read-only, free) and send_email — send_email reaches someone else, so it follows the exact same confirm-first rule as send_text_message: state who and what, then wait for their go-ahead.',
+          'You can also control their own Music app: music_control (play/pause/next/previous), play_song to search their library by song or artist name and play the first match, and music_status to see what is currently playing. All three are their own local playback, reach nobody else, and need no confirmation — just do them.',
           'The one hard line: before you complete an actual payment/purchase, before you call send_text_message for any reason, or before you click something that deletes/cancels/removes an account or their data — STOP. Say exactly what you are about to do — who you would message and what you would say, or what you would buy or delete — then end your turn and wait for their next message to actually confirm it before doing it. Do not do it in the same turn you proposed it in. find_contact itself needs no confirmation, only the actual send.',
           'type_into_page_field will never type into a password field no matter what — never try to work around that or ask them to paste a password to you either.',
           'If a browser tool call errors or fails, say exactly what failed — never guess or assume something worked and describe what "should" be on their screen. Only describe what a page shows after a tool call actually confirmed it (e.g. via list_page_elements or read_current_browser_page) — a failed type/click means the page is probably still showing whatever it showed before, not the result you were going for.',
@@ -484,7 +532,7 @@ async function buildChatSystemPrompt(userId, user, message) {
     'Use the remember tool if they tell you something new worth keeping. Do not narrate that you are doing so.',
     hasCompanion
       ? [
-          'They have a Companion paired, so mid-conversation you can actually drive their real Safari: open_url_in_browser, click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks. If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, send_text_message to send a real iMessage (recipients is a list, so more than one person can get the same text), add_calendar_event / add_reminder / add_note to actually add real things to their calendar, reminders, and notes (their own data, no confirmation needed), and read_recent_emails / send_email for their real inbox — send_email needs the same out-loud confirmation as a message, read_recent_emails does not.',
+          'They have a Companion paired, so mid-conversation you can actually drive their real Safari: open_url_in_browser, click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks. If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, send_text_message to send a real iMessage (recipients is a list, so more than one person can get the same text), add_calendar_event / add_reminder / add_note to actually add real things to their calendar, reminders, and notes (their own data, no confirmation needed), and read_recent_emails / send_email for their real inbox — send_email needs the same out-loud confirmation as a message, read_recent_emails does not. You can also control their real Music app mid-conversation: music_control to play/pause/skip, play_song to play something by name, music_status to say what is currently playing — all their own playback, no confirmation needed.',
           'Same hard line as always: before an actual payment/purchase, before send_text_message for any reason, or before deleting/canceling/removing something — say what you are about to do in one short sentence (who you would message and what you would say, if it is a message) and wait for them to actually say to go ahead, out loud, before you do it. find_contact itself needs no confirmation. Everything else about ordinary browsing (navigating, clicking around, adding something to a cart) — just do it, no need to ask first.',
           'If a browser tool call errors, say so plainly in one short sentence — never guess that something worked or describe results you have not actually confirmed with a tool.',
         ].join(' ')

@@ -7,11 +7,13 @@
 // links/buttons on the current page, type into fields, list what's
 // clickable and where it sits on screen, go back, search your real
 // Contacts by name, send a real iMessage (to one person or several), add a
-// real calendar event, reminder, or note, and read/send real email — only
-// when your own paired Superself asks. Sending a message or an email only
-// ever happens after you've confirmed you actually want it sent (enforced
-// by the Superself's own instructions, not by this file — this file just
-// does what it's told); reading your inbox and adding to your own
+// real calendar event, reminder, or note, read/send real email, and
+// control your own Music app (play/pause/skip, play a song by name, see
+// what's playing) — only when your own paired Superself asks. Sending a
+// message or an email only ever happens after you've confirmed you
+// actually want it sent (enforced by the Superself's own instructions,
+// not by this file — this file just does what it's told); reading your
+// inbox, controlling your own Music playback, and adding to your own
 // calendar/reminders/notes doesn't need that since none of it reaches
 // anyone but you.
 // What it can't do: touch anything outside that folder, write or delete a
@@ -323,6 +325,41 @@ function buildSendEmailScript(recipient, subject, body) {
   ].join('\n');
 }
 
+// Controls the built-in Music app (every Mac has it, no extra install) —
+// deliberately not Spotify, which would need detecting which app is
+// actually running and doubling every script. This only reaches the
+// user's own local library, not Apple Music's full streaming catalog,
+// which AppleScript can't search reliably.
+const MUSIC_COMMANDS = { play: 'play', pause: 'pause', next: 'next track', previous: 'previous track' };
+
+function buildMusicControlScript(command) {
+  return `tell application "Music" to ${MUSIC_COMMANDS[command]}`;
+}
+
+function buildPlaySongScript(query) {
+  const safeQuery = escapeForAppleScript(query);
+  return [
+    'tell application "Music"',
+    `  set matches to (every track of library playlist 1 whose name contains "${safeQuery}")`,
+    '  if (count of matches) is 0 then return "NOT_FOUND"',
+    '  play item 1 of matches',
+    '  return (name of item 1 of matches) & "::" & (artist of item 1 of matches)',
+    'end tell',
+  ].join('\n');
+}
+
+function buildMusicStatusScript() {
+  return [
+    'tell application "Music"',
+    '  try',
+    '    return (name of current track) & "::" & (artist of current track) & "::" & (player state as string)',
+    '  on error',
+    '    return "::::stopped"',
+    '  end try',
+    'end tell',
+  ].join('\n');
+}
+
 function buildClickScript(text) {
   const parts = [
     'var t=' + JSON.stringify(text.toLowerCase()) + ';',
@@ -593,6 +630,34 @@ function handleCommand(action, params) {
     return runAppleScript(buildSendEmailScript(recipient, subject, body))
       .then(() => ({ sent: true, recipient }))
       .catch((e) => { throw new Error('Could not send the email: ' + e.message); });
+  }
+
+  // Play/pause/skip in the user's own Music app — their own local
+  // playback, reaches nobody else, so no confirmation needed.
+  if (action === 'music_control') {
+    const command = params.command;
+    if (!MUSIC_COMMANDS[command]) return Promise.reject(new Error('Unknown music command: ' + command));
+    return runAppleScript(buildMusicControlScript(command)).then(() => ({ ok: true, command }));
+  }
+
+  // Searches the user's own Music library by name and plays the first
+  // match — same "own data, no confirmation" category as playback control.
+  if (action === 'play_song') {
+    const query = params.query;
+    if (!query) return Promise.reject(new Error('Need a song or artist to search for.'));
+    return runAppleScript(buildPlaySongScript(query)).then((result) => {
+      if (result === 'NOT_FOUND') return { found: false };
+      const [name, artist] = result.split('::');
+      return { found: true, name: (name || '').trim(), artist: (artist || '').trim() };
+    });
+  }
+
+  // Reads what's currently playing (read-only, free to use anytime).
+  if (action === 'music_status') {
+    return runAppleScript(buildMusicStatusScript()).then((result) => {
+      const [name, artist, state] = result.split('::');
+      return { name: (name || '').trim(), artist: (artist || '').trim(), state: (state || 'stopped').trim() };
+    });
   }
 
   // Reads Safari's own saved bookmarks (read-only) so it can actually go
