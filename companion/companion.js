@@ -145,7 +145,7 @@ function escapeForAppleScript(js) {
 }
 
 function runSafariJS(js) {
-  const script = `tell application "Safari" to do JavaScript "${escapeForAppleScript(js)}" in front document`;
+  const script = `tell application "Safari" to activate\ntell application "Safari" to do JavaScript "${escapeForAppleScript(js)}" in front document`;
   return new Promise((res, rej) => {
     execFile('osascript', ['-e', script], { maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
       if (err) {
@@ -243,8 +243,12 @@ function handleCommand(action, params) {
     // execFile (no shell) + stripped quotes = the URL can't break out of the
     // AppleScript string literal or reach a shell at all.
     const safeUrl = url.replace(/"/g, '');
+    // "open location" alone doesn't bring Safari to the front — without
+    // activate, the page opens invisibly behind whatever app the user is
+    // actually looking at, which looks like nothing happened at all.
+    const script = `tell application "Safari" to activate\ntell application "Safari" to open location "${safeUrl}"`;
     return new Promise((res, rej) => {
-      execFile('osascript', ['-e', `tell application "Safari" to open location "${safeUrl}"`], (err) => {
+      execFile('osascript', ['-e', script], (err) => {
         if (err) rej(new Error('Could not open Safari: ' + err.message));
         else res({ opened: safeUrl });
       });
