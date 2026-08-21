@@ -3,6 +3,13 @@
 # window itself, installs what it needs, and starts the Companion.
 cd "$(dirname "$0")"
 
+# A double-clicked .command file doesn't reliably source the same shell
+# startup files as a normal interactive Terminal window, so PATH additions
+# living in .zshrc (Homebrew's included) can be silently missing — node/npm
+# work fine typed by hand but "aren't found" here. Add the common install
+# locations directly instead of trusting PATH already has them.
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:$HOME/.local/bin:$PATH"
+
 echo "Setting up your Neurovance Companion..."
 echo ""
 
