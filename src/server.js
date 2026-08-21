@@ -948,7 +948,15 @@ async function handleRequest(req, res) {
       res.end('Not found');
       return;
     }
-    res.writeHead(200, { 'Content-Type': MIME[extname(filePath)] || 'application/octet-stream' });
+    const headers = { 'Content-Type': MIME[extname(filePath)] || 'application/octet-stream' };
+    // The whole app is one HTML file with everything inlined — no separate,
+    // hash-named JS bundle to cache-bust. Without this, a browser can hold
+    // onto a stale copy across a plain reload and never notice a real
+    // deploy shipped (this is genuinely how a live user ended up staring at
+    // pairing instructions from before a fix went out). Every other static
+    // file (images, the manifest, the companion zip) is unaffected.
+    if (path === '/index.html') headers['Cache-Control'] = 'no-cache';
+    res.writeHead(200, headers);
     res.end(readFileSync(filePath));
   } catch (e) {
     console.error('Static file error:', e);
