@@ -783,7 +783,7 @@
       <div id="settings-modal-close">✕</div>
     </div>
 
-    <div class="settings-section">
+    <div class="settings-section" id="settings-plan-section">
       <div class="sm-label">Plan</div>
       <div id="settings-plan-status"></div>
       <button class="settings-save-btn" id="settings-plan-action" style="margin-top:8px; display:none;"></button>
@@ -985,6 +985,9 @@ function startApp() {
 // Gate the whole app behind a session check — shows the login/signup card
 // until a valid session exists, then reveals the real app and binds the
 // logged-in user's own chosen name/AI-name.
+// Mirrors PAYMENTS_ENABLED in src/auth.js — off for the initial
+// friends-and-family send-out, no live Stripe checkout yet.
+const PAYMENTS_ENABLED = false;
 let currentIdentity = { displayName: 'there', aiName: 'Ari V2' };
 let pendingEmail = null;
 let pendingVerifiedToken = null;
@@ -2168,7 +2171,7 @@ function initTalkDrawer() {
   const modelSelect = document.getElementById('model-select');
   const modelTierNote = document.getElementById('model-tier-note');
   modelSelect.value = currentIdentity.model;
-  if (currentIdentity.plan !== 'paid') {
+  if (PAYMENTS_ENABLED && currentIdentity.plan !== 'paid') {
     modelSelect.querySelector('option[value="core"]').disabled = true;
   }
   modelSelect.addEventListener('change', async () => {
@@ -2322,34 +2325,38 @@ function initSettings() {
   document.getElementById('settings-modal-close').addEventListener('click', () => backdrop.classList.remove('open'));
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
 
-  const planStatusEl = document.getElementById('settings-plan-status');
-  const planActionBtn = document.getElementById('settings-plan-action');
-  const planErrorEl = document.getElementById('settings-plan-error');
-  const isPaid = currentIdentity.plan === 'paid';
-  planStatusEl.innerHTML = isPaid
-    ? '<span class="plan-paid">Paid</span> — Core 1.1 unlocked'
-    : 'Free — Core 1.1 requires upgrading ($5/mo)';
+  if (!PAYMENTS_ENABLED) {
+    document.getElementById('settings-plan-section').style.display = 'none';
+  } else {
+    const planStatusEl = document.getElementById('settings-plan-status');
+    const planActionBtn = document.getElementById('settings-plan-action');
+    const planErrorEl = document.getElementById('settings-plan-error');
+    const isPaid = currentIdentity.plan === 'paid';
+    planStatusEl.innerHTML = isPaid
+      ? '<span class="plan-paid">Paid</span> — Core 1.1 unlocked'
+      : 'Free — Core 1.1 requires upgrading ($5/mo)';
 
-  if (currentIdentity.billingConfigured) {
-    planActionBtn.style.display = '';
-    planActionBtn.textContent = isPaid ? 'Manage billing' : 'Upgrade — $5/mo';
-    planActionBtn.addEventListener('click', async () => {
-      planActionBtn.disabled = true;
-      planErrorEl.textContent = '';
-      try {
-        const res = await fetch(isPaid ? '/api/billing-portal' : '/api/checkout', {
-          method: 'POST', credentials: 'same-origin',
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Something went wrong.');
-        window.location.href = data.url; // Stripe's own hosted page
-      } catch (err) {
-        planErrorEl.textContent = err.message;
-        planActionBtn.disabled = false;
-      }
-    });
-  } else if (!isPaid) {
-    planStatusEl.innerHTML += ' — upgrading isn\'t available yet';
+    if (currentIdentity.billingConfigured) {
+      planActionBtn.style.display = '';
+      planActionBtn.textContent = isPaid ? 'Manage billing' : 'Upgrade — $5/mo';
+      planActionBtn.addEventListener('click', async () => {
+        planActionBtn.disabled = true;
+        planErrorEl.textContent = '';
+        try {
+          const res = await fetch(isPaid ? '/api/billing-portal' : '/api/checkout', {
+            method: 'POST', credentials: 'same-origin',
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+          window.location.href = data.url; // Stripe's own hosted page
+        } catch (err) {
+          planErrorEl.textContent = err.message;
+          planActionBtn.disabled = false;
+        }
+      });
+    } else if (!isPaid) {
+      planStatusEl.innerHTML += ' — upgrading isn\'t available yet';
+    }
   }
 
   // Theme — client-side only (like voice), applied via a tiny inline script

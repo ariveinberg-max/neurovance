@@ -106,6 +106,12 @@ export const MODEL_TIERS = ['pulse', 'core'];
 export const PLANS = ['free', 'paid'];
 const DEFAULT_PLAN = 'free';
 
+// Switched off for the initial friends-and-family send-out — Stripe isn't
+// in live mode yet, so nobody could actually pay anyway. Flip this back to
+// true once live checkout is wired up; nothing else needs to change, the
+// gate below is the only thing this controls.
+const PAYMENTS_ENABLED = false;
+
 export async function setPlan(userId, plan) {
   if (!PLANS.includes(plan)) throw new Error(`Unknown plan: ${plan}`);
   const user = await findUserById(userId);
@@ -138,7 +144,7 @@ export async function setModelTier(userId, tier) {
   if (!MODEL_TIERS.includes(tier)) throw new Error(`Unknown model tier: ${tier}`);
   const user = await findUserById(userId);
   if (!user) throw new Error('No such user.');
-  if (tier === 'core' && user.plan !== 'paid') {
+  if (PAYMENTS_ENABLED && tier === 'core' && user.plan !== 'paid') {
     throw new Error('Core is a paid feature — upgrade to switch to it.');
   }
   user.model = tier;
