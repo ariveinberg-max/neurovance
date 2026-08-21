@@ -1,23 +1,41 @@
 #!/usr/bin/env node
 // Neurovance Companion — runs on your own computer, not in the cloud.
+// Works on both macOS and Windows; the two platforms don't have identical
+// capabilities (see below), since each is built on that OS's own real
+// automation surface, not a shared abstraction pretending they're the same.
 //
-// What it can do: read files inside one folder (~/Documents/Neurovance),
-// open https:// links in Safari, read the text of whatever's already
-// showing in Safari's front tab, read your saved Safari bookmarks, click
-// links/buttons on the current page, type into fields, list what's
-// clickable and where it sits on screen, go back, search your real
-// Contacts by name, send a real iMessage (to one person or several), add a
-// real calendar event, reminder, or note, read/send real email, and
+// On macOS, via AppleScript: read files inside one folder
+// (~/Documents/Neurovance), open https:// links in Safari, read the text of
+// whatever's already showing in Safari's front tab, read your saved Safari
+// bookmarks, click links/buttons on the current page, type into fields,
+// list what's clickable and where it sits on screen, go back, search your
+// real Contacts by name, send a real iMessage (to one person or several),
+// add a real calendar event/reminder/note, read/send real email, and
 // control your own Music app (play/pause/skip, play a song by name, see
-// what's playing) — only when your own paired Superself asks. Sending a
-// message or an email only ever happens after you've confirmed you
-// actually want it sent (enforced by the Superself's own instructions,
-// not by this file — this file just does what it's told); reading your
-// inbox, controlling your own Music playback, and adding to your own
-// calendar/reminders/notes doesn't need that since none of it reaches
-// anyone but you.
-// What it can't do: touch anything outside that folder, write or delete a
-// local file, run arbitrary commands, edit/add/remove a contact, or type
+// what's playing).
+//
+// On Windows, via Outlook's own automation: search your real Outlook
+// Contacts by name, add a real Outlook calendar event, add a real Outlook
+// task (reminder) or note, read/send real email through Outlook. Requires
+// desktop Outlook to be installed and signed in — there's no Windows
+// equivalent otherwise. Opening a URL works too (via the default browser).
+// iMessage and Music.app have no Windows equivalent at all — Apple-exclusive,
+// not just unbuilt. The deeper Safari-style page interaction (reading,
+// clicking, typing into, or listing elements on a page you're already on)
+// isn't built for Windows yet either — it would mean automating a browser
+// through its remote-debugging protocol instead of AppleScript, a separate,
+// bigger piece of work. Both of these report they're unavailable rather
+// than silently doing nothing.
+//
+// On either platform, this only ever runs when your own paired Superself
+// asks. Sending a message or an email only ever happens after you've
+// confirmed you actually want it sent (enforced by the Superself's own
+// instructions, not by this file — this file just does what it's told);
+// reading your inbox, controlling your own Music playback, and adding to
+// your own calendar/reminders/notes doesn't need that since none of it
+// reaches anyone but you.
+// What it can't do: touch anything outside that one folder, write or delete
+// a local file, run arbitrary commands, edit/add/remove a contact, or type
 // into a password field — that last one is refused unconditionally right
 // here, no matter what it's asked to do. Reading a page only ever sees
 // what you already loaded yourself. These boundaries are enforced right
@@ -29,6 +47,7 @@ import { homedir, hostname } from 'os';
 import { join, resolve, sep } from 'path';
 import { execFile } from 'child_process';
 
+const IS_WINDOWS = process.platform === 'win32';
 const CONFIG_DIR = join(homedir(), '.neurovance');
 const CONFIG_PATH = join(CONFIG_DIR, 'companion-config.json');
 const ALLOWED_ROOT = join(homedir(), 'Documents', 'Neurovance');
@@ -183,6 +202,107 @@ function runAppleScript(script) {
       res(stdout.trim());
     });
   });
+}
+
+// ---------- Windows: same jobs, done through Outlook's COM automation
+// instead of AppleScript, since that's the closest Windows equivalent for
+// Contacts/Calendar/Reminders(Tasks)/Notes/Mail. There's no Windows
+// equivalent at all for iMessage or Music.app — those two report a plain
+// "not available" error on this platform instead of pretending to work.
+
+// PowerShell single-quoted strings only need '' doubled — no backslash or
+// backtick escaping to worry about, unlike AppleScript's double-quoted
+// strings. Every value embedded in a script below goes through this first.
+function escapeForPowerShell(s) {
+  return String(s).replace(/'/g, "''");
+}
+
+function runPowerShell(script) {
+  return new Promise((res, rej) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) {
+        if (/0x80040154|Class not registered|New-Object.*COM/i.test(stderr || err.message)) {
+          rej(new Error('Could not reach Outlook — make sure desktop Outlook is installed and you\'ve signed in at least once.'));
+        } else {
+          rej(new Error((stderr || err.message).trim().split('\n')[0]));
+        }
+        return;
+      }
+      res(stdout.trim());
+    });
+  });
+}
+
+function buildFindContactScriptWin(query) {
+  const safeQuery = escapeForPowerShell(query);
+  return [
+    '$outlook = New-Object -ComObject Outlook.Application',
+    '$ns = $outlook.GetNamespace("MAPI")',
+    '$folder = $ns.GetDefaultFolder(10)', // olFolderContacts
+    `$matches = $folder.Items | Where-Object { $_.FullName -like '*${safeQuery}*' } | Select-Object -First 5`,
+    'foreach ($c in $matches) {',
+    '  $phones = @($c.MobileTelephoneNumber, $c.HomeTelephoneNumber, $c.BusinessTelephoneNumber) | Where-Object { $_ }',
+    '  $emails = @($c.Email1Address, $c.Email2Address, $c.Email3Address) | Where-Object { $_ }',
+    '  Write-Output ($c.FullName + "::" + ($phones -join ",") + "::" + ($emails -join ",") + "|||ROW|||")',
+    '}',
+  ].join('\n');
+}
+
+function buildAddCalendarEventScriptWin(title, startISO, endISO) {
+  return [
+    '$outlook = New-Object -ComObject Outlook.Application',
+    '$appt = $outlook.CreateItem(1)', // olAppointmentItem
+    `$appt.Subject = '${escapeForPowerShell(title)}'`,
+    `$appt.Start = [datetime]'${escapeForPowerShell(startISO)}'`,
+    `$appt.End = [datetime]'${escapeForPowerShell(endISO)}'`,
+    '$appt.Save()',
+  ].join('\n');
+}
+
+function buildAddReminderScriptWin(title, dueISO) {
+  const lines = [
+    '$outlook = New-Object -ComObject Outlook.Application',
+    '$task = $outlook.CreateItem(3)', // olTaskItem
+    `$task.Subject = '${escapeForPowerShell(title)}'`,
+  ];
+  if (dueISO) lines.push(`$task.DueDate = [datetime]'${escapeForPowerShell(dueISO)}'`);
+  lines.push('$task.Save()');
+  return lines.join('\n');
+}
+
+function buildAddNoteScriptWin(title, body) {
+  const full = body ? `${title}\n\n${body}` : title;
+  return [
+    '$outlook = New-Object -ComObject Outlook.Application',
+    '$note = $outlook.CreateItem(5)', // olNoteItem
+    `$note.Body = '${escapeForPowerShell(full)}'`,
+    '$note.Save()',
+  ].join('\n');
+}
+
+function buildReadEmailsScriptWin(limit) {
+  const n = Math.max(1, Math.min(20, limit || 10));
+  return [
+    '$outlook = New-Object -ComObject Outlook.Application',
+    '$ns = $outlook.GetNamespace("MAPI")',
+    '$inbox = $ns.GetDefaultFolder(6)', // olFolderInbox
+    '$items = $inbox.Items',
+    '$items.Sort("[ReceivedTime]", $true)',
+    `$items | Select-Object -First ${n} | ForEach-Object {`,
+    '  Write-Output ($_.Subject + "::" + $_.SenderName + "::" + ((-not $_.UnRead).ToString().ToLower()) + "|||ROW|||")',
+    '}',
+  ].join('\n');
+}
+
+function buildSendEmailScriptWin(recipient, subject, body) {
+  return [
+    '$outlook = New-Object -ComObject Outlook.Application',
+    '$mail = $outlook.CreateItem(0)', // olMailItem
+    `$mail.To = '${escapeForPowerShell(recipient)}'`,
+    `$mail.Subject = '${escapeForPowerShell(subject)}'`,
+    `$mail.Body = '${escapeForPowerShell(body)}'`,
+    '$mail.Send()',
+  ].join('\n');
 }
 
 function buildFindContactScript(query) {
@@ -416,7 +536,24 @@ function buildListElementsScript() {
   return '(function(){' + parts.join('') + '})()';
 }
 
+// Actions with no real Windows equivalent: iMessage and Music.app are both
+// Apple-exclusive, and the deeper Safari page interactions (reading/
+// clicking/typing/listing elements, going back) rely on AppleScript's "do
+// JavaScript in front document" — a genuinely separate, much bigger build
+// on Windows (remote-debugging a browser instead of scripting Safari) that
+// isn't attempted here. These just report they're unavailable instead of
+// silently doing nothing.
+const MAC_ONLY_ACTIONS = new Set([
+  'go_back', 'read_safari_content', 'click_page_element', 'type_into_page_field',
+  'list_page_elements', 'read_safari_bookmarks', 'send_text_message',
+  'music_control', 'play_song', 'music_status',
+]);
+
 function handleCommand(action, params) {
+  if (IS_WINDOWS && MAC_ONLY_ACTIONS.has(action)) {
+    return Promise.reject(new Error(`"${action}" isn't available through the Windows Companion yet.`));
+  }
+
   if (action === 'list_files') {
     const dir = resolveScoped(params.subpath || '');
     if (!statSync(dir).isDirectory()) throw new Error('Not a folder.');
@@ -437,6 +574,14 @@ function handleCommand(action, params) {
   if (action === 'open_url') {
     const url = params.url || '';
     if (!/^https:\/\//.test(url)) throw new Error('Only https:// URLs are allowed.');
+    if (IS_WINDOWS) {
+      // Start-Process with a URL opens it in the default browser — no
+      // remote-debugging/CDP setup needed for just opening a page.
+      const safeUrl = url.replace(/"/g, '');
+      return runPowerShell(`Start-Process '${escapeForPowerShell(safeUrl)}'`)
+        .then(() => ({ opened: safeUrl }))
+        .catch((e) => { throw new Error('Could not open the browser: ' + e.message); });
+    }
     // execFile (no shell) + stripped quotes = the URL can't break out of the
     // AppleScript string literal or reach a shell at all.
     const safeUrl = url.replace(/"/g, '');
@@ -544,7 +689,8 @@ function handleCommand(action, params) {
   if (action === 'find_contact') {
     const query = params.query || '';
     if (!query) return Promise.reject(new Error('No name given to search for.'));
-    return runAppleScript(buildFindContactScript(query)).then((result) => {
+    const runner = IS_WINDOWS ? runPowerShell(buildFindContactScriptWin(query)) : runAppleScript(buildFindContactScript(query));
+    return runner.then((result) => {
       if (result === 'NOT_FOUND') return { contacts: [] };
       const rows = result.split('|||ROW|||').filter(Boolean);
       const contacts = rows.map((row) => {
@@ -584,7 +730,10 @@ function handleCommand(action, params) {
     if (!title || !startDateTime || !endDateTime) {
       return Promise.reject(new Error('Need a title, start time, and end time.'));
     }
-    return runAppleScript(buildAddCalendarEventScript(title, startDateTime, endDateTime))
+    const runner = IS_WINDOWS
+      ? runPowerShell(buildAddCalendarEventScriptWin(title, startDateTime, endDateTime))
+      : runAppleScript(buildAddCalendarEventScript(title, startDateTime, endDateTime));
+    return runner
       .then(() => ({ added: true, title }))
       .catch((e) => { throw new Error('Could not add the calendar event: ' + e.message); });
   }
@@ -592,7 +741,10 @@ function handleCommand(action, params) {
   if (action === 'add_reminder') {
     const { title, dueDateTime } = params;
     if (!title) return Promise.reject(new Error('Need a title for the reminder.'));
-    return runAppleScript(buildAddReminderScript(title, dueDateTime))
+    const runner = IS_WINDOWS
+      ? runPowerShell(buildAddReminderScriptWin(title, dueDateTime))
+      : runAppleScript(buildAddReminderScript(title, dueDateTime));
+    return runner
       .then(() => ({ added: true, title }))
       .catch((e) => { throw new Error('Could not add the reminder: ' + e.message); });
   }
@@ -600,7 +752,10 @@ function handleCommand(action, params) {
   if (action === 'add_note') {
     const { title, body } = params;
     if (!title) return Promise.reject(new Error('Need a title for the note.'));
-    return runAppleScript(buildAddNoteScript(title, body))
+    const runner = IS_WINDOWS
+      ? runPowerShell(buildAddNoteScriptWin(title, body))
+      : runAppleScript(buildAddNoteScript(title, body));
+    return runner
       .then(() => ({ added: true, title }))
       .catch((e) => { throw new Error('Could not add the note: ' + e.message); });
   }
@@ -609,7 +764,10 @@ function handleCommand(action, params) {
   // text) so it can actually glance at what's there before being asked
   // to do anything with it.
   if (action === 'read_recent_emails') {
-    return runAppleScript(buildReadEmailsScript(params.limit)).then((result) => {
+    const runner = IS_WINDOWS
+      ? runPowerShell(buildReadEmailsScriptWin(params.limit))
+      : runAppleScript(buildReadEmailsScript(params.limit));
+    return runner.then((result) => {
       if (result === 'NOT_FOUND') return { emails: [] };
       const rows = result.split('|||ROW|||').filter(Boolean);
       const emails = rows.map((row) => {
@@ -627,7 +785,10 @@ function handleCommand(action, params) {
   if (action === 'send_email') {
     const { recipient, subject, body } = params;
     if (!recipient || !subject || !body) return Promise.reject(new Error('Need a recipient, subject, and body.'));
-    return runAppleScript(buildSendEmailScript(recipient, subject, body))
+    const runner = IS_WINDOWS
+      ? runPowerShell(buildSendEmailScriptWin(recipient, subject, body))
+      : runAppleScript(buildSendEmailScript(recipient, subject, body));
+    return runner
       .then(() => ({ sent: true, recipient }))
       .catch((e) => { throw new Error('Could not send the email: ' + e.message); });
   }
