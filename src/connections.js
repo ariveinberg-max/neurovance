@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { getAllDocs, setDoc } from './db.js';
+import { getAllDocs, setDoc, deleteDoc } from './db.js';
 import { findUserByUsername, findUserById } from './auth.js';
 import { allMemories } from './memory.js';
 
@@ -74,6 +74,17 @@ export async function respondToConnection(userId, connectionId, accept) {
   entry.respondedAt = new Date().toISOString();
   await saveOne(entry);
   return entry;
+}
+
+// Unfriending, canceling a sent request, or clearing a declined one — all
+// the same action from either side, since a removed connection just frees
+// both usernames to request each other again later.
+export async function removeConnection(userId, connectionId) {
+  const connections = await loadAll();
+  const entry = connections.find((c) => c.id === connectionId);
+  if (!entry) throw new Error('No such connection.');
+  if (entry.fromUserId !== userId && entry.toUserId !== userId) throw new Error('Not your connection.');
+  await deleteDoc('connections', connectionId);
 }
 
 // A topic only counts as "theirs" if it shows up more than once — a single

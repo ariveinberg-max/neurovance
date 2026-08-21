@@ -435,6 +435,11 @@
   #connections-panel { margin-top: 24px; }
   #connections-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
   #connections-list { display: flex; flex-direction: column; gap: 8px; }
+  .conn-group-label {
+    font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-faint);
+    margin: 10px 0 2px 0;
+  }
+  .conn-group-label:first-child { margin-top: 0; }
   .connection-row { font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
   .connection-row .conn-name { color: var(--text-primary); }
   .connection-row .conn-state { color: var(--text-muted); font-size: 10px; }
@@ -728,11 +733,11 @@
   </div>
 
   <div id="connections-panel">
-    <div class="sm-label">Connections</div>
+    <div class="sm-label">Friends</div>
     <div id="connections-list"></div>
     <div id="connections-request">
       <input id="connections-username-input" type="text" placeholder="Their username" />
-      <button id="connections-request-btn">Connect</button>
+      <button id="connections-request-btn">Add Friend</button>
     </div>
     <div id="connections-status"></div>
   </div>
@@ -1943,42 +1948,66 @@ function initConnections() {
     statusEl.className = isError ? 'err' : '';
   }
 
+  function makeRow(c) {
+    const row = document.createElement('div');
+    row.className = 'connection-row';
+    const name = c.other ? `${c.other.displayName} (@${c.other.username})` : 'Unknown';
+
+    if (c.status === 'pending' && c.direction === 'incoming') {
+      row.innerHTML = `<span class="conn-name">${name}</span> wants to be friends<br>`;
+      const acceptBtn = document.createElement('button');
+      acceptBtn.textContent = 'Accept';
+      acceptBtn.addEventListener('click', () => respond(c.id, true));
+      const declineBtn = document.createElement('button');
+      declineBtn.textContent = 'Decline';
+      declineBtn.addEventListener('click', () => respond(c.id, false));
+      row.appendChild(acceptBtn);
+      row.appendChild(declineBtn);
+    } else if (c.status === 'pending') {
+      row.innerHTML = `<span class="conn-name">${name}</span><br><span class="conn-state">Waiting for them to accept</span><br>`;
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', () => remove(c.id));
+      row.appendChild(cancelBtn);
+    } else {
+      row.innerHTML = `<span class="conn-name">${name}</span><br>`;
+      const overlapBtn = document.createElement('button');
+      overlapBtn.textContent = 'See what you share';
+      overlapBtn.addEventListener('click', () => showOverlap(c.id, row));
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = 'Remove';
+      removeBtn.addEventListener('click', () => remove(c.id));
+      row.appendChild(overlapBtn);
+      row.appendChild(removeBtn);
+    }
+    return row;
+  }
+
   async function refresh() {
     const { connections } = await fetch('/api/connections', { credentials: 'same-origin' }).then((r) => r.json());
     listEl.innerHTML = '';
-    if (connections.length === 0) {
-      listEl.innerHTML = '<div class="connection-row" style="color:#4a4a50;">No connections yet</div>';
+
+    const friends = connections.filter((c) => c.status === 'accepted');
+    const incoming = connections.filter((c) => c.status === 'pending' && c.direction === 'incoming');
+    const sent = connections.filter((c) => c.status === 'pending' && c.direction === 'outgoing');
+    // Declined connections just fall off the list — nothing useful to act on.
+
+    if (friends.length === 0 && incoming.length === 0 && sent.length === 0) {
+      listEl.innerHTML = '<div class="connection-row" style="color:#4a4a50;">No friends yet</div>';
       return;
     }
 
-    connections.forEach((c) => {
-      const row = document.createElement('div');
-      row.className = 'connection-row';
-      const name = c.other ? `${c.other.displayName} (@${c.other.username})` : 'Unknown';
-
-      if (c.status === 'pending' && c.direction === 'incoming') {
-        row.innerHTML = `<span class="conn-name">${name}</span> wants to connect<br>`;
-        const acceptBtn = document.createElement('button');
-        acceptBtn.textContent = 'Accept';
-        acceptBtn.addEventListener('click', () => respond(c.id, true));
-        const declineBtn = document.createElement('button');
-        declineBtn.textContent = 'Decline';
-        declineBtn.addEventListener('click', () => respond(c.id, false));
-        row.appendChild(acceptBtn);
-        row.appendChild(declineBtn);
-      } else if (c.status === 'pending') {
-        row.innerHTML = `<span class="conn-name">${name}</span><br><span class="conn-state">Waiting for them to accept</span>`;
-      } else if (c.status === 'accepted') {
-        row.innerHTML = `<span class="conn-name">${name}</span><br><span class="conn-state">Connected</span><br>`;
-        const overlapBtn = document.createElement('button');
-        overlapBtn.textContent = 'See what you share';
-        overlapBtn.addEventListener('click', () => showOverlap(c.id, row));
-        row.appendChild(overlapBtn);
-      } else {
-        row.innerHTML = `<span class="conn-name">${name}</span><br><span class="conn-state">Declined</span>`;
-      }
-      listEl.appendChild(row);
-    });
+    function addGroup(label, rows) {
+      if (rows.length === 0) return;
+      const groupLabel = document.createElement('div');
+      groupLabel.className = 'conn-group-label';
+      groupLabel.textContent = label;
+      listEl.appendChild(groupLabel);
+      rows.forEach((c) => listEl.appendChild(makeRow(c)));
+    }
+    addGroup('Requests', incoming);
+    addGroup('Friends', friends);
+    addGroup('Sent', sent);
   }
 
   async function respond(id, accept) {
@@ -1986,6 +2015,17 @@ function initConnections() {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, accept }),
+    });
+    const data = await res.json();
+    if (!res.ok) return showStatus(data.error, true);
+    refresh();
+  }
+
+  async function remove(id) {
+    const res = await fetch('/api/connections/remove', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
     });
     const data = await res.json();
     if (!res.ok) return showStatus(data.error, true);

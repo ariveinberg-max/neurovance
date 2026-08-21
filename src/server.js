@@ -779,6 +779,17 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    if (req.url === '/api/connections/remove' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        if (!id) return sendJson(res, 400, { error: 'id is required.' });
+        await connections.removeConnection(user.id, id);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
     if (req.url === '/api/last-recall') {
       return sendJson(res, 200, getLastRecall(user.id));
     }
