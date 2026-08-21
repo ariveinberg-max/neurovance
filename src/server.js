@@ -65,13 +65,51 @@ async function buildGraph(userId) {
   return { nodes, links, mood: computeVitals(memories).mood };
 }
 
+// In-memory, per-process — a restart clears it, which is fine, same
+// tradeoff already made for pairing codes and live companion connections.
+const loginAttempts = new Map(); // username -> { count, resetAt }
+const LOGIN_MAX_ATTEMPTS = 10;
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+
+function checkLoginRateLimit(username) {
+  const now = Date.now();
+  const entry = loginAttempts.get(username);
+  if (!entry || entry.resetAt < now) {
+    loginAttempts.set(username, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= LOGIN_MAX_ATTEMPTS) return false;
+  entry.count += 1;
+  return true;
+}
+
+function clearLoginRateLimit(username) {
+  loginAttempts.delete(username);
+}
+
+const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024; // generous for chat/memory text, nothing legitimate needs more
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk) => { body += chunk; });
+    let bytes = 0;
+    let rejected = false;
+    req.on('data', (chunk) => {
+      if (rejected) return;
+      bytes += chunk.length;
+      if (bytes > MAX_JSON_BODY_BYTES) {
+        rejected = true;
+        req.destroy();
+        reject(new Error('Request body too large.'));
+        return;
+      }
+      body += chunk;
+    });
     req.on('end', () => {
+      if (rejected) return;
       try { resolve(body ? JSON.parse(body) : {}); } catch (e) { reject(e); }
     });
+    req.on('error', (e) => { if (!rejected) reject(e); });
   });
 }
 
@@ -260,7 +298,12 @@ async function handleOAuthCallback(req, res, provider) {
   }
 }
 
-const server = createServer(async (req, res) => {
+// A route that forgets its own try/catch (or throws from somewhere shared,
+// like the session lookup above) used to take the whole process down for
+// every connected user, not just the one bad request — Node treats an
+// unhandled rejection from an async listener as fatal by default. This
+// function is unchanged from before; only how it's invoked below changed.
+async function handleRequest(req, res) {
   // ---------- Waitlist — public, no auth, called cross-origin from the
   // marketing site, so it needs its own CORS handling ----------
 
@@ -435,14 +478,23 @@ const server = createServer(async (req, res) => {
   }
 
   // ---------- Login: username + password ----------
+  // A per-username attempt limiter, not per-IP — scrypt already makes each
+  // guess expensive, this just stops someone from grinding through a
+  // wordlist against one specific account. Resets on a correct login so a
+  // real user who mistyped a few times isn't left locked out.
 
   if (req.url === '/api/login' && req.method === 'POST') {
     try {
       const { username, password, remember } = await readJsonBody(req);
+      const normalizedUsername = (username || '').trim().toLowerCase();
+      if (!checkLoginRateLimit(normalizedUsername)) {
+        return sendJson(res, 429, { error: 'Too many attempts on that account — try again in a few minutes.' });
+      }
       const user = username && await auth.findUserByUsername(username);
       if (!user || !user.passwordHash || !auth.verifyPassword(password || '', user.passwordHash)) {
         return sendJson(res, 401, { error: user && !user.passwordHash ? `This account signed up with ${user.oauthProvider} — use that to sign in.` : 'Wrong username or password.' });
       }
+      clearLoginRateLimit(normalizedUsername);
       const token = await auth.createSession(user.id);
       setSessionCookie(res, token, remember !== false);
       sendJson(res, 200, identityPayload(user));
@@ -903,7 +955,22 @@ const server = createServer(async (req, res) => {
     res.writeHead(500);
     res.end('Server error');
   }
+}
+
+const server = createServer((req, res) => {
+  handleRequest(req, res).catch((e) => {
+    console.error('Unhandled request error:', e);
+    if (res.headersSent) return res.end();
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Server error' }));
+  });
 });
+
+// Last-resort net: something outside any request (a background timer, the
+// companion WebSocket handling, a stray rejection) should still never take
+// the whole server down for everyone else connected to it.
+process.on('uncaughtException', (e) => console.error('Uncaught exception:', e));
+process.on('unhandledRejection', (e) => console.error('Unhandled rejection:', e));
 
 companion.attach(server);
 server.listen(PORT, () => console.log(`Brain graph running at http://localhost:${PORT}`));

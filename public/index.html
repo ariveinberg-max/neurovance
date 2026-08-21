@@ -695,7 +695,7 @@
     </div>
 
     <div id="screen-signup-username" class="auth-screen" style="display:none">
-      <input class="auth-field" id="signup-username" type="text" placeholder="Choose a username" autocomplete="username" />
+      <input class="auth-field" id="signup-username" type="text" placeholder="Choose a username" autocomplete="username" pattern="[a-z0-9_]{3,20}" title="Lowercase letters, numbers, and underscores only (3-20 characters)" />
       <input class="auth-field" id="signup-displayname" type="text" placeholder="Your name" />
       <input class="auth-field" id="signup-ainame" type="text" placeholder="What do you want to name your Superself?" />
       <div class="auth-error" id="signup-username-error"></div>
@@ -815,7 +815,7 @@
     <div class="settings-section">
       <div class="sm-label">Account</div>
       <div class="settings-field">
-        <input id="settings-username-input" class="settings-input" type="text" placeholder="Username" />
+        <input id="settings-username-input" class="settings-input" type="text" placeholder="Username" pattern="[a-z0-9_]{3,20}" title="Lowercase letters, numbers, and underscores only (3-20 characters)" />
         <button class="settings-save-btn" id="settings-username-save">Save</button>
       </div>
       <div class="settings-field-status" id="settings-username-status"></div>

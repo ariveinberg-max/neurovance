@@ -66,6 +66,17 @@ export function verifyPassword(password, storedHash) {
   return candidate.length === stored.length && timingSafeEqual(candidate, stored);
 }
 
+// Enforced at every path that can create or change a username — signup,
+// OAuth signup, and the settings change — none of them validated this
+// before, which is how a real account ended up with a literal space in its
+// username (pre-filled from an OAuth display name and never checked).
+const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+function assertValidUsername(normalized) {
+  if (!USERNAME_RE.test(normalized)) {
+    throw new Error('Usernames can only use lowercase letters, numbers, and underscores (3-20 characters).');
+  }
+}
+
 export async function findUserByUsername(username) {
   const normalized = username.trim().toLowerCase();
   const users = await loadUsers();
@@ -165,7 +176,7 @@ export async function setAdvisorMode(userId, advisorMode) {
 
 export async function setUsername(userId, newUsername) {
   const normalized = newUsername.trim().toLowerCase();
-  if (!normalized) throw new Error('Username cannot be empty.');
+  assertValidUsername(normalized);
   const user = await findUserById(userId);
   if (!user) throw new Error('No such user.');
   if (normalized === user.username) return user;
@@ -268,6 +279,7 @@ export async function finishSignup({ email, verifiedToken, username, displayName
   }
 
   const normalizedUsername = username.trim().toLowerCase();
+  assertValidUsername(normalizedUsername);
   if (await findUserByUsername(normalizedUsername)) {
     throw new Error('That username is already taken.');
   }
@@ -444,6 +456,7 @@ export async function finishOAuthSignup({ pendingToken, username, displayName, a
   if (Date.now() > record.expiresAt) throw new Error('That sign-in expired — start over.');
 
   const normalizedUsername = username.trim().toLowerCase();
+  assertValidUsername(normalizedUsername);
   if (await findUserByUsername(normalizedUsername)) {
     throw new Error('That username is already taken.');
   }
