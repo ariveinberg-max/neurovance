@@ -30,6 +30,30 @@ const pendingCommands = new Map(); // commandId -> { resolve, reject, timeout }
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 const COMMAND_TIMEOUT_MS = 15 * 1000;
 
+// A pairing code is only 6 digits (~1M possibilities) — fine against one
+// guess-then-reconnect at a time, not against someone opening many
+// connections to grind through codes before a real one expires. This caps
+// how many pairing attempts one source IP gets in that same window, so
+// brute-forcing needs many different IPs, not just many connections.
+const pairAttempts = new Map(); // ip -> { count, resetAt }
+const PAIR_MAX_ATTEMPTS = 8;
+
+function clientIp(req) {
+  return req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
+}
+
+function checkPairRateLimit(ip) {
+  const now = Date.now();
+  const entry = pairAttempts.get(ip);
+  if (!entry || entry.resetAt < now) {
+    pairAttempts.set(ip, { count: 1, resetAt: now + PAIRING_CODE_TTL_MS });
+    return true;
+  }
+  if (entry.count >= PAIR_MAX_ATTEMPTS) return false;
+  entry.count += 1;
+  return true;
+}
+
 export function generatePairingCode(userId) {
   const code = String(randomBytes(3).readUIntBE(0, 3) % 1000000).padStart(6, '0');
   pairingCodes.set(code, { userId, expiresAt: Date.now() + PAIRING_CODE_TTL_MS });
@@ -57,17 +81,22 @@ export function attach(server) {
 
   server.on('upgrade', (req, socket, head) => {
     if (req.url !== '/companion-ws') { socket.destroy(); return; }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws));
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
     let userId = null;
+    const ip = clientIp(req);
 
     ws.on('message', async (raw) => {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
 
       if (msg.type === 'pair') {
+        if (!checkPairRateLimit(ip)) {
+          ws.send(JSON.stringify({ type: 'pair_result', ok: false, error: 'Too many pairing attempts — wait a few minutes and try again.' }));
+          return ws.close();
+        }
         const entry = pairingCodes.get(msg.code);
         if (!entry || entry.expiresAt < Date.now()) {
           ws.send(JSON.stringify({ type: 'pair_result', ok: false, error: 'Invalid or expired code.' }));
