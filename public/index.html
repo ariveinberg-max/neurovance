@@ -2290,7 +2290,7 @@ function initCompanion() {
     const { code } = await fetch('/api/companion/pair-code', { method: 'POST', credentials: 'same-origin' }).then((r) => r.json());
     codeEl.textContent = code;
     codeEl.style.display = 'block';
-    noteEl.innerHTML = 'Download the Companion app below, unzip it, then in Terminal run <code>npm install && npm start</code> inside it and enter this code when asked. Code expires in 10 minutes.';
+    noteEl.innerHTML = 'Download the Companion below, unzip it, then double-click <strong>Setup</strong> inside it (Setup.command on Mac, Setup.bat on Windows) and enter this code when asked. Code expires in 10 minutes.';
     actionsEl.innerHTML = '<a class="companion-btn" href="/downloads/neurovance-companion.zip" download>Download Companion</a>';
     // Poll for pairing to complete rather than requiring a manual refresh —
     // the whole point is the user is off in Terminal, not watching this tab.
