@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Neurovance</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -55,6 +56,21 @@
   }
   body { display: flex; }
   #app-shell { display: flex; width: 100%; height: 100vh; }
+
+  /* ---------- Mobile gate — desktop-only for now, so a phone gets a clean
+     message instead of the unstyled desktop layout squeezed into a narrow
+     screen. Hidden by default; the media query below is the only thing
+     that ever shows it, and it hides everything else while active. ---------- */
+  #mobile-gate {
+    display: none;
+    width: 100vw; height: 100vh; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 32px; gap: 14px;
+  }
+  #mobile-gate p { max-width: 280px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin: 0; }
+  @media (max-width: 1024px) {
+    #mobile-gate { display: flex; }
+    #auth-gate, #app-shell { display: none !important; }
+  }
 
   /* ---------- Auth gate ---------- */
   #auth-gate {
@@ -589,6 +605,11 @@
 </script>
 </head>
 <body>
+
+<div id="mobile-gate">
+  <div id="brand-lockup">NEUROVANCE</div>
+  <p>Neurovance is a desktop experience for now — open this page on a computer to continue.</p>
+</div>
 
 <div id="auth-gate">
   <div id="auth-card">
