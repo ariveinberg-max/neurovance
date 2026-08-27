@@ -54,6 +54,7 @@ chrome.runtime.onMessage.addListener((message) => {
       errorText.textContent = message.error || 'Could not connect — try a fresh code.';
     }
   }
+  if (message.type === 'status_changed') refresh();
 });
 
 refresh();

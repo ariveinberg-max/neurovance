@@ -132,7 +132,7 @@ async function refresh() {
 }
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === 'pair_status') refresh();
+  if (message.type === 'pair_status' || message.type === 'status_changed') refresh();
 });
 
 refresh();

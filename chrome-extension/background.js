@@ -40,6 +40,15 @@ function notifyPopup(message) {
   });
 }
 
+// The popup and side panel each check status once on load — without this,
+// a side panel opened right as the service worker cold-starts (which
+// opening it can itself trigger) would freeze on "Reconnecting…" forever
+// once the connection actually finished a moment later, since nothing
+// would ever tell it to look again.
+function broadcastStatusChanged() {
+  notifyPopup({ type: 'status_changed' });
+}
+
 // ---------- Page-interaction functions, injected via chrome.scripting.
 // Same matching semantics as the AppleScript-driven versions in
 // companion/companion.js (buildClickScript / buildTypeScript /
@@ -305,6 +314,7 @@ function connect() {
       } else {
         pairedUserId = (await loadConfig())?.userId || null;
       }
+      broadcastStatusChanged();
       return;
     }
 
@@ -331,6 +341,7 @@ function connect() {
 
   ws.addEventListener('close', () => {
     ws = null;
+    broadcastStatusChanged();
     scheduleReconnect();
   });
   ws.addEventListener('error', () => {
