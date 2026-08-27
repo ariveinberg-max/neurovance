@@ -85,12 +85,16 @@
   #brand-lockup {
     align-self: center; margin-bottom: 8px; font-family: 'Michroma', sans-serif;
     font-size: 20px; letter-spacing: 4px; color: var(--text-bright);
+    display: flex; align-items: center; gap: 10px;
   }
   #brand-lockup .dot { color: var(--accent-red); }
+  #brand-lockup .brand-mark { width: 30px; height: 30px; }
   #brand-tag {
     font-family: 'Michroma', sans-serif; font-size: 9px; letter-spacing: 1.5px;
     color: var(--text-faint); cursor: default;
+    display: inline-flex; align-items: center; gap: 5px;
   }
+  #brand-tag .brand-mark { width: 13px; height: 13px; }
   #auth-card h1 {
     font-size: 14px; font-weight: 600; letter-spacing: 4px; margin: 0;
     background: linear-gradient(180deg, var(--text-bright), var(--text-secondary));
@@ -394,6 +398,14 @@
     margin-top: 10px; transition: color 0.2s ease;
   }
   #settings-trigger:hover { color: var(--text-secondary); }
+  #sidebar-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  #settings-gear-btn {
+    flex: 0 0 auto; width: 30px; height: 30px; border-radius: 7px; background: rgba(var(--overlay-rgb),0.06);
+    border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-secondary); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: background 0.2s ease, color 0.2s ease;
+  }
+  #settings-gear-btn svg { width: 16px; height: 16px; }
+  #settings-gear-btn:hover { background: rgba(var(--overlay-rgb),0.12); color: var(--text-bright); }
 
   #settings-modal-backdrop {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 60;
@@ -671,14 +683,46 @@
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="brandRingGrad" x1="0" y1="0" x2="0.15" y2="1">
+      <stop offset="0%" stop-color="#f2fff7" />
+      <stop offset="14%" stop-color="#f2fff7" />
+      <stop offset="22%" stop-color="#8fe0a8" />
+      <stop offset="50%" stop-color="#57b878" />
+      <stop offset="58%" stop-color="#1b4a2e" />
+      <stop offset="100%" stop-color="#0e2e1b" />
+    </linearGradient>
+    <linearGradient id="brandHeartGrad" x1="0" y1="0" x2="0.1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="40%" stop-color="#ffffff" />
+      <stop offset="75%" stop-color="#dcdcd8" />
+      <stop offset="100%" stop-color="#a8a8a2" />
+    </linearGradient>
+  </defs>
+</svg>
+
+<template id="brand-mark-tpl">
+  <svg class="brand-mark" viewBox="0 0 100 100" fill="none">
+    <path d="M 9 50 A 25 25 0 1 1 59 50 A 25 25 0 1 1 9 50" stroke="#08170e" stroke-width="9" />
+    <path d="M 47 50 A 21 21 0 1 1 89 50 A 21 21 0 1 1 47 50" stroke="#08170e" stroke-width="9" />
+    <path d="M 9 50 A 25 25 0 1 1 59 50 A 25 25 0 1 1 9 50" stroke="url(#brandRingGrad)" stroke-width="7" />
+    <path d="M 47 50 A 21 21 0 1 1 89 50 A 21 21 0 1 1 47 50" stroke="url(#brandRingGrad)" stroke-width="7" />
+    <path d="M 0 56 L 14 56 L 22 64 L 30 20 L 40 68 L 50 54 L 58 62 L 68 20 L 78 66 L 90 54 L 98 54"
+      stroke="#08170e" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 0 56 L 14 56 L 22 64 L 30 20 L 40 68 L 50 54 L 58 62 L 68 20 L 78 66 L 90 54 L 98 54"
+      stroke="url(#brandHeartGrad)" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+</template>
+
 <div id="mobile-gate">
-  <div id="brand-lockup">NEUROVANCE</div>
+  <div id="brand-lockup"><span class="brand-mark-slot"></span>NEUROVANCE</div>
   <p>Neurovance is a desktop experience for now — open this page on a computer to continue.</p>
 </div>
 
 <div id="auth-gate">
   <div id="auth-card">
-    <div id="brand-lockup">NEUROVANCE</div>
+    <div id="brand-lockup"><span class="brand-mark-slot"></span>NEUROVANCE</div>
     <div>
       <h1 id="auth-title">SIGN IN</h1>
       <div class="subtitle" id="auth-subtitle">Your Superself</div>
@@ -775,9 +819,17 @@
   </div>
 </div>
 <div id="sidebar">
-  <div>
-    <h1 id="app-title">ARI V2</h1>
-    <div class="subtitle" id="app-subtitle">Your Superself</div>
+  <div id="sidebar-header">
+    <div>
+      <h1 id="app-title">ARI V2</h1>
+      <div class="subtitle" id="app-subtitle">Your Superself</div>
+    </div>
+    <button id="settings-gear-btn" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    </button>
   </div>
 
   <div class="hero">
@@ -838,7 +890,7 @@
     <div class="legend-item"><span class="swatch" style="background:#e8432c"></span>Critical memory</div>
     <div class="legend-item"><span class="swatch" style="background:#c8c9cf"></span>Key memory</div>
     <div class="legend-item"><span class="swatch" style="background:#6b6c74"></span>Standard memory</div>
-    <div id="brand-tag">NEUROVANCE</div>
+    <div id="brand-tag"><span class="brand-mark-slot"></span>NEUROVANCE</div>
     <div id="settings-trigger">Settings</div>
     <div id="logout-link">Log out</div>
   </div>
@@ -1076,6 +1128,17 @@
 <script src="https://unpkg.com/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
 <script src="https://unpkg.com/three@0.150.0/build/three.min.js"></script>
 <script>
+// Drops the real mark (same one as the favicon/app icons) into every brand
+// spot in the page — login screen, mobile gate, sidebar — instead of just
+// text. Runs immediately, not gated behind login, since the auth/mobile
+// gates need it before there's even a session.
+(function populateBrandMarks() {
+  const tpl = document.getElementById('brand-mark-tpl');
+  document.querySelectorAll('.brand-mark-slot').forEach((slot) => {
+    slot.appendChild(tpl.content.cloneNode(true));
+  });
+})();
+
 let Graph, allNodes = [], allLinks = [], selectedId = null;
 // The graph canvas is WebGL, not CSS — its own background color has to be
 // set directly in JS to track the theme instead of just inheriting it.
@@ -2509,6 +2572,7 @@ function getCurrentVoice() {
 function initSettings() {
   const backdrop = document.getElementById('settings-modal-backdrop');
   document.getElementById('settings-trigger').addEventListener('click', () => backdrop.classList.add('open'));
+  document.getElementById('settings-gear-btn').addEventListener('click', () => backdrop.classList.add('open'));
   document.getElementById('settings-modal-close').addEventListener('click', () => backdrop.classList.remove('open'));
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
 
