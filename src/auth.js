@@ -189,6 +189,40 @@ export async function setBrowserPref(userId, browser) {
   return user;
 }
 
+export const LANGUAGES = [
+  'English', 'Spanish', 'French', 'German', 'Portuguese', 'Italian',
+  'Japanese', 'Korean', 'Chinese', 'Hindi', 'Arabic', 'Russian',
+];
+
+// Which language this user's Superself replies in — injected into the
+// system prompt, not a UI translation layer. Defaults to English.
+export async function setLanguage(userId, language) {
+  if (!LANGUAGES.includes(language)) throw new Error(`Unknown language: ${language}`);
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.language = language;
+  await saveUser(user);
+  return user;
+}
+
+export const PERMISSION_MODES = ['bypass', 'ask'];
+
+// Whether the Superself acts freely (including payments, sending messages,
+// deleting things) or pauses to confirm before every single action. Defaults
+// to 'bypass' — matches today's existing behavior, and Ari's own stated
+// preference for how he likes an agent configured. 'ask' is the strict
+// opt-in for someone who wants tighter control; unlike the risk-tiered
+// confirm rules this replaces, there is no exception list once 'bypass' is
+// chosen — the user is explicitly accepting that.
+export async function setPermissionMode(userId, mode) {
+  if (!PERMISSION_MODES.includes(mode)) throw new Error(`Unknown permission mode: ${mode}`);
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.permissionMode = mode;
+  await saveUser(user);
+  return user;
+}
+
 export async function setUsername(userId, newUsername) {
   const normalized = newUsername.trim().toLowerCase();
   assertValidUsername(normalized);

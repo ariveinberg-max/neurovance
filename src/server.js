@@ -189,6 +189,8 @@ function identityPayload(user) {
     billingConfigured: billing.isConfigured(),
     advisorMode: user.advisorMode !== false,
     browser: user.browser === 'chrome' ? 'chrome' : 'safari',
+    language: auth.LANGUAGES.includes(user.language) ? user.language : 'English',
+    permissionMode: user.permissionMode === 'ask' ? 'ask' : 'bypass',
   };
 }
 
@@ -661,6 +663,37 @@ async function handleRequest(req, res) {
         }
         await auth.setBrowserPref(user.id, browser);
         return sendJson(res, 200, { ok: true, browser });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Language — which language the Superself replies in. ----------
+
+    if (req.url === '/api/language' && req.method === 'POST') {
+      try {
+        const { language } = await readJsonBody(req);
+        if (!auth.LANGUAGES.includes(language)) {
+          return sendJson(res, 400, { error: `language must be one of: ${auth.LANGUAGES.join(', ')}` });
+        }
+        await auth.setLanguage(user.id, language);
+        return sendJson(res, 200, { ok: true, language });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Permission mode — bypass (act freely, including payments/
+    // messages/deletes) or ask (confirm before every single action). ----------
+
+    if (req.url === '/api/permission-mode' && req.method === 'POST') {
+      try {
+        const { mode } = await readJsonBody(req);
+        if (!auth.PERMISSION_MODES.includes(mode)) {
+          return sendJson(res, 400, { error: `mode must be one of: ${auth.PERMISSION_MODES.join(', ')}` });
+        }
+        await auth.setPermissionMode(user.id, mode);
+        return sendJson(res, 200, { ok: true, mode });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }

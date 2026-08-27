@@ -483,6 +483,28 @@ async function memoryContext(userId, query) {
     .join('\n');
 }
 
+// Governs confirmation behavior globally, replacing the scattered "no
+// confirmation needed" qualifiers that used to live on individual tool
+// descriptions — one clear directive instead of the model having to
+// reconcile several partial ones. 'ask' has no exception list: everything
+// pauses for confirmation, not just the previously-risky stuff. 'bypass'
+// (the default) has no exception list either, in the other direction —
+// the user explicitly chose full autonomy, including payments/messages/
+// deletes, so second-guessing that by asking anyway is the wrong move.
+function permissionModeLine(user, { voice = false } = {}) {
+  const waitPhrase = voice ? 'wait for them to actually say to go ahead, out loud' : 'end your turn and wait for their next message to actually confirm it';
+  if (user?.permissionMode === 'ask') {
+    return `Their permission mode is set to "always ask": before EVERY companion action — opening a page, clicking something, adding a calendar event, reading email, all of it, not just payments or messages — say exactly what you are about to do in plain language, then ${waitPhrase}. Never act in the same turn you proposed something in, for anything.`;
+  }
+  return 'Their permission mode is set to "bypass": act freely and immediately on every companion action, including completing a payment/purchase, sending a message, or deleting/canceling something — no pausing to confirm first, for anything. They have explicitly chosen full autonomy; do not second-guess that by asking anyway.';
+}
+
+function languageLine(user) {
+  const language = user?.language;
+  if (!language || language === 'English') return '';
+  return `Their set reply language is ${language} — always reply in ${language}, even on a short or casual message and even if they happen to type to you in English, unless they explicitly ask you to switch languages.`;
+}
+
 async function buildTaskSystemPrompt(userId, user, task) {
   const [memoryLines, hasCompanion] = await Promise.all([
     memoryContext(userId, task),
@@ -499,20 +521,21 @@ async function buildTaskSystemPrompt(userId, user, task) {
     'Use the remember tool whenever you learn something worth keeping for next time.',
     'Use the search_web tool when a task needs a fact or topic you are not confident about.',
     'Do not remember trivial or one-off details — only durable facts, preferences, or lessons.',
+    languageLine(user),
     hasCompanion
       ? [
+          permissionModeLine(user),
           'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything there.',
-          'In their real browser (Safari or Chrome, whichever they\'ve set in Settings) you can: open_url_in_browser (always opens a new tab, never replaces one they\'re already looking at), read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks (always reads Safari\'s own bookmarks specifically, regardless of their browser setting), click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). If they\'ve connected the Chrome extension, you also have list_open_tabs and switch_to_tab (by the index list_open_tabs shows) — use these whenever they refer to a tab they already have open ("switch to my Gmail tab", "go back to the page I had") instead of opening it fresh; after switching, every other browser action acts on that tab specifically. Use all of this freely for ordinary browsing — navigating, searching, filling in lookup forms, following links, clicking through a page, switching between open tabs. Do not ask permission first for that kind of thing; just go do it and report back.',
-          'You can also use find_contact to search their real Contacts app by name (read-only, free to use anytime), send_text_message to send a real iMessage from their own Messages app (recipients is a list — pass more than one to message several people the same text), add_calendar_event to add a real event to their calendar, add_reminder to add a real reminder, and add_note to add a real note — the last three are their own data, no confirmation needed, just do them. You can also read_recent_emails (read-only, free) and send_email — send_email reaches someone else, so it follows the exact same confirm-first rule as send_text_message: state who and what, then wait for their go-ahead.',
-          'You can also control their own Music app: music_control (play/pause/next/previous), play_song to search their library by song or artist name and play the first match, and music_status to see what is currently playing. All three are their own local playback, reach nobody else, and need no confirmation — just do them.',
-          'The one hard line: before you complete an actual payment/purchase, before you call send_text_message for any reason, or before you click something that deletes/cancels/removes an account or their data — STOP. Say exactly what you are about to do — who you would message and what you would say, or what you would buy or delete — then end your turn and wait for their next message to actually confirm it before doing it. Do not do it in the same turn you proposed it in. find_contact itself needs no confirmation, only the actual send.',
-          'type_into_page_field will never type into a password field no matter what — never try to work around that or ask them to paste a password to you either.',
+          'In their real browser (Safari or Chrome, whichever they\'ve set in Settings) you can: open_url_in_browser (always opens a new tab, never replaces one they\'re already looking at), read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks (always reads Safari\'s own bookmarks specifically, regardless of their browser setting), click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). If they\'ve connected the Chrome extension, you also have list_open_tabs and switch_to_tab (by the index list_open_tabs shows) — use these whenever they refer to a tab they already have open ("switch to my Gmail tab", "go back to the page I had") instead of opening it fresh; after switching, every other browser action acts on that tab specifically.',
+          'You can also use find_contact to search their real Contacts app by name (read-only, always free to use, never itself needs confirmation — only an actual send/message does), send_text_message to send a real iMessage from their own Messages app (recipients is a list — pass more than one to message several people the same text), add_calendar_event to add a real event to their calendar, add_reminder to add a real reminder, and add_note to add a real note. You can also read_recent_emails (read-only) and send_email.',
+          'You can also control their own Music app: music_control (play/pause/next/previous), play_song to search their library by song or artist name and play the first match, and music_status to see what is currently playing — all their own local playback, reaching nobody else.',
+          'type_into_page_field will never type into a password field no matter what — never try to work around that or ask them to paste a password to you either. This holds regardless of permission mode.',
           'The Companion runs on macOS or Windows, and not everything exists on both — Windows has no iMessage or Music.app at all, and the deeper page interactions (click/type/list_page_elements/read_current_browser_page/go_back) are not built for Windows yet. If a tool call comes back saying something is not available, that is not a bug — just tell them plainly it is not supported on their setup, do not retry it or treat it as a transient failure.',
           'If a browser tool call errors or fails, say exactly what failed — never guess or assume something worked and describe what "should" be on their screen. Only describe what a page shows after a tool call actually confirmed it (e.g. via list_page_elements or read_current_browser_page) — a failed type/click means the page is probably still showing whatever it showed before, not the result you were going for.',
         ].join(' ')
       : 'This user has not paired a Companion app, so you have no access to their computer, files, or browser — only memory and web search.',
     memoryLines ? `\nRelevant memories from before:\n${memoryLines}` : '\nNo relevant memories yet.',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 // Product-wide default persona: brutally honest, no validation. A user can
@@ -580,16 +603,17 @@ async function buildChatSystemPrompt(userId, user, message) {
       ? 'Being direct does not mean being flat — you still have real reactions, you just do not soften them into agreeableness.'
       : 'React like a real person would: have actual reactions to what they say — get excited, push back, joke around, worry — instead of just being agreeable and helpful. You are allowed to have moods and imperfections.',
     'Use the remember tool if they tell you something new worth keeping. Do not narrate that you are doing so.',
+    languageLine(user),
     hasCompanion
       ? [
-          'They have a Companion paired, so mid-conversation you can actually drive their real browser (Safari or Chrome, whichever they\'ve set in Settings): open_url_in_browser (always a new tab), click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks (always Safari\'s own bookmarks specifically, regardless of their browser setting). With the Chrome extension connected, also list_open_tabs and switch_to_tab — use these when they mean a tab they already have open, not a fresh page. If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, send_text_message to send a real iMessage (recipients is a list, so more than one person can get the same text), add_calendar_event / add_reminder / add_note to actually add real things to their calendar, reminders, and notes (their own data, no confirmation needed), and read_recent_emails / send_email for their real inbox — send_email needs the same out-loud confirmation as a message, read_recent_emails does not. You can also control their real Music app mid-conversation: music_control to play/pause/skip, play_song to play something by name, music_status to say what is currently playing — all their own playback, no confirmation needed.',
-          'Same hard line as always: before an actual payment/purchase, before send_text_message for any reason, or before deleting/canceling/removing something — say what you are about to do in one short sentence (who you would message and what you would say, if it is a message) and wait for them to actually say to go ahead, out loud, before you do it. find_contact itself needs no confirmation. Everything else about ordinary browsing (navigating, clicking around, adding something to a cart) — just do it, no need to ask first.',
+          permissionModeLine(user, { voice: true }),
+          'They have a Companion paired, so mid-conversation you can actually drive their real browser (Safari or Chrome, whichever they\'ve set in Settings): open_url_in_browser (always a new tab), click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks (always Safari\'s own bookmarks specifically, regardless of their browser setting). With the Chrome extension connected, also list_open_tabs and switch_to_tab — use these when they mean a tab they already have open, not a fresh page. If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, send_text_message to send a real iMessage (recipients is a list, so more than one person can get the same text), add_calendar_event / add_reminder / add_note to actually add real things to their calendar, reminders, and notes, and read_recent_emails / send_email for their real inbox. You can also control their real Music app mid-conversation: music_control to play/pause/skip, play_song to play something by name, music_status to say what is currently playing.',
           'Their Companion may be on macOS or Windows — Windows has no iMessage or Music.app, and page interactions like clicking/typing/listing elements are not built for Windows yet. A tool call that comes back saying something is not available just means their setup does not support it — say so plainly, do not retry it.',
           'If a browser tool call errors, say so plainly in one short sentence — never guess that something worked or describe results you have not actually confirmed with a tool.',
         ].join(' ')
       : '',
     memoryLines ? `\nWhat you know about ${user.displayName}:\n${memoryLines}` : `\nYou do not have any memories of ${user.displayName} yet — this is your first real conversation.`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId, priorMessages = []) {

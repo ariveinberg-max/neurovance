@@ -428,13 +428,21 @@
   }
   .browser-mode.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
   #browser-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
+  #permission-tabs { display: flex; gap: 6px; }
+  .permission-tab {
+    background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 10px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .permission-tab.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
+  #permission-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
   #settings-plan-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); }
   #settings-plan-status .plan-paid { color: var(--accent-green); }
-  #voice-select {
+  #voice-select, #language-select {
     width: 100%; background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.14);
     border-radius: 4px; color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 11px; padding: 7px 8px; outline: none;
   }
-  #voice-select:focus { border-color: rgba(210,230,255,0.5); }
+  #voice-select:focus, #language-select:focus { border-color: rgba(210,230,255,0.5); }
   #theme-tabs { display: flex; gap: 6px; }
   .theme-mode {
     background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
@@ -845,6 +853,33 @@
     </div>
 
     <div class="settings-section">
+      <div class="sm-label">Language</div>
+      <select id="language-select">
+        <option value="English">English</option>
+        <option value="Spanish">Spanish</option>
+        <option value="French">French</option>
+        <option value="German">German</option>
+        <option value="Portuguese">Portuguese</option>
+        <option value="Italian">Italian</option>
+        <option value="Japanese">Japanese</option>
+        <option value="Korean">Korean</option>
+        <option value="Chinese">Chinese</option>
+        <option value="Hindi">Hindi</option>
+        <option value="Arabic">Arabic</option>
+        <option value="Russian">Russian</option>
+      </select>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">Permission Mode</div>
+      <div id="permission-tabs">
+        <button class="permission-tab" data-mode="bypass">Bypass</button>
+        <button class="permission-tab" data-mode="ask">Always Ask</button>
+      </div>
+      <div id="permission-note"></div>
+    </div>
+
+    <div class="settings-section">
       <div class="sm-label">Voice</div>
       <select id="voice-select"></select>
     </div>
@@ -1030,12 +1065,13 @@ let pendingEmail = null;
 let pendingVerifiedToken = null;
 let oauthPendingToken = null;
 
-function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword, plan, billingConfigured, browser }) {
+function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword, plan, billingConfigured, browser, language, permissionMode }) {
   currentIdentity = {
     displayName, aiName, model: model || 'core', advisorMode: advisorMode !== false,
     username: username || currentIdentity.username, email: email || currentIdentity.email,
     hasPassword: hasPassword !== false, plan: plan || currentIdentity.plan || 'free',
     billingConfigured: !!billingConfigured, browser: browser === 'chrome' ? 'chrome' : 'safari',
+    language: language || 'English', permissionMode: permissionMode === 'ask' ? 'ask' : 'bypass',
   };
   document.getElementById('app-title').textContent = aiName;
   document.getElementById('app-subtitle').textContent = `${displayName}'s Superself`;
@@ -2507,6 +2543,51 @@ function initSettings() {
       if (!res.ok) return;
       currentIdentity.browser = browser;
       setActiveBrowserTab(browser);
+    });
+  });
+
+  // Which language the Superself replies in.
+  const languageSelect = document.getElementById('language-select');
+  languageSelect.value = currentIdentity.language;
+  languageSelect.addEventListener('change', async () => {
+    const language = languageSelect.value;
+    const res = await fetch('/api/language', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ language }),
+    });
+    if (!res.ok) { languageSelect.value = currentIdentity.language; return; }
+    currentIdentity.language = language;
+  });
+
+  // Bypass (act freely, including payments/messages/deletes) or always ask
+  // (confirm before every single action) — no exception list either way,
+  // unlike the risk-tiered defaults this replaced.
+  const permissionTabs = document.querySelectorAll('.permission-tab');
+  const permissionNote = document.getElementById('permission-note');
+  const PERMISSION_NOTES = {
+    bypass: 'Acts freely on everything, including payments, messages, and deletes — no confirmation asked.',
+    ask: 'Confirms before every single action, no exceptions, even reading a page.',
+  };
+
+  function setActivePermissionTab(mode) {
+    permissionTabs.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+    permissionNote.textContent = PERMISSION_NOTES[mode] || PERMISSION_NOTES.bypass;
+  }
+  setActivePermissionTab(currentIdentity.permissionMode);
+
+  permissionTabs.forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (btn.classList.contains('active')) return;
+      const mode = btn.dataset.mode;
+      const res = await fetch('/api/permission-mode', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
+      if (!res.ok) return;
+      currentIdentity.permissionMode = mode;
+      setActivePermissionTab(mode);
     });
   });
 
