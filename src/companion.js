@@ -40,6 +40,15 @@ function normalizeKind(kind) {
   return kind === 'browser' ? 'browser' : 'native';
 }
 
+// Set once at startup by server.js (which owns agent.js/auth.js) — avoids a
+// circular import, since agent.js already imports this module for
+// sendCommand. { chat: (userId, message, history) => reply string,
+// identity: (userId) => { aiName, displayName } | null }
+let agentHooks = {};
+export function registerAgentHooks(hooks) {
+  agentHooks = hooks;
+}
+
 async function loadDoc(userId) {
   return (await getDoc('companions', userId)) || null;
 }
@@ -246,6 +255,36 @@ export function attach(server) {
       // connection instead. Scoped to whichever kind THIS socket is.
       if (msg.type === 'unpair' && userId && kind) {
         await unpair(userId, kind);
+        return;
+      }
+
+      // The extension's side panel chat and its "who am I talking to"
+      // header both ride this same already-authenticated connection —
+      // it has no session cookie on the main site to call /api/chat or
+      // /api/me with directly, but it's already proven its identity by
+      // pairing, so agent.chatReply runs server-side exactly like it would
+      // from a real browser tab, via the hooks registered in server.js.
+      if (msg.type === 'get_identity' && userId) {
+        try {
+          const identity = agentHooks.identity ? await agentHooks.identity(userId) : null;
+          ws.send(JSON.stringify({ type: 'identity_result', id: msg.id, ok: true, identity }));
+        } catch (e) {
+          ws.send(JSON.stringify({ type: 'identity_result', id: msg.id, ok: false, error: e.message }));
+        }
+        return;
+      }
+
+      if (msg.type === 'chat' && userId) {
+        if (!agentHooks.chat) {
+          ws.send(JSON.stringify({ type: 'chat_result', id: msg.id, ok: false, error: 'Chat is not available right now.' }));
+          return;
+        }
+        try {
+          const reply = await agentHooks.chat(userId, msg.message, msg.history || []);
+          ws.send(JSON.stringify({ type: 'chat_result', id: msg.id, ok: true, reply }));
+        } catch (e) {
+          ws.send(JSON.stringify({ type: 'chat_result', id: msg.id, ok: false, error: e.message }));
+        }
         return;
       }
     });

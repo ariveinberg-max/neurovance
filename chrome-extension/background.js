@@ -238,6 +238,37 @@ async function handleCommand(action, params) {
   throw new Error(`"${action}" isn't supported by the Chrome extension yet.`);
 }
 
+// ---------- Side panel chat / identity — request/response pairs over the
+// same connection, keyed by id the way pendingCommands works server-side.
+// ----------
+
+const pendingReplies = new Map(); // id -> { resolve, reject, timeout }
+const REPLY_TIMEOUT_MS = 60000; // chat can chain several tool calls — longer than a single command's own timeout
+
+function sendAndAwaitReply(payload) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !pairedUserId) {
+    return Promise.reject(new Error('Not connected — pair the extension first.'));
+  }
+  const id = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingReplies.delete(id);
+      reject(new Error('Timed out waiting for a reply.'));
+    }, REPLY_TIMEOUT_MS);
+    pendingReplies.set(id, { resolve, reject, timeout });
+    ws.send(JSON.stringify({ ...payload, id }));
+  });
+}
+
+// Whether clicking the toolbar icon shows the pairing popup or opens the
+// side panel straight to chat — a popup registered on the action always
+// wins over openPanelOnActionClick, so toggling it is how the two states
+// share one icon.
+async function updateActionPopup() {
+  const config = await loadConfig();
+  await chrome.action.setPopup({ popup: config?.userId ? '' : 'popup.html' });
+}
+
 // ---------- WebSocket connection ----------
 
 function connect() {
@@ -260,6 +291,7 @@ function connect() {
       if (msg.ok) {
         pairedUserId = msg.userId;
         await saveConfig({ userId: msg.userId });
+        await updateActionPopup();
       }
       notifyPopup({ type: 'pair_status', ok: msg.ok, error: msg.error });
       return;
@@ -269,6 +301,7 @@ function connect() {
       if (!msg.ok) {
         await clearConfig();
         pairedUserId = null;
+        await updateActionPopup();
       } else {
         pairedUserId = (await loadConfig())?.userId || null;
       }
@@ -282,6 +315,16 @@ function connect() {
       } catch (e) {
         ws.send(JSON.stringify({ type: 'result', id: msg.id, ok: false, error: e.message }));
       }
+      return;
+    }
+
+    if (msg.type === 'chat_result' || msg.type === 'identity_result') {
+      const pending = pendingReplies.get(msg.id);
+      if (!pending) return;
+      clearTimeout(pending.timeout);
+      pendingReplies.delete(msg.id);
+      if (msg.ok) pending.resolve(msg.type === 'chat_result' ? msg.reply : msg.identity);
+      else pending.reject(new Error(msg.error || 'Request failed.'));
       return;
     }
   });
@@ -313,9 +356,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'keepalive') connect();
 });
 
-connect();
+// Clicking the toolbar icon opens the side panel straight to chat — but
+// only takes effect while no popup is registered on the action (see
+// updateActionPopup), so unpaired still gets the small pairing popup.
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
-// ---------- Messages from the popup ----------
+connect();
+updateActionPopup();
+
+// ---------- Messages from the popup and the side panel ----------
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'get_status') {
@@ -349,8 +398,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       await clearConfig();
       pairedUserId = null;
+      await updateActionPopup();
       sendResponse({ ok: true });
     })();
+    return true;
+  }
+
+  if (message.type === 'get_identity') {
+    sendAndAwaitReply({ type: 'get_identity' })
+      .then((identity) => sendResponse({ ok: true, identity }))
+      .catch((e) => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
+
+  if (message.type === 'chat_send') {
+    sendAndAwaitReply({ type: 'chat', message: message.text, history: message.history || [] })
+      .then((reply) => sendResponse({ ok: true, reply }))
+      .catch((e) => sendResponse({ ok: false, error: e.message }));
     return true;
   }
 });

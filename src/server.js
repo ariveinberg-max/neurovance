@@ -999,5 +999,23 @@ const server = createServer((req, res) => {
 process.on('uncaughtException', (e) => console.error('Uncaught exception:', e));
 process.on('unhandledRejection', (e) => console.error('Unhandled rejection:', e));
 
+// Lets the Chrome extension's side panel chat and identity header work
+// over its already-authenticated pairing connection, with no session
+// cookie needed — companion.js can't import agent.js/auth.js directly
+// (agent.js already imports companion.js for sendCommand), so this hands
+// it the two functions it needs instead of creating an import cycle.
+companion.registerAgentHooks({
+  chat: async (userId, message, history) => {
+    const user = await auth.findUserById(userId);
+    if (!user) throw new Error('Account not found.');
+    if (typeof message !== 'string' || !message.trim()) throw new Error('message must be a non-empty string');
+    return await chatReply(userId, user, message.trim(), sanitizeHistory(history));
+  },
+  identity: async (userId) => {
+    const user = await auth.findUserById(userId);
+    return user ? { aiName: user.aiName, displayName: user.displayName } : null;
+  },
+});
+
 companion.attach(server);
 server.listen(PORT, () => console.log(`Brain graph running at http://localhost:${PORT}`));
