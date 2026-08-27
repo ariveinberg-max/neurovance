@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Runs on your own computer. Lets your Neurovance Superself read files from one folder you control, and open links in Safari for you. Nothing else on your computer is reachable.",
+  "description": "Runs on your own computer. Lets your Neurovance Superself read files from one folder you control, and open links in your browser for you. Nothing else on your computer is reachable.",
   "main": "companion.js",
   "scripts": {
     "start": "node companion.js"

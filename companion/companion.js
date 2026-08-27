@@ -5,14 +5,15 @@
 // automation surface, not a shared abstraction pretending they're the same.
 //
 // On macOS, via AppleScript: read files inside one folder
-// (~/Documents/Neurovance), open https:// links in Safari, read the text of
-// whatever's already showing in Safari's front tab, read your saved Safari
-// bookmarks, click links/buttons on the current page, type into fields,
-// list what's clickable and where it sits on screen, go back, search your
-// real Contacts by name, send a real iMessage (to one person or several),
-// add a real calendar event/reminder/note, read/send real email, and
-// control your own Music app (play/pause/skip, play a song by name, see
-// what's playing).
+// (~/Documents/Neurovance), open https:// links in your browser (Safari or
+// Chrome, whichever you've picked in Settings), read the text of whatever's
+// already showing in its front tab, read your saved Safari bookmarks (always
+// Safari's specifically, regardless of that setting), click links/buttons on
+// the current page, type into fields, list what's clickable and where it
+// sits on screen, go back, search your real Contacts by name, send a real
+// iMessage (to one person or several), add a real calendar event/reminder/
+// note, read/send real email, and control your own Music app (play/pause/
+// skip, play a song by name, see what's playing).
 //
 // On Windows, via Outlook's own automation: search your real Outlook
 // Contacts by name, add a real Outlook calendar event, add a real Outlook
@@ -172,17 +173,32 @@ function escapeForAppleScript(js) {
   return js.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-function runSafariJS(js) {
-  const script = `tell application "Safari" to activate\ntell application "Safari" to do JavaScript "${escapeForAppleScript(js)}" in front document`;
+// Safari and Chrome both expose an AppleScript command to run arbitrary JS
+// in the page — just spelled differently, and Chrome addresses "whichever
+// tab is active in the front window" instead of Safari's "front document".
+// Every browser action picks one of these two templates based on the
+// user's own browser preference (params.browser, defaulted below), rather
+// than needing separate action names per browser.
+const BROWSER_APP_NAME = { safari: 'Safari', chrome: 'Google Chrome' };
+function normalizeBrowser(browser) {
+  return browser === 'chrome' ? 'chrome' : 'safari';
+}
+
+function runBrowserJS(js, browser) {
+  const appName = BROWSER_APP_NAME[normalizeBrowser(browser)];
+  const escaped = escapeForAppleScript(js);
+  const script = normalizeBrowser(browser) === 'chrome'
+    ? `tell application "${appName}" to activate\ntell application "${appName}" to tell active tab of front window to execute javascript "${escaped}"`
+    : `tell application "${appName}" to activate\ntell application "${appName}" to do JavaScript "${escaped}" in front document`;
   return new Promise((res, rej) => {
     execFile('osascript', ['-e', script], { maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
       if (err) {
-        if (/not allowed to send Apple events|1743/.test(err.message)) {
-          rej(new Error('Safari has JavaScript-from-AppleScript turned off. Enable it: Safari > Settings > Advanced > check "Show features for web developers", then the new Develop menu > check "Allow JavaScript from Apple Events".'));
-        } else if (/front document|no windows/i.test(err.message)) {
-          rej(new Error('Safari has no windows open.'));
+        if (/not allowed to send Apple events|1743|JavaScript through AppleScript is turned off/.test(err.message)) {
+          rej(new Error(`${appName} has JavaScript-from-AppleScript turned off. Enable it: ${appName === 'Safari' ? 'Safari > Settings > Advanced > check "Show features for web developers", then the new Develop menu > check "Allow JavaScript from Apple Events"' : 'Chrome > View menu > Developer > check "Allow JavaScript from Apple Events"'}.`));
+        } else if (/front document|front window|no windows/i.test(err.message)) {
+          rej(new Error(`${appName} has no windows open.`));
         } else {
-          rej(new Error('Safari script failed: ' + err.message));
+          rej(new Error(`${appName} script failed: ` + err.message));
         }
         return;
       }
@@ -585,46 +601,59 @@ function handleCommand(action, params) {
     // execFile (no shell) + stripped quotes = the URL can't break out of the
     // AppleScript string literal or reach a shell at all.
     const safeUrl = url.replace(/"/g, '');
-    // "open location" alone doesn't bring Safari to the front — without
+    const appName = BROWSER_APP_NAME[normalizeBrowser(params.browser)];
+    // "open location" alone doesn't bring the browser to the front — without
     // activate, the page opens invisibly behind whatever app the user is
     // actually looking at, which looks like nothing happened at all.
-    const script = `tell application "Safari" to activate\ntell application "Safari" to open location "${safeUrl}"`;
+    const script = `tell application "${appName}" to activate\ntell application "${appName}" to open location "${safeUrl}"`;
     return new Promise((res, rej) => {
       execFile('osascript', ['-e', script], (err) => {
-        if (err) rej(new Error('Could not open Safari: ' + err.message));
+        if (err) rej(new Error(`Could not open ${appName}: ` + err.message));
         else res({ opened: safeUrl });
       });
     });
   }
 
   // Goes back in the current tab's history — the voice-mode equivalent of
-  // pressing Safari's back button, so "go back" mid-conversation actually
+  // pressing the browser's back button, so "go back" mid-conversation actually
   // does something instead of only meaning "go back to the app."
   if (action === 'go_back') {
-    return runSafariJS('(function(){history.back();return "OK";})()').then(() => ({ result: 'OK' }));
+    return runBrowserJS('(function(){history.back();return "OK";})()', params.browser).then(() => ({ result: 'OK' }));
   }
 
-  // Reads whatever is already rendered in the user's own front Safari tab —
+  // Reads whatever is already rendered in the user's own front tab —
   // deliberately nothing more. This never logs in, fills in a form, or
   // touches a credential; it only sees a page after the human already did
   // that part themselves. Only the front tab, never every open tab.
   if (action === 'read_safari_content') {
-    const script = [
-      'tell application "Safari"',
-      '  if (count of windows) is 0 then error "Safari has no windows open."',
-      '  set pageURL to URL of front document',
-      '  set pageTitle to name of front document',
-      '  set pageText to do JavaScript "document.body.innerText" in front document',
-      '  return pageURL & "|||NEUROVANCE|||" & pageTitle & "|||NEUROVANCE|||" & pageText',
-      'end tell',
-    ].join('\n');
+    const browser = normalizeBrowser(params.browser);
+    const appName = BROWSER_APP_NAME[browser];
+    const script = browser === 'chrome'
+      ? [
+          'tell application "Google Chrome"',
+          '  if (count of windows) is 0 then error "Google Chrome has no windows open."',
+          '  set pageURL to URL of active tab of front window',
+          '  set pageTitle to title of active tab of front window',
+          '  set pageText to execute active tab of front window javascript "document.body.innerText"',
+          '  return pageURL & "|||NEUROVANCE|||" & pageTitle & "|||NEUROVANCE|||" & pageText',
+          'end tell',
+        ].join('\n')
+      : [
+          'tell application "Safari"',
+          '  if (count of windows) is 0 then error "Safari has no windows open."',
+          '  set pageURL to URL of front document',
+          '  set pageTitle to name of front document',
+          '  set pageText to do JavaScript "document.body.innerText" in front document',
+          '  return pageURL & "|||NEUROVANCE|||" & pageTitle & "|||NEUROVANCE|||" & pageText',
+          'end tell',
+        ].join('\n');
     return new Promise((res, rej) => {
       execFile('osascript', ['-e', script], (err, stdout) => {
         if (err) {
-          if (/not allowed to send Apple events|1743/.test(err.message)) {
-            rej(new Error('Safari has JavaScript-from-AppleScript turned off. Enable it: Safari > Settings > Advanced > check "Show features for web developers", then the new Develop menu > check "Allow JavaScript from Apple Events".'));
+          if (/not allowed to send Apple events|1743|JavaScript through AppleScript is turned off/.test(err.message)) {
+            rej(new Error(`${appName} has JavaScript-from-AppleScript turned off. Enable it: ${appName === 'Safari' ? 'Safari > Settings > Advanced > check "Show features for web developers", then the new Develop menu > check "Allow JavaScript from Apple Events"' : 'Chrome > View menu > Developer > check "Allow JavaScript from Apple Events"'}.`));
           } else {
-            rej(new Error('Could not read the Safari page: ' + err.message));
+            rej(new Error(`Could not read the ${appName} page: ` + err.message));
           }
           return;
         }
@@ -646,7 +675,7 @@ function handleCommand(action, params) {
     const text = params.text || '';
     if (!text) return Promise.reject(new Error('No text given to click.'));
     const js = buildClickScript(text);
-    return runSafariJS(js).then((result) => {
+    return runBrowserJS(js, params.browser).then((result) => {
       if (result === 'NOT_FOUND') throw new Error(`Could not find anything matching "${text}" to click on the current page.`);
       return { result };
     });
@@ -660,7 +689,7 @@ function handleCommand(action, params) {
     const { label, text, submit } = params;
     if (!label || text === undefined) return Promise.reject(new Error('Need both a field label and text to type.'));
     const js = buildTypeScript(label, text, !!submit);
-    return runSafariJS(js).then((result) => {
+    return runBrowserJS(js, params.browser).then((result) => {
       if (result === 'NOT_FOUND') throw new Error(`Could not find a field matching "${label}" on the current page.`);
       if (result === 'BLOCKED_PASSWORD') throw new Error('Refusing to type into a password field — the Companion never handles credentials.');
       return { result };
@@ -674,7 +703,7 @@ function handleCommand(action, params) {
   // list, picks the right entry, then calls click_page_element with that
   // entry's exact text. Skips anything with zero size (hidden/off-screen).
   if (action === 'list_page_elements') {
-    return runSafariJS(buildListElementsScript()).then((result) => {
+    return runBrowserJS(buildListElementsScript(), params.browser).then((result) => {
       try {
         return { elements: JSON.parse(result) };
       } catch {

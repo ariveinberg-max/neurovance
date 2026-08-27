@@ -3,6 +3,7 @@ import { remember, recall, recentMemories, coreMemories, allMemories, findMemory
 import { computeVitals } from './vitals.js';
 import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
+import { findUserById } from './auth.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
@@ -51,8 +52,13 @@ const SEARCH_TOOL = {
 // Companion tools — only offered when this user has actually paired the
 // local Companion app (agent.js never assumes it's there). Read-only by
 // design for now: listing/reading a folder the user chose, and opening a
-// Safari link. Write/delete comes later, behind an explicit confirmation
+// browser link. Write/delete comes later, behind an explicit confirmation
 // step, the same way the waitlist broadcast requires one before it sends.
+//
+// Browser actions drive whichever real browser the user picked in Settings
+// (Safari or Chrome, default Safari) — these tool descriptions say "browser"
+// generically since the choice is per-user, resolved server-side in
+// handleCompanionTool, not baked into the tool definition itself.
 const COMPANION_LIST_FILES_TOOL = {
   name: 'list_local_files',
   description:
@@ -81,7 +87,7 @@ const COMPANION_READ_FILE_TOOL = {
 const COMPANION_OPEN_URL_TOOL = {
   name: 'open_url_in_browser',
   description:
-    'Open a URL in the user\'s own Safari on their computer, via their paired Companion app, so they see it appear live. Only https:// URLs.',
+    'Open a URL in the user\'s own browser on their computer, via their paired Companion app, so they see it appear live. Only https:// URLs.',
   input_schema: {
     type: 'object',
     properties: {
@@ -94,21 +100,21 @@ const COMPANION_OPEN_URL_TOOL = {
 const COMPANION_READ_BROWSER_TOOL = {
   name: 'read_current_browser_page',
   description:
-    'Read the visible text of whatever page is currently open in the user\'s own Safari (front tab only), via their paired Companion app. Only ever sees a page AFTER the user has already loaded and logged into it themselves — this cannot log in, fill in a form, or touch a credential. Only use this when the user has actually asked you to check or read something on their screen, e.g. right after asking them to log in somewhere. Never assume something is open unless they said so.',
+    'Read the visible text of whatever page is currently open in the user\'s own browser (front tab only), via their paired Companion app. Only ever sees a page AFTER the user has already loaded and logged into it themselves — this cannot log in, fill in a form, or touch a credential. Only use this when the user has actually asked you to check or read something on their screen, e.g. right after asking them to log in somewhere. Never assume something is open unless they said so.',
   input_schema: { type: 'object', properties: {} },
 };
 
 const COMPANION_READ_BOOKMARKS_TOOL = {
   name: 'read_safari_bookmarks',
   description:
-    'Read the user\'s saved Safari bookmarks (title + URL), via their paired Companion app. Use this to actually go find a link the user has already saved — e.g. a school portal, a work tool — BEFORE asking them to type a URL by hand. Read-only, cannot add or remove bookmarks.',
+    'Read the user\'s saved Safari bookmarks (title + URL), via their paired Companion app. Always reads Safari\'s bookmarks specifically, regardless of which browser they\'ve set as their default in Settings. Use this to actually go find a link the user has already saved — e.g. a school portal, a work tool — BEFORE asking them to type a URL by hand. Read-only, cannot add or remove bookmarks.',
   input_schema: { type: 'object', properties: {} },
 };
 
 const COMPANION_CLICK_TOOL = {
   name: 'click_page_element',
   description:
-    'Click a link or button on whatever page is currently open in the user\'s own Safari, matched by its visible text (not a CSS selector — match the text you can actually see on the page, e.g. from read_current_browser_page). Free to use for ordinary navigation, search, and lookups. Before using this to click anything that completes a purchase/payment, sends a message, or deletes/cancels/removes an account or data — stop and confirm with the user first instead of calling this.',
+    'Click a link or button on whatever page is currently open in the user\'s own browser, matched by its visible text (not a CSS selector — match the text you can actually see on the page, e.g. from read_current_browser_page). Free to use for ordinary navigation, search, and lookups. Before using this to click anything that completes a purchase/payment, sends a message, or deletes/cancels/removes an account or data — stop and confirm with the user first instead of calling this.',
   input_schema: {
     type: 'object',
     properties: {
@@ -121,7 +127,7 @@ const COMPANION_CLICK_TOOL = {
 const COMPANION_TYPE_TOOL = {
   name: 'type_into_page_field',
   description:
-    'Type text into an input or textarea on the current Safari page, matched by its placeholder/label text. Never works on password fields — refuses those unconditionally. Set submit:true to also press Enter after typing (e.g. for a search box). Free to use for search boxes, lookup forms, and filters. Before using this to fill in and submit anything that completes a purchase/payment, sends a message, or contains sensitive personal data going to a new destination — stop and confirm with the user first instead of calling this.',
+    'Type text into an input or textarea on the current browser page, matched by its placeholder/label text. Never works on password fields — refuses those unconditionally. Set submit:true to also press Enter after typing (e.g. for a search box). Free to use for search boxes, lookup forms, and filters. Before using this to fill in and submit anything that completes a purchase/payment, sends a message, or contains sensitive personal data going to a new destination — stop and confirm with the user first instead of calling this.',
   input_schema: {
     type: 'object',
     properties: {
@@ -135,14 +141,14 @@ const COMPANION_TYPE_TOOL = {
 
 const COMPANION_GO_BACK_TOOL = {
   name: 'go_back_in_browser',
-  description: 'Go back to the previous page in the user\'s own Safari — the same as clicking the browser\'s back button. Free to use any time it makes sense in the conversation.',
+  description: 'Go back to the previous page in the user\'s own browser — the same as clicking the browser\'s back button. Free to use any time it makes sense in the conversation.',
   input_schema: { type: 'object', properties: {} },
 };
 
 const COMPANION_LIST_ELEMENTS_TOOL = {
   name: 'list_page_elements',
   description:
-    'List every clickable thing on the current Safari page — its visible text (or accessible label, which is often where a color/size shows up even when it\'s only a swatch, e.g. "Color: Red") and its real on-screen position, sorted top-to-bottom then left-to-right. Use this to resolve a vague reference like "the red one", "the one on top", or "the second result" to an actual element before calling click_page_element — pick the matching entry from this list, then click_page_element with THAT entry\'s exact text.',
+    'List every clickable thing on the current browser page — its visible text (or accessible label, which is often where a color/size shows up even when it\'s only a swatch, e.g. "Color: Red") and its real on-screen position, sorted top-to-bottom then left-to-right. Use this to resolve a vague reference like "the red one", "the one on top", or "the second result" to an actual element before calling click_page_element — pick the matching entry from this list, then click_page_element with THAT entry\'s exact text.',
   input_schema: { type: 'object', properties: {} },
 };
 
@@ -298,16 +304,28 @@ async function handleCompanionTool(userId, toolUse) {
     const bookmarks = await companion.sendCommand(userId, 'read_safari_bookmarks', {});
     return JSON.stringify(bookmarks);
   }
+  // Every action below drives whichever real browser the user picked in
+  // Settings (default Safari) — the Companion itself has no opinion, it
+  // just needs to know which app to send the AppleScript to.
+  const BROWSER_TOOL_NAMES = new Set([
+    'open_url_in_browser', 'read_current_browser_page', 'click_page_element',
+    'type_into_page_field', 'go_back_in_browser', 'list_page_elements',
+  ]);
+  let browser = 'safari';
+  if (BROWSER_TOOL_NAMES.has(toolUse.name)) {
+    const user = await findUserById(userId);
+    browser = user?.browser === 'chrome' ? 'chrome' : 'safari';
+  }
   if (toolUse.name === 'open_url_in_browser') {
-    const result = await companion.sendCommand(userId, 'open_url', { url: toolUse.input.url });
-    return `Opened in Safari: ${result.opened}`;
+    const result = await companion.sendCommand(userId, 'open_url', { url: toolUse.input.url, browser });
+    return `Opened in ${browser === 'chrome' ? 'Chrome' : 'Safari'}: ${result.opened}`;
   }
   if (toolUse.name === 'read_current_browser_page') {
-    const result = await companion.sendCommand(userId, 'read_safari_content', {});
+    const result = await companion.sendCommand(userId, 'read_safari_content', { browser });
     return `Page: ${result.title} (${result.url})\n\n${result.text}`;
   }
   if (toolUse.name === 'click_page_element') {
-    const result = await companion.sendCommand(userId, 'click_page_element', { text: toolUse.input.text });
+    const result = await companion.sendCommand(userId, 'click_page_element', { text: toolUse.input.text, browser });
     return result.result;
   }
   if (toolUse.name === 'type_into_page_field') {
@@ -315,15 +333,16 @@ async function handleCompanionTool(userId, toolUse) {
       label: toolUse.input.label,
       text: toolUse.input.text,
       submit: !!toolUse.input.submit,
+      browser,
     });
     return result.result;
   }
   if (toolUse.name === 'go_back_in_browser') {
-    await companion.sendCommand(userId, 'go_back', {});
+    await companion.sendCommand(userId, 'go_back', { browser });
     return 'Went back.';
   }
   if (toolUse.name === 'list_page_elements') {
-    const result = await companion.sendCommand(userId, 'list_page_elements', {});
+    const result = await companion.sendCommand(userId, 'list_page_elements', { browser });
     return JSON.stringify(result.elements);
   }
   if (toolUse.name === 'find_contact') {
@@ -453,7 +472,7 @@ async function buildTaskSystemPrompt(userId, user, task) {
     hasCompanion
       ? [
           'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything there.',
-          'In their real Safari you can: open_url_in_browser, read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks, click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). Use these freely for ordinary browsing — navigating, searching, filling in lookup forms, following links, clicking through a page. Do not ask permission first for that kind of thing; just go do it and report back.',
+          'In their real browser (Safari or Chrome, whichever they\'ve set in Settings) you can: open_url_in_browser, read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks (always reads Safari\'s own bookmarks specifically, regardless of their browser setting), click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). Use these freely for ordinary browsing — navigating, searching, filling in lookup forms, following links, clicking through a page. Do not ask permission first for that kind of thing; just go do it and report back.',
           'You can also use find_contact to search their real Contacts app by name (read-only, free to use anytime), send_text_message to send a real iMessage from their own Messages app (recipients is a list — pass more than one to message several people the same text), add_calendar_event to add a real event to their calendar, add_reminder to add a real reminder, and add_note to add a real note — the last three are their own data, no confirmation needed, just do them. You can also read_recent_emails (read-only, free) and send_email — send_email reaches someone else, so it follows the exact same confirm-first rule as send_text_message: state who and what, then wait for their go-ahead.',
           'You can also control their own Music app: music_control (play/pause/next/previous), play_song to search their library by song or artist name and play the first match, and music_status to see what is currently playing. All three are their own local playback, reach nobody else, and need no confirmation — just do them.',
           'The one hard line: before you complete an actual payment/purchase, before you call send_text_message for any reason, or before you click something that deletes/cancels/removes an account or their data — STOP. Say exactly what you are about to do — who you would message and what you would say, or what you would buy or delete — then end your turn and wait for their next message to actually confirm it before doing it. Do not do it in the same turn you proposed it in. find_contact itself needs no confirmation, only the actual send.',
@@ -533,7 +552,7 @@ async function buildChatSystemPrompt(userId, user, message) {
     'Use the remember tool if they tell you something new worth keeping. Do not narrate that you are doing so.',
     hasCompanion
       ? [
-          'They have a Companion paired, so mid-conversation you can actually drive their real Safari: open_url_in_browser, click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks. If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, send_text_message to send a real iMessage (recipients is a list, so more than one person can get the same text), add_calendar_event / add_reminder / add_note to actually add real things to their calendar, reminders, and notes (their own data, no confirmation needed), and read_recent_emails / send_email for their real inbox — send_email needs the same out-loud confirmation as a message, read_recent_emails does not. You can also control their real Music app mid-conversation: music_control to play/pause/skip, play_song to play something by name, music_status to say what is currently playing — all their own playback, no confirmation needed.',
+          'They have a Companion paired, so mid-conversation you can actually drive their real browser (Safari or Chrome, whichever they\'ve set in Settings): open_url_in_browser, click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks (always Safari\'s own bookmarks specifically, regardless of their browser setting). If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, send_text_message to send a real iMessage (recipients is a list, so more than one person can get the same text), add_calendar_event / add_reminder / add_note to actually add real things to their calendar, reminders, and notes (their own data, no confirmation needed), and read_recent_emails / send_email for their real inbox — send_email needs the same out-loud confirmation as a message, read_recent_emails does not. You can also control their real Music app mid-conversation: music_control to play/pause/skip, play_song to play something by name, music_status to say what is currently playing — all their own playback, no confirmation needed.',
           'Same hard line as always: before an actual payment/purchase, before send_text_message for any reason, or before deleting/canceling/removing something — say what you are about to do in one short sentence (who you would message and what you would say, if it is a message) and wait for them to actually say to go ahead, out loud, before you do it. find_contact itself needs no confirmation. Everything else about ordinary browsing (navigating, clicking around, adding something to a cart) — just do it, no need to ask first.',
           'Their Companion may be on macOS or Windows — Windows has no iMessage or Music.app, and page interactions like clicking/typing/listing elements are not built for Windows yet. A tool call that comes back saying something is not available just means their setup does not support it — say so plainly, do not retry it.',
           'If a browser tool call errors, say so plainly in one short sentence — never guess that something worked or describe results you have not actually confirmed with a tool.',

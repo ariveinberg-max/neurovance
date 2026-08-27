@@ -406,6 +406,14 @@
   }
   .personality-mode.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
   #personality-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
+  #browser-tabs { display: flex; gap: 6px; }
+  .browser-mode {
+    background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 10px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .browser-mode.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
+  #browser-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
   #settings-plan-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); }
   #settings-plan-status .plan-paid { color: var(--accent-green); }
   #voice-select {
@@ -808,6 +816,15 @@
     </div>
 
     <div class="settings-section">
+      <div class="sm-label">Browser</div>
+      <div id="browser-tabs">
+        <button class="browser-mode" data-mode="safari">Safari</button>
+        <button class="browser-mode" data-mode="chrome">Chrome</button>
+      </div>
+      <div id="browser-note"></div>
+    </div>
+
+    <div class="settings-section">
       <div class="sm-label">Voice</div>
       <select id="voice-select"></select>
     </div>
@@ -993,12 +1010,12 @@ let pendingEmail = null;
 let pendingVerifiedToken = null;
 let oauthPendingToken = null;
 
-function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword, plan, billingConfigured }) {
+function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword, plan, billingConfigured, browser }) {
   currentIdentity = {
     displayName, aiName, model: model || 'core', advisorMode: advisorMode !== false,
     username: username || currentIdentity.username, email: email || currentIdentity.email,
     hasPassword: hasPassword !== false, plan: plan || currentIdentity.plan || 'free',
-    billingConfigured: !!billingConfigured,
+    billingConfigured: !!billingConfigured, browser: browser === 'chrome' ? 'chrome' : 'safari',
   };
   document.getElementById('app-title').textContent = aiName;
   document.getElementById('app-subtitle').textContent = `${displayName}'s Superself`;
@@ -2253,7 +2270,7 @@ function initTalkDrawer() {
 
 // Pairs the local Companion app (companion/companion.js) that lets this
 // user's own Superself read from one folder they chose on their own
-// computer, and open Safari links there — nothing else on their machine is
+// computer, and open browser links there — nothing else on their machine is
 // ever reachable. Renders one of three states: not paired, paired+offline
 // (companion installed but not currently running), paired+online.
 function initCompanion() {
@@ -2270,7 +2287,7 @@ function initCompanion() {
     if (!status.paired) {
       statusEl.textContent = 'Not paired';
       statusEl.className = '';
-      noteEl.textContent = 'Pair a computer to let this Superself read files you choose and open Safari links.';
+      noteEl.textContent = 'Pair a computer to let this Superself read files you choose and open browser links.';
       actionsEl.innerHTML = '<button id="companion-pair-btn">Pair a computer</button>';
       document.getElementById('companion-pair-btn').addEventListener('click', startPairing);
       return;
@@ -2404,6 +2421,37 @@ function initSettings() {
       if (!res.ok) return;
       currentIdentity.advisorMode = advisorMode;
       setActiveTab(advisorMode);
+    });
+  });
+
+  // Which real browser the Companion drives for open/read/click/type
+  // actions on this user's own Mac — has no effect on Windows, since that
+  // automation goes through Outlook instead of a browser.
+  const browserTabs = document.querySelectorAll('.browser-mode');
+  const browserNote = document.getElementById('browser-note');
+  const BROWSER_NOTES = {
+    safari: 'Links, page reads, clicks and typing go through Safari.',
+    chrome: 'Links, page reads, clicks and typing go through Google Chrome.',
+  };
+
+  function setActiveBrowserTab(browser) {
+    browserTabs.forEach((b) => b.classList.toggle('active', b.dataset.mode === browser));
+    browserNote.textContent = BROWSER_NOTES[browser] || BROWSER_NOTES.safari;
+  }
+  setActiveBrowserTab(currentIdentity.browser);
+
+  browserTabs.forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (btn.classList.contains('active')) return;
+      const browser = btn.dataset.mode;
+      const res = await fetch('/api/browser-pref', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ browser }),
+      });
+      if (!res.ok) return;
+      currentIdentity.browser = browser;
+      setActiveBrowserTab(browser);
     });
   });
 

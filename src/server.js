@@ -188,6 +188,7 @@ function identityPayload(user) {
     plan: user.plan || 'free',
     billingConfigured: billing.isConfigured(),
     advisorMode: user.advisorMode !== false,
+    browser: user.browser === 'chrome' ? 'chrome' : 'safari',
   };
 }
 
@@ -643,6 +644,23 @@ async function handleRequest(req, res) {
         }
         await auth.setAdvisorMode(user.id, advisorMode);
         return sendJson(res, 200, { ok: true, advisorMode });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Browser preference — which real browser the Companion
+    // drives for open/read/click/type actions. Mac only; Windows automation
+    // goes through Outlook, not a browser, so this has no effect there. ----------
+
+    if (req.url === '/api/browser-pref' && req.method === 'POST') {
+      try {
+        const { browser } = await readJsonBody(req);
+        if (!auth.BROWSERS.includes(browser)) {
+          return sendJson(res, 400, { error: `browser must be one of: ${auth.BROWSERS.join(', ')}` });
+        }
+        await auth.setBrowserPref(user.id, browser);
+        return sendJson(res, 200, { ok: true, browser });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }

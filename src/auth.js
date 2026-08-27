@@ -174,6 +174,21 @@ export async function setAdvisorMode(userId, advisorMode) {
   return user;
 }
 
+export const BROWSERS = ['safari', 'chrome'];
+
+// Which real browser the Companion drives for open_url/click/type/read
+// actions — Mac only (Windows automation goes through Outlook, not a
+// browser). Defaults to Safari since that's what every account had before
+// this setting existed.
+export async function setBrowserPref(userId, browser) {
+  if (!BROWSERS.includes(browser)) throw new Error(`Unknown browser: ${browser}`);
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.browser = browser;
+  await saveUser(user);
+  return user;
+}
+
 export async function setUsername(userId, newUsername) {
   const normalized = newUsername.trim().toLowerCase();
   assertValidUsername(normalized);
