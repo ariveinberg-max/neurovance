@@ -456,6 +456,23 @@
   }
   .effort-tab.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
   #effort-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
+  #task-freq-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .freq-tab {
+    background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 8px; border-radius: 10px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .freq-tab.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
+  #task-schedule-fields { display: flex; gap: 6px; margin-top: 8px; }
+  #task-schedule-fields .settings-input { width: auto; }
+  #scheduled-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .preset-chip {
+    background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.12); color: var(--text-secondary);
+    font-family: 'Inter', sans-serif; font-size: 10.5px; padding: 5px 10px; border-radius: 12px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .preset-chip:hover { color: var(--text-bright); background: rgba(var(--overlay-rgb),0.1); border-color: rgba(var(--overlay-rgb),0.2); }
+  .list-item-meta { font-size: 9.5px; color: var(--text-faint); margin-top: 2px; }
   #settings-plan-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); }
   #settings-plan-status .plan-paid { color: var(--accent-green); }
   #voice-select, #language-select {
@@ -1050,6 +1067,34 @@
       <button class="settings-save-btn" id="key-add-btn" style="margin-top:8px;">Create key</button>
       <div class="settings-field-status" id="key-status"></div>
       <div class="settings-field-status">Call it from your own app: <code>Authorization: Bearer nv_...</code> to <code>POST /api/v1/chat</code> with <code>{"message": "..."}</code>.</div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">Scheduled Tasks</div>
+      <div id="scheduled-presets"></div>
+      <div class="list-items" id="scheduled-tasks-list"></div>
+      <input id="task-name-input" class="settings-input" type="text" placeholder="Task name" maxlength="60" />
+      <textarea id="task-prompt-input" class="settings-input" placeholder="What should it do?" rows="2" maxlength="2000" style="margin-top:6px; resize:vertical;"></textarea>
+      <div id="task-freq-tabs" style="margin-top:8px;">
+        <button class="freq-tab active" data-freq="daily">Daily</button>
+        <button class="freq-tab" data-freq="weekdays">Weekdays</button>
+        <button class="freq-tab" data-freq="weekly">Weekly</button>
+      </div>
+      <div id="task-schedule-fields">
+        <input id="task-time-input" class="settings-input" type="time" value="09:00" />
+        <select id="task-weekday-select" class="settings-input" style="display:none;">
+          <option value="0">Sunday</option>
+          <option value="1">Monday</option>
+          <option value="2">Tuesday</option>
+          <option value="3">Wednesday</option>
+          <option value="4">Thursday</option>
+          <option value="5" selected>Friday</option>
+          <option value="6">Saturday</option>
+        </select>
+      </div>
+      <button class="settings-save-btn" id="task-add-btn" style="margin-top:8px;">Add task</button>
+      <div class="settings-field-status" id="task-status"></div>
+      <div class="settings-field-status">Runs unattended — it can read, check, and draft, but never sends, buys, or deletes anything on its own. Output is saved as a memory.</div>
     </div>
   </div>
 </div>
@@ -3105,6 +3150,154 @@ function initSettings() {
   newKeyDoneBtn.addEventListener('click', () => {
     newKeyReveal.style.display = 'none';
     newKeyValue.textContent = '';
+  });
+
+  // ---------- Scheduled tasks: a saved prompt that runs itself on a
+  // recurring schedule, unattended, filing its output as a memory. ----------
+
+  const presetsEl = document.getElementById('scheduled-presets');
+  const tasksListEl = document.getElementById('scheduled-tasks-list');
+  const taskNameInput = document.getElementById('task-name-input');
+  const taskPromptInput = document.getElementById('task-prompt-input');
+  const taskFreqTabs = document.querySelectorAll('.freq-tab');
+  const taskTimeInput = document.getElementById('task-time-input');
+  const taskWeekdaySelect = document.getElementById('task-weekday-select');
+  const taskAddBtn = document.getElementById('task-add-btn');
+  const taskStatus = document.getElementById('task-status');
+  let selectedFreq = 'daily';
+
+  taskFreqTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      selectedFreq = tab.dataset.freq;
+      taskFreqTabs.forEach((t) => t.classList.toggle('active', t === tab));
+      taskWeekdaySelect.style.display = selectedFreq === 'weekly' ? '' : 'none';
+    });
+  });
+
+  function fmtNextRun(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const dateLabel = sameDay ? 'today' : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    return `${dateLabel} at ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  }
+
+  async function refreshScheduledTasks() {
+    const res = await fetch('/api/scheduled-tasks', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const { tasks, presets } = await res.json();
+
+    presetsEl.innerHTML = '';
+    for (const preset of presets) {
+      const chip = document.createElement('button');
+      chip.className = 'preset-chip';
+      chip.type = 'button';
+      chip.textContent = `${preset.icon} ${preset.name}`;
+      chip.addEventListener('click', () => {
+        taskNameInput.value = preset.name;
+        taskPromptInput.value = preset.prompt;
+        selectedFreq = preset.schedule.frequency;
+        taskFreqTabs.forEach((t) => t.classList.toggle('active', t.dataset.freq === selectedFreq));
+        taskTimeInput.value = preset.schedule.time;
+        taskWeekdaySelect.style.display = selectedFreq === 'weekly' ? '' : 'none';
+        if (preset.schedule.weekday !== undefined) taskWeekdaySelect.value = String(preset.schedule.weekday);
+        taskPromptInput.focus();
+      });
+      presetsEl.appendChild(chip);
+    }
+
+    tasksListEl.innerHTML = '';
+    for (const task of tasks) {
+      const row = document.createElement('div');
+      row.className = 'list-item-row';
+
+      const info = document.createElement('div');
+      info.style.flex = '1';
+      info.style.minWidth = '0';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'list-item-name';
+      nameEl.textContent = task.name;
+      nameEl.title = task.prompt;
+      const metaEl = document.createElement('div');
+      metaEl.className = 'list-item-meta';
+      metaEl.textContent = task.active ? `Next: ${fmtNextRun(task.nextRunAt)}` : 'Paused';
+      info.appendChild(nameEl);
+      info.appendChild(metaEl);
+
+      const runBtn = document.createElement('button');
+      runBtn.className = 'list-item-remove';
+      runBtn.textContent = '▶';
+      runBtn.title = 'Run now';
+      runBtn.addEventListener('click', async () => {
+        runBtn.disabled = true;
+        await fetch('/api/scheduled-tasks/run-now', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: task.id }),
+        });
+        runBtn.disabled = false;
+        refreshScheduledTasks();
+      });
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'list-item-remove';
+      toggleBtn.textContent = task.active ? '⏸' : '▷';
+      toggleBtn.title = task.active ? 'Pause' : 'Resume';
+      toggleBtn.addEventListener('click', async () => {
+        await fetch('/api/scheduled-tasks/toggle', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: task.id, active: !task.active }),
+        });
+        refreshScheduledTasks();
+      });
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'list-item-remove';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Delete';
+      removeBtn.addEventListener('click', async () => {
+        await fetch('/api/scheduled-tasks/remove', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: task.id }),
+        });
+        refreshScheduledTasks();
+      });
+
+      row.appendChild(info);
+      row.appendChild(runBtn);
+      row.appendChild(toggleBtn);
+      row.appendChild(removeBtn);
+      tasksListEl.appendChild(row);
+    }
+  }
+  refreshScheduledTasks();
+
+  taskAddBtn.addEventListener('click', async () => {
+    const name = taskNameInput.value.trim();
+    const prompt = taskPromptInput.value.trim();
+    if (!name || !prompt) return setFieldStatus(taskStatus, 'Give it a name and instructions.', true);
+    const schedule = {
+      frequency: selectedFreq,
+      time: taskTimeInput.value || '09:00',
+      tzOffsetMinutes: new Date().getTimezoneOffset(),
+    };
+    if (selectedFreq === 'weekly') schedule.weekday = Number(taskWeekdaySelect.value);
+    taskAddBtn.disabled = true;
+    const res = await fetch('/api/scheduled-tasks', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, prompt, schedule }),
+    });
+    const data = await res.json();
+    taskAddBtn.disabled = false;
+    if (!res.ok) return setFieldStatus(taskStatus, data.error, true);
+    taskNameInput.value = '';
+    taskPromptInput.value = '';
+    setFieldStatus(taskStatus, 'Task added.', false);
+    refreshScheduledTasks();
   });
 }
 

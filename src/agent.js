@@ -529,13 +529,20 @@ function permissionModeLine(user, { voice = false } = {}) {
   return 'Their permission mode is set to "bypass": act freely and immediately on every companion action, including completing a payment/purchase, sending a message, or deleting/canceling something — no pausing to confirm first, for anything. They have explicitly chosen full autonomy; do not second-guess that by asking anyway.';
 }
 
+// A scheduled run has no live user to confirm anything, no matter what
+// their permission mode says — "bypass" means bypass *their own*
+// confirmation step in a session they're driving, not "send things while
+// nobody's watching." This line replaces permissionModeLine entirely for
+// unattended runs rather than layering on top of it.
+const UNATTENDED_SAFETY_LINE = 'This is an unattended scheduled run — nobody is present to confirm anything, regardless of their permission mode setting. Freely read, check, and browse (calendar, inbox, open tabs, pages) and prepare drafts, but do NOT send a message or email, complete a purchase, or delete/cancel anything — prepare it and report what you found or drafted so they can send it themselves.';
+
 function languageLine(user) {
   const language = user?.language;
   if (!language || language === 'English') return '';
   return `Their set reply language is ${language} — always reply in ${language}, even on a short or casual message and even if they happen to type to you in English, unless they explicitly ask you to switch languages.`;
 }
 
-async function buildTaskSystemPrompt(userId, user, task) {
+async function buildTaskSystemPrompt(userId, user, task, opts = {}) {
   const [memoryLines, hasCompanion, skills] = await Promise.all([
     memoryContext(userId, task),
     companion.isPaired(userId),
@@ -556,7 +563,7 @@ async function buildTaskSystemPrompt(userId, user, task) {
     skillsLine(skills),
     hasCompanion
       ? [
-          permissionModeLine(user),
+          opts.unattended ? UNATTENDED_SAFETY_LINE : permissionModeLine(user),
           'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything there.',
           'In their real browser (Safari or Chrome, whichever they\'ve set in Settings) you can: open_url_in_browser (always opens a new tab, never replaces one they\'re already looking at), read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks (always reads Safari\'s own bookmarks specifically, regardless of their browser setting), click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). If they\'ve connected the Chrome extension, you also have list_open_tabs and switch_to_tab (by the index list_open_tabs shows) — use these whenever they refer to a tab they already have open ("switch to my Gmail tab", "go back to the page I had") instead of opening it fresh; after switching, every other browser action acts on that tab specifically.',
           'You can also use find_contact to search their real Contacts app by name (read-only, always free to use, never itself needs confirmation — only an actual send/message does), send_text_message to send a real iMessage from their own Messages app (recipients is a list — pass more than one to message several people the same text), add_calendar_event to add a real event to their calendar, add_reminder to add a real reminder, and add_note to add a real note. You can also read_recent_emails (read-only) and send_email.',
@@ -708,11 +715,11 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
   }
 }
 
-export async function runTask(userId, user, task, history = []) {
+export async function runTask(userId, user, task, history = [], opts = {}) {
   const [extraTools, connectorTools, system] = await Promise.all([
     companionTools(userId),
     discoverAllConnectorTools(userId),
-    buildTaskSystemPrompt(userId, user, task),
+    buildTaskSystemPrompt(userId, user, task, opts),
   ]);
   const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools, ...connectorTools];
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 1024);

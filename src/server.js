@@ -12,6 +12,7 @@ import * as auth from './auth.js';
 import * as companion from './companion.js';
 import * as connections from './connections.js';
 import * as connectors from './connectors.js';
+import * as scheduler from './scheduler.js';
 import { getAllDocs, setDoc } from './db.js';
 import { sendVerificationCode, sendWaitlistNotification, sendBroadcast } from './mailer.js';
 import * as billing from './stripe.js';
@@ -842,6 +843,58 @@ async function handleRequest(req, res) {
       }
     }
 
+    // ---------- Scheduled tasks — a saved prompt that runs itself on a
+    // recurring schedule, unattended, and files its output as a memory. ----------
+
+    if (req.url === '/api/scheduled-tasks' && req.method === 'GET') {
+      try {
+        const tasks = await auth.listScheduledTasks(user.id);
+        return sendJson(res, 200, { ok: true, tasks, presets: scheduler.SCHEDULE_PRESETS });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/scheduled-tasks' && req.method === 'POST') {
+      try {
+        const { name, prompt, schedule, presetId } = await readJsonBody(req);
+        const task = await auth.addScheduledTask(user.id, { name, prompt, schedule, presetId });
+        return sendJson(res, 200, { ok: true, task });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/scheduled-tasks/remove' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        await auth.removeScheduledTask(user.id, id);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/scheduled-tasks/toggle' && req.method === 'POST') {
+      try {
+        const { id, active } = await readJsonBody(req);
+        const task = await auth.setScheduledTaskActive(user.id, id, active);
+        return sendJson(res, 200, { ok: true, task });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/scheduled-tasks/run-now' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        const tasks = await scheduler.runScheduledTaskNow(user.id, id);
+        return sendJson(res, 200, { ok: true, tasks });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
     // ---------- Account settings: username, Superself name, password, email ----------
 
     if (req.url === '/api/username' && req.method === 'POST') {
@@ -1206,4 +1259,5 @@ companion.registerAgentHooks({
 });
 
 companion.attach(server);
+scheduler.startScheduler();
 server.listen(PORT, () => console.log(`Brain graph running at http://localhost:${PORT}`));

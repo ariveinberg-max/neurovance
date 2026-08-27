@@ -1,5 +1,6 @@
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto';
 import { getDoc, setDoc, deleteDoc, getAllDocs } from './db.js';
+import { computeNextRun, assertValidSchedule } from './schedule-utils.js';
 
 // Every user is its own Firestore document (collection "users", doc id =
 // user.id) rather than one shared array, so lookups don't require loading
@@ -630,6 +631,87 @@ export async function removeSkill(userId, skillId) {
   if (!user) throw new Error('No such user.');
   user.skills = (user.skills || []).filter((s) => s.id !== skillId);
   await saveUser(user);
+}
+
+// Scheduled tasks: a saved prompt that runs itself on a recurring schedule,
+// unattended, and files its output away as a memory instead of a chat
+// reply — same trust level and storage shape as skills, just with a
+// schedule + run-state attached.
+const MAX_SCHEDULED_TASKS_PER_USER = 10;
+const MAX_TASK_NAME_LENGTH = 60;
+const MAX_TASK_PROMPT_LENGTH = 2000;
+
+export async function listScheduledTasks(userId) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  return user.scheduledTasks || [];
+}
+
+export async function addScheduledTask(userId, { name, prompt, schedule, presetId }) {
+  if (!name?.trim()) throw new Error('Give the task a name.');
+  if (!prompt?.trim()) throw new Error('Give the task some instructions.');
+  if (name.trim().length > MAX_TASK_NAME_LENGTH) throw new Error(`Name must be under ${MAX_TASK_NAME_LENGTH} characters.`);
+  if (prompt.trim().length > MAX_TASK_PROMPT_LENGTH) throw new Error(`Instructions must be under ${MAX_TASK_PROMPT_LENGTH} characters.`);
+  assertValidSchedule(schedule);
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  const existing = user.scheduledTasks || [];
+  if (existing.length >= MAX_SCHEDULED_TASKS_PER_USER) throw new Error(`You can have up to ${MAX_SCHEDULED_TASKS_PER_USER} scheduled tasks at a time.`);
+  const now = new Date();
+  const task = {
+    id: randomUUID(),
+    name: name.trim(),
+    prompt: prompt.trim(),
+    schedule,
+    presetId: presetId || null,
+    active: true,
+    createdAt: now.toISOString(),
+    lastRunAt: null,
+    lastResult: null,
+    nextRunAt: computeNextRun(schedule, now).toISOString(),
+  };
+  user.scheduledTasks = [...existing, task];
+  await saveUser(user);
+  return task;
+}
+
+export async function removeScheduledTask(userId, taskId) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.scheduledTasks = (user.scheduledTasks || []).filter((t) => t.id !== taskId);
+  await saveUser(user);
+}
+
+export async function setScheduledTaskActive(userId, taskId, active) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  const task = (user.scheduledTasks || []).find((t) => t.id === taskId);
+  if (!task) throw new Error('No such scheduled task.');
+  task.active = !!active;
+  // Re-anchor from now so flipping it back on doesn't immediately fire on a
+  // run time that already passed while it was off.
+  if (task.active) task.nextRunAt = computeNextRun(task.schedule, new Date()).toISOString();
+  await saveUser(user);
+  return task;
+}
+
+export async function recordScheduledTaskRun(userId, taskId, { lastResult, lastError }) {
+  const user = await findUserById(userId);
+  if (!user) return;
+  const task = (user.scheduledTasks || []).find((t) => t.id === taskId);
+  if (!task) return;
+  const now = new Date();
+  task.lastRunAt = now.toISOString();
+  task.lastResult = lastError ? `Error: ${lastError}` : lastResult;
+  task.nextRunAt = computeNextRun(task.schedule, now).toISOString();
+  await saveUser(user);
+  return task;
+}
+
+// Used by the scheduler tick to find due tasks across every account without
+// each caller re-implementing the "load everyone" scan.
+export async function listAllUsers() {
+  return loadUsers();
 }
 
 // API keys let a user call Neurovance from their own external apps
