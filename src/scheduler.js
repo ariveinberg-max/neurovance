@@ -5,7 +5,11 @@ import { SCHEDULE_PRESETS } from './schedule-utils.js';
 
 export { SCHEDULE_PRESETS };
 
-const TICK_INTERVAL_MS = 60 * 1000;
+// 5 minutes, not 60s — no scheduled task needs minute-level precision, and
+// every tick does a full Firestore users-collection read regardless of
+// whether anything is due. No sense polling 5x more often than the
+// coarsest schedule (daily/weekly) could ever need.
+const TICK_INTERVAL_MS = 5 * 60 * 1000;
 let ticking = false; // guards against overlapping ticks if one run takes >60s
 
 async function executeTask(user, task) {
