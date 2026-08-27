@@ -283,12 +283,16 @@ async function updateActionPopup() {
 function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
+  console.log('Neurovance: connecting to', WS_URL);
   ws = new WebSocket(WS_URL);
 
   ws.addEventListener('open', async () => {
+    console.log('Neurovance: socket open');
     const config = await loadConfig();
     if (config?.userId) {
       ws.send(JSON.stringify({ type: 'reconnect', userId: config.userId, kind: 'browser' }));
+    } else {
+      console.log('Neurovance: no saved pairing — waiting for a pair code');
     }
   });
 
@@ -307,6 +311,7 @@ function connect() {
     }
 
     if (msg.type === 'reconnect_result') {
+      console.log('Neurovance: reconnect_result', msg.ok);
       if (!msg.ok) {
         await clearConfig();
         pairedUserId = null;
@@ -339,13 +344,18 @@ function connect() {
     }
   });
 
-  ws.addEventListener('close', () => {
+  ws.addEventListener('close', (event) => {
+    console.log('Neurovance: socket closed', event.code, event.reason);
     ws = null;
     broadcastStatusChanged();
     scheduleReconnect();
   });
-  ws.addEventListener('error', () => {
-    // The close event fires right after — reconnect is scheduled there.
+  ws.addEventListener('error', (event) => {
+    // The browser deliberately hides the real reason on a WebSocket error
+    // event for security — this at least confirms one happened and that a
+    // reconnect is coming, instead of failing completely silently. The
+    // close event right after is what actually schedules the retry.
+    console.error('Neurovance: socket error', event);
   });
 }
 
@@ -357,23 +367,37 @@ function scheduleReconnect() {
   }, RECONNECT_DELAY_MS);
 }
 
+// The connection itself comes first and unconditionally — everything below
+// this is either a convenience (side panel routing) or a safety net for the
+// connection, and none of it should be able to stop the connection from
+// even being attempted if one of those calls throws (an older Chrome
+// without the Side Panel API, for instance).
+connect();
 chrome.runtime.onStartup.addListener(connect);
 chrome.runtime.onInstalled.addListener(connect);
 
-// 0.5 minutes is the shortest interval chrome.alarms allows — a safety net
-// in case the WebSocket ever gets silently dropped without a close event.
-chrome.alarms.create('keepalive', { periodInMinutes: 0.5 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'keepalive') connect();
-});
+try {
+  // 0.5 minutes is the shortest interval chrome.alarms allows — a safety
+  // net in case the WebSocket ever gets silently dropped without a close
+  // event.
+  chrome.alarms.create('keepalive', { periodInMinutes: 0.5 });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'keepalive') connect();
+  });
+} catch (e) {
+  console.error('Neurovance: keepalive alarm setup failed:', e);
+}
 
-// Clicking the toolbar icon opens the side panel straight to chat — but
-// only takes effect while no popup is registered on the action (see
-// updateActionPopup), so unpaired still gets the small pairing popup.
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+try {
+  // Clicking the toolbar icon opens the side panel straight to chat — but
+  // only takes effect while no popup is registered on the action (see
+  // updateActionPopup), so unpaired still gets the small pairing popup.
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+} catch (e) {
+  console.error('Neurovance: side panel behavior setup failed (old Chrome?):', e);
+}
 
-connect();
-updateActionPopup();
+updateActionPopup().catch((e) => console.error('Neurovance: updateActionPopup failed:', e));
 
 // ---------- Messages from the popup and the side panel ----------
 
