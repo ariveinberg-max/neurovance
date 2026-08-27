@@ -220,6 +220,41 @@ export async function setEffortLevel(userId, level) {
   return user;
 }
 
+// A single global daily cap, applied to every account — protects the app's
+// own Anthropic bill, not a per-user preference, so it's set via env var
+// (DAILY_MESSAGE_LIMIT) rather than exposed anywhere in the UI. Resets at
+// UTC midnight. 500/day is a generous default for real usage, cheap
+// insurance against a runaway loop or a compromised account.
+const DEFAULT_DAILY_LIMIT = 500;
+function dailyLimit() {
+  const envVal = parseInt(process.env.DAILY_MESSAGE_LIMIT, 10);
+  return Number.isFinite(envVal) && envVal > 0 ? envVal : DEFAULT_DAILY_LIMIT;
+}
+function todayUTC() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Called once per chat/task request, before it's allowed to run — increments
+// on success, and never lets a request through once the day's count is
+// already at the cap. A user's own account doc carries its own counter
+// (user.usage = { date, count }) rather than a separate collection, since
+// this is a simple read-modify-write with no need for atomic increments at
+// this app's actual concurrency (one person, one conversation at a time).
+export async function checkAndIncrementUsage(userId) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  const limit = dailyLimit();
+  const today = todayUTC();
+  const usage = user.usage?.date === today ? user.usage : { date: today, count: 0 };
+  if (usage.count >= limit) {
+    return { allowed: false, count: usage.count, limit };
+  }
+  usage.count += 1;
+  user.usage = usage;
+  await saveUser(user);
+  return { allowed: true, count: usage.count, limit };
+}
+
 export const PERMISSION_MODES = ['bypass', 'ask'];
 
 // Whether the Superself acts freely (including payments, sending messages,

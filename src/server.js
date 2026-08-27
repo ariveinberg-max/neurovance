@@ -971,6 +971,10 @@ async function handleRequest(req, res) {
     // awaits it rather than pretending it's instant.
     if (req.url === '/api/task' && req.method === 'POST') {
       try {
+        const usage = await auth.checkAndIncrementUsage(user.id);
+        if (!usage.allowed) {
+          return sendJson(res, 429, { error: `Daily limit reached (${usage.limit} messages) — resets at midnight UTC.` });
+        }
         const { task, history } = await readJsonBody(req);
         if (typeof task !== 'string' || !task.trim()) {
           return sendJson(res, 400, { error: 'task must be a non-empty string' });
@@ -985,6 +989,10 @@ async function handleRequest(req, res) {
 
     if (req.url === '/api/chat' && req.method === 'POST') {
       try {
+        const usage = await auth.checkAndIncrementUsage(user.id);
+        if (!usage.allowed) {
+          return sendJson(res, 429, { error: `Daily limit reached (${usage.limit} messages) — resets at midnight UTC.` });
+        }
         const { message, history } = await readJsonBody(req);
         if (typeof message !== 'string' || !message.trim()) {
           return sendJson(res, 400, { error: 'message must be a non-empty string' });
@@ -1060,6 +1068,10 @@ companion.registerAgentHooks({
     const user = await auth.findUserById(userId);
     if (!user) throw new Error('Account not found.');
     if (typeof message !== 'string' || !message.trim()) throw new Error('message must be a non-empty string');
+    // Same daily cap as /api/chat — without this, the extension's side
+    // panel would be a free way around it, since it never touches that route.
+    const usage = await auth.checkAndIncrementUsage(userId);
+    if (!usage.allowed) throw new Error(`Daily limit reached (${usage.limit} messages) — resets at midnight UTC.`);
     return await chatReply(userId, user, message.trim(), sanitizeHistory(history));
   },
   identity: async (userId) => {
