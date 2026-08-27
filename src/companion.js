@@ -24,10 +24,17 @@ import * as pendingNotes from './pending-notes.js';
 // a merge, so every write below reads the whole doc first and spreads it —
 // forgetting that would silently drop whichever kind isn't being touched.
 
-const BROWSER_ROUTABLE_ACTIONS = new Set([
+// Both native (AppleScript) and browser (extension) can do these — prefer
+// the extension when it's connected.
+const BROWSER_PREFERRED_ACTIONS = new Set([
   'open_url', 'read_safari_content', 'click_page_element',
   'type_into_page_field', 'go_back', 'list_page_elements',
 ]);
+
+// Extension-only — AppleScript has no clean way to enumerate/switch tabs,
+// so these should never silently fall back to the native connection (that
+// would just surface a confusing "unknown action" from the desktop app).
+const BROWSER_ONLY_ACTIONS = new Set(['list_open_tabs', 'switch_to_tab']);
 
 function normalizeKind(kind) {
   return kind === 'browser' ? 'browser' : 'native';
@@ -253,13 +260,25 @@ export function attach(server) {
 
 export function sendCommand(userId, action, params = {}) {
   const conns = liveConnections.get(userId) || {};
-  // Browser actions prefer the extension when it's connected — if it's
-  // installed, that's what should drive the browser, not AppleScript.
-  const ws = BROWSER_ROUTABLE_ACTIONS.has(action) ? (conns.browser || conns.native) : conns.native;
+  let ws;
+  if (BROWSER_ONLY_ACTIONS.has(action)) {
+    ws = conns.browser;
+  } else if (BROWSER_PREFERRED_ACTIONS.has(action)) {
+    // Prefer the extension when it's connected — if it's installed, that's
+    // what should drive the browser, not AppleScript.
+    ws = conns.browser || conns.native;
+  } else {
+    ws = conns.native;
+  }
   if (!ws) {
-    const message = BROWSER_ROUTABLE_ACTIONS.has(action)
-      ? 'Not connected — pair a computer or connect the browser extension first.'
-      : 'The Neurovance Companion app is not connected right now — open it on your computer.';
+    let message;
+    if (BROWSER_ONLY_ACTIONS.has(action)) {
+      message = 'Listing or switching tabs needs the Chrome extension connected — the desktop Companion can\'t do this.';
+    } else if (BROWSER_PREFERRED_ACTIONS.has(action)) {
+      message = 'Not connected — pair a computer or connect the browser extension first.';
+    } else {
+      message = 'The Neurovance Companion app is not connected right now — open it on your computer.';
+    }
     return Promise.reject(new Error(message));
   }
   const id = randomUUID();

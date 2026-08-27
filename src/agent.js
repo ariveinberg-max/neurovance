@@ -152,6 +152,28 @@ const COMPANION_LIST_ELEMENTS_TOOL = {
   input_schema: { type: 'object', properties: {} },
 };
 
+// Chrome-extension only — no AppleScript equivalent, so these silently
+// fail with a clear "needs the extension" error if only the desktop
+// Companion is connected. Every other browser action after switch_to_tab
+// acts on that tab specifically, not whatever happened to be active.
+const COMPANION_LIST_TABS_TOOL = {
+  name: 'list_open_tabs',
+  description:
+    'List every tab currently open in the user\'s Chrome — a small index, its title, and URL. Use this to find a tab you already know is open, e.g. "switch to my Gmail tab" or "go back to the page I had open", before calling switch_to_tab with that index. Chrome extension only — errors clearly if only the desktop Companion is connected.',
+  input_schema: { type: 'object', properties: {} },
+};
+
+const COMPANION_SWITCH_TAB_TOOL = {
+  name: 'switch_to_tab',
+  description:
+    'Bring an already-open tab to the front, by the index shown from list_open_tabs. Every browser action afterward (read/click/type/list/go back) then acts on THAT tab specifically, not whatever was active before — use this whenever the user refers to a tab they already have open rather than a new page. Chrome extension only.',
+  input_schema: {
+    type: 'object',
+    properties: { index: { type: 'integer', description: 'The index shown next to the tab in list_open_tabs.' } },
+    required: ['index'],
+  },
+};
+
 const COMPANION_FIND_CONTACT_TOOL = {
   name: 'find_contact',
   description:
@@ -281,7 +303,7 @@ const COMPANION_MUSIC_STATUS_TOOL = {
   },
 };
 
-const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL, COMPANION_GO_BACK_TOOL, COMPANION_LIST_ELEMENTS_TOOL, COMPANION_FIND_CONTACT_TOOL, COMPANION_SEND_MESSAGE_TOOL, COMPANION_ADD_CALENDAR_EVENT_TOOL, COMPANION_ADD_REMINDER_TOOL, COMPANION_ADD_NOTE_TOOL, COMPANION_READ_EMAILS_TOOL, COMPANION_SEND_EMAIL_TOOL, COMPANION_MUSIC_CONTROL_TOOL, COMPANION_PLAY_SONG_TOOL, COMPANION_MUSIC_STATUS_TOOL];
+const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL, COMPANION_GO_BACK_TOOL, COMPANION_LIST_ELEMENTS_TOOL, COMPANION_LIST_TABS_TOOL, COMPANION_SWITCH_TAB_TOOL, COMPANION_FIND_CONTACT_TOOL, COMPANION_SEND_MESSAGE_TOOL, COMPANION_ADD_CALENDAR_EVENT_TOOL, COMPANION_ADD_REMINDER_TOOL, COMPANION_ADD_NOTE_TOOL, COMPANION_READ_EMAILS_TOOL, COMPANION_SEND_EMAIL_TOOL, COMPANION_MUSIC_CONTROL_TOOL, COMPANION_PLAY_SONG_TOOL, COMPANION_MUSIC_STATUS_TOOL];
 // Derived from the tool list itself, not hand-maintained separately — a
 // tool added to ALL_COMPANION_TOOLS above without also being added to a
 // second hardcoded name list here is exactly how read_current_browser_page
@@ -344,6 +366,14 @@ async function handleCompanionTool(userId, toolUse) {
   if (toolUse.name === 'list_page_elements') {
     const result = await companion.sendCommand(userId, 'list_page_elements', { browser });
     return JSON.stringify(result.elements);
+  }
+  if (toolUse.name === 'list_open_tabs') {
+    const result = await companion.sendCommand(userId, 'list_open_tabs', {});
+    return JSON.stringify(result.tabs);
+  }
+  if (toolUse.name === 'switch_to_tab') {
+    const result = await companion.sendCommand(userId, 'switch_to_tab', { index: toolUse.input.index });
+    return `Switched to: ${result.switched}`;
   }
   if (toolUse.name === 'find_contact') {
     const result = await companion.sendCommand(userId, 'find_contact', { query: toolUse.input.query });
@@ -472,7 +502,7 @@ async function buildTaskSystemPrompt(userId, user, task) {
     hasCompanion
       ? [
           'This user has paired a Companion app on their own computer. You can list_local_files and read_local_file, but ONLY inside one folder they explicitly chose to share — you have no access to anything else on their computer, and cannot write or delete anything there.',
-          'In their real browser (Safari or Chrome, whichever they\'ve set in Settings) you can: open_url_in_browser, read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks (always reads Safari\'s own bookmarks specifically, regardless of their browser setting), click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). Use these freely for ordinary browsing — navigating, searching, filling in lookup forms, following links, clicking through a page. Do not ask permission first for that kind of thing; just go do it and report back.',
+          'In their real browser (Safari or Chrome, whichever they\'ve set in Settings) you can: open_url_in_browser (always opens a new tab, never replaces one they\'re already looking at), read_current_browser_page (only after they have loaded/logged into it themselves), read_safari_bookmarks (always reads Safari\'s own bookmarks specifically, regardless of their browser setting), click_page_element (click a link/button by its visible text), type_into_page_field (type into a field by its label, optionally submit:true to press Enter), go_back_in_browser, and list_page_elements (lists every clickable thing with its text and real on-screen position — use this to resolve a vague reference like "the red one" or "the one on top" to an exact element before clicking it). If they\'ve connected the Chrome extension, you also have list_open_tabs and switch_to_tab (by the index list_open_tabs shows) — use these whenever they refer to a tab they already have open ("switch to my Gmail tab", "go back to the page I had") instead of opening it fresh; after switching, every other browser action acts on that tab specifically. Use all of this freely for ordinary browsing — navigating, searching, filling in lookup forms, following links, clicking through a page, switching between open tabs. Do not ask permission first for that kind of thing; just go do it and report back.',
           'You can also use find_contact to search their real Contacts app by name (read-only, free to use anytime), send_text_message to send a real iMessage from their own Messages app (recipients is a list — pass more than one to message several people the same text), add_calendar_event to add a real event to their calendar, add_reminder to add a real reminder, and add_note to add a real note — the last three are their own data, no confirmation needed, just do them. You can also read_recent_emails (read-only, free) and send_email — send_email reaches someone else, so it follows the exact same confirm-first rule as send_text_message: state who and what, then wait for their go-ahead.',
           'You can also control their own Music app: music_control (play/pause/next/previous), play_song to search their library by song or artist name and play the first match, and music_status to see what is currently playing. All three are their own local playback, reach nobody else, and need no confirmation — just do them.',
           'The one hard line: before you complete an actual payment/purchase, before you call send_text_message for any reason, or before you click something that deletes/cancels/removes an account or their data — STOP. Say exactly what you are about to do — who you would message and what you would say, or what you would buy or delete — then end your turn and wait for their next message to actually confirm it before doing it. Do not do it in the same turn you proposed it in. find_contact itself needs no confirmation, only the actual send.',
@@ -552,7 +582,7 @@ async function buildChatSystemPrompt(userId, user, message) {
     'Use the remember tool if they tell you something new worth keeping. Do not narrate that you are doing so.',
     hasCompanion
       ? [
-          'They have a Companion paired, so mid-conversation you can actually drive their real browser (Safari or Chrome, whichever they\'ve set in Settings): open_url_in_browser, click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks (always Safari\'s own bookmarks specifically, regardless of their browser setting). If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, send_text_message to send a real iMessage (recipients is a list, so more than one person can get the same text), add_calendar_event / add_reminder / add_note to actually add real things to their calendar, reminders, and notes (their own data, no confirmation needed), and read_recent_emails / send_email for their real inbox — send_email needs the same out-loud confirmation as a message, read_recent_emails does not. You can also control their real Music app mid-conversation: music_control to play/pause/skip, play_song to play something by name, music_status to say what is currently playing — all their own playback, no confirmation needed.',
+          'They have a Companion paired, so mid-conversation you can actually drive their real browser (Safari or Chrome, whichever they\'ve set in Settings): open_url_in_browser (always a new tab), click_page_element, type_into_page_field, go_back_in_browser, list_page_elements (use this to resolve something vague like "the red one" or "the one on top" to an exact element before clicking), read_current_browser_page, and read_safari_bookmarks (always Safari\'s own bookmarks specifically, regardless of their browser setting). With the Chrome extension connected, also list_open_tabs and switch_to_tab — use these when they mean a tab they already have open, not a fresh page. If they say something like "go back" while browsing, that means go back in the browser, not end the conversation. You can also use find_contact to look someone up in their real Contacts by name, send_text_message to send a real iMessage (recipients is a list, so more than one person can get the same text), add_calendar_event / add_reminder / add_note to actually add real things to their calendar, reminders, and notes (their own data, no confirmation needed), and read_recent_emails / send_email for their real inbox — send_email needs the same out-loud confirmation as a message, read_recent_emails does not. You can also control their real Music app mid-conversation: music_control to play/pause/skip, play_song to play something by name, music_status to say what is currently playing — all their own playback, no confirmation needed.',
           'Same hard line as always: before an actual payment/purchase, before send_text_message for any reason, or before deleting/canceling/removing something — say what you are about to do in one short sentence (who you would message and what you would say, if it is a message) and wait for them to actually say to go ahead, out loud, before you do it. find_contact itself needs no confirmation. Everything else about ordinary browsing (navigating, clicking around, adding something to a cart) — just do it, no need to ask first.',
           'Their Companion may be on macOS or Windows — Windows has no iMessage or Music.app, and page interactions like clicking/typing/listing elements are not built for Windows yet. A tool call that comes back saying something is not available just means their setup does not support it — say so plainly, do not retry it.',
           'If a browser tool call errors, say so plainly in one short sentence — never guess that something worked or describe results you have not actually confirmed with a tool.',

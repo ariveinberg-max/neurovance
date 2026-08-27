@@ -108,6 +108,48 @@ async function activeTab() {
   return tab || null;
 }
 
+// chrome.scripting.executeScript throws an opaque internal error on
+// chrome://, the Web Store, PDFs, and other non-http(s) pages — Chrome
+// blocks script injection there outright. Catching it up front turns that
+// into something the model (and the user) can actually act on, instead of
+// a raw "Cannot access contents of..." string.
+function assertScriptable(tab) {
+  if (!/^https?:\/\//.test(tab.url || '')) {
+    throw new Error('That tab isn\'t a regular webpage — it looks like a browser-internal page, a PDF, or an extension page, and Chrome doesn\'t allow scripts to run there.');
+  }
+}
+
+// Which tab browser actions act on, once one has been established (by
+// opening a URL or explicitly switching) — without this, every action just
+// grabbed "whatever tab is active right now", which silently broke the
+// moment the user glanced back at their Neurovance tab between two actions
+// in the same task: a click meant for the page just opened would land on
+// the chat instead. Falls back to whatever's actually active only when
+// nothing has been established yet this session.
+let workingTabId = null;
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (workingTabId === tabId) workingTabId = null;
+});
+
+async function targetTab() {
+  if (workingTabId !== null) {
+    try {
+      return await chrome.tabs.get(workingTabId);
+    } catch {
+      workingTabId = null;
+    }
+  }
+  const tab = await activeTab();
+  if (tab) workingTabId = tab.id;
+  return tab;
+}
+
+// Cached from the last list_open_tabs call so switch_to_tab can take a
+// small, stable index instead of Chrome's own opaque tab id — same pattern
+// as list_page_elements/click_page_element (list once, act by position).
+let lastTabList = [];
+
 // ---------- Command dispatch — same action names the Node Companion uses
 // over the wire, and the same result shapes agent.js already expects
 // (result.opened / result.url+title+text / result.result / result.elements),
@@ -124,26 +166,29 @@ async function handleCommand(action, params) {
     // just matches that.
     const tab = await chrome.tabs.create({ url });
     await chrome.windows.update(tab.windowId, { focused: true });
+    workingTabId = tab.id;
     return { opened: url };
   }
 
   if (action === 'go_back') {
-    const tab = await activeTab();
+    const tab = await targetTab();
     if (!tab) throw new Error('No active tab.');
     await chrome.tabs.goBack(tab.id);
     return { result: 'OK' };
   }
 
   if (action === 'read_safari_content') {
-    const tab = await activeTab();
+    const tab = await targetTab();
     if (!tab) throw new Error('No active tab open.');
+    assertScriptable(tab);
     const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readPageText });
     return { url: tab.url, title: tab.title, text: (result || '').slice(0, 8000) };
   }
 
   if (action === 'click_page_element') {
-    const tab = await activeTab();
+    const tab = await targetTab();
     if (!tab) throw new Error('No active tab open.');
+    assertScriptable(tab);
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id }, func: clickElementByText, args: [params.text || ''],
     });
@@ -152,8 +197,9 @@ async function handleCommand(action, params) {
   }
 
   if (action === 'type_into_page_field') {
-    const tab = await activeTab();
+    const tab = await targetTab();
     if (!tab) throw new Error('No active tab open.');
+    assertScriptable(tab);
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id }, func: typeIntoFieldByLabel, args: [params.label || '', params.text ?? '', !!params.submit],
     });
@@ -163,10 +209,30 @@ async function handleCommand(action, params) {
   }
 
   if (action === 'list_page_elements') {
-    const tab = await activeTab();
+    const tab = await targetTab();
     if (!tab) throw new Error('No active tab open.');
+    assertScriptable(tab);
     const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: listClickableElements });
     return { elements: result };
+  }
+
+  // Genuine Chrome-extension-only capability — AppleScript never exposed a
+  // clean way to enumerate/switch tabs, so this has no native equivalent.
+  if (action === 'list_open_tabs') {
+    const tabs = await chrome.tabs.query({});
+    lastTabList = tabs;
+    return { tabs: tabs.map((t, i) => ({ index: i + 1, title: t.title, url: t.url, active: t.active })) };
+  }
+
+  if (action === 'switch_to_tab') {
+    const cached = lastTabList[(params.index || 0) - 1];
+    if (!cached) throw new Error(`No tab at index ${params.index} — call list_open_tabs again first.`);
+    const tab = await chrome.tabs.get(cached.id).catch(() => null);
+    if (!tab) throw new Error('That tab was closed — call list_open_tabs again.');
+    await chrome.tabs.update(tab.id, { active: true });
+    await chrome.windows.update(tab.windowId, { focused: true });
+    workingTabId = tab.id;
+    return { switched: tab.title || tab.url };
   }
 
   throw new Error(`"${action}" isn't supported by the Chrome extension yet.`);
