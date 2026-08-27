@@ -11,6 +11,7 @@ import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
 import * as companion from './companion.js';
 import * as connections from './connections.js';
+import * as connectors from './connectors.js';
 import { getAllDocs, setDoc } from './db.js';
 import { sendVerificationCode, sendWaitlistNotification, sendBroadcast } from './mailer.js';
 import * as billing from './stripe.js';
@@ -712,6 +713,70 @@ async function handleRequest(req, res) {
         }
         await auth.setEffortLevel(user.id, level);
         return sendJson(res, 200, { ok: true, level });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Skills — custom instructions a user writes and saves for
+    // their own Superself, injected into its system prompt. ----------
+
+    if (req.url === '/api/skills' && req.method === 'GET') {
+      try {
+        const skills = await auth.listSkills(user.id);
+        return sendJson(res, 200, { ok: true, skills });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/skills' && req.method === 'POST') {
+      try {
+        const { name, instructions } = await readJsonBody(req);
+        const skill = await auth.addSkill(user.id, { name, instructions });
+        return sendJson(res, 200, { ok: true, skill });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/skills/remove' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        await auth.removeSkill(user.id, id);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Connectors — external MCP servers a user points their
+    // Superself at; its tools become the agent's tools mid-conversation. ----------
+
+    if (req.url === '/api/connectors' && req.method === 'GET') {
+      try {
+        const list = await connectors.listConnectors(user.id);
+        return sendJson(res, 200, { ok: true, connectors: list });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/connectors' && req.method === 'POST') {
+      try {
+        const { name, url, authToken } = await readJsonBody(req);
+        const connector = await connectors.addConnector(user.id, { name, url, authToken });
+        return sendJson(res, 200, { ok: true, connector });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/connectors/remove' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        await connectors.removeConnector(user.id, id);
+        return sendJson(res, 200, { ok: true });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }

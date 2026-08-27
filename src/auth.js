@@ -594,3 +594,40 @@ export async function destroySession(token) {
   if (!token) return;
   await deleteSessionRecord(token);
 }
+
+// A skill is custom instructions a user writes and saves for their own
+// Superself — a reusable persona/behavior fragment, injected into the
+// system prompt alongside everything else. No code execution, no new
+// network access (that's what a connector is for) — just text the agent
+// follows, the same trust level as anything else already in the prompt.
+const MAX_SKILLS_PER_USER = 10;
+const MAX_SKILL_NAME_LENGTH = 60;
+const MAX_SKILL_INSTRUCTIONS_LENGTH = 2000;
+
+export async function listSkills(userId) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  return user.skills || [];
+}
+
+export async function addSkill(userId, { name, instructions }) {
+  if (!name?.trim()) throw new Error('Give the skill a name.');
+  if (!instructions?.trim()) throw new Error('Give the skill some instructions.');
+  if (name.trim().length > MAX_SKILL_NAME_LENGTH) throw new Error(`Name must be under ${MAX_SKILL_NAME_LENGTH} characters.`);
+  if (instructions.trim().length > MAX_SKILL_INSTRUCTIONS_LENGTH) throw new Error(`Instructions must be under ${MAX_SKILL_INSTRUCTIONS_LENGTH} characters.`);
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  const existing = user.skills || [];
+  if (existing.length >= MAX_SKILLS_PER_USER) throw new Error(`You can have up to ${MAX_SKILLS_PER_USER} skills at a time.`);
+  const skill = { id: randomUUID(), name: name.trim(), instructions: instructions.trim(), createdAt: new Date().toISOString() };
+  user.skills = [...existing, skill];
+  await saveUser(user);
+  return skill;
+}
+
+export async function removeSkill(userId, skillId) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.skills = (user.skills || []).filter((s) => s.id !== skillId);
+  await saveUser(user);
+}

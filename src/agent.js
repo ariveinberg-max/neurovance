@@ -3,7 +3,8 @@ import { remember, recall, recentMemories, coreMemories, allMemories, findMemory
 import { computeVitals } from './vitals.js';
 import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
-import { findUserById } from './auth.js';
+import { findUserById, listSkills } from './auth.js';
+import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
@@ -503,6 +504,15 @@ async function memoryContext(userId, query) {
     .join('\n');
 }
 
+// User-written custom instructions, saved in Settings — plain text the
+// model follows, same trust level as anything else in the prompt (no code
+// execution, no new capability — that's what a connector is for).
+function skillsLine(skills) {
+  if (!skills || skills.length === 0) return '';
+  const list = skills.map((s) => `- ${s.name}: ${s.instructions}`).join('\n');
+  return `They've saved these custom skills. Actually follow them — these are explicit instructions they wrote for you, not optional flavor to weigh against your default behavior:\n${list}`;
+}
+
 // Governs confirmation behavior globally, replacing the scattered "no
 // confirmation needed" qualifiers that used to live on individual tool
 // descriptions — one clear directive instead of the model having to
@@ -526,9 +536,10 @@ function languageLine(user) {
 }
 
 async function buildTaskSystemPrompt(userId, user, task) {
-  const [memoryLines, hasCompanion] = await Promise.all([
+  const [memoryLines, hasCompanion, skills] = await Promise.all([
     memoryContext(userId, task),
     companion.isPaired(userId),
+    listSkills(userId),
   ]);
   return [
     `You are "${user?.aiName || 'this user\'s Superself'}" — ${user?.displayName || 'their'} own AI self, working through a task on your own, not a generic assistant.`,
@@ -542,6 +553,7 @@ async function buildTaskSystemPrompt(userId, user, task) {
     'Use the search_web tool when a task needs a fact or topic you are not confident about.',
     'Do not remember trivial or one-off details — only durable facts, preferences, or lessons.',
     languageLine(user),
+    skillsLine(skills),
     hasCompanion
       ? [
           permissionModeLine(user),
@@ -590,11 +602,12 @@ function vitalsPushbackLine(status, health) {
 // and talks like an actual person feeling that way — not a system
 // reporting its status. `user` is { displayName, aiName, advisorMode } from auth.js.
 async function buildChatSystemPrompt(userId, user, message) {
-  const [memoryLines, memories, unseen, hasCompanion] = await Promise.all([
+  const [memoryLines, memories, unseen, hasCompanion, skills] = await Promise.all([
     memoryContext(userId, message),
     allMemories(userId),
     pendingNotes.unseenNotes(userId),
     companion.isPaired(userId),
+    listSkills(userId),
   ]);
   const { bpm, health, status, mood } = computeVitals(memories);
   const pushback = vitalsPushbackLine(status, health);
@@ -624,6 +637,7 @@ async function buildChatSystemPrompt(userId, user, message) {
       : 'React like a real person would: have actual reactions to what they say — get excited, push back, joke around, worry — instead of just being agreeable and helpful. You are allowed to have moods and imperfections.',
     'Use the remember tool if they tell you something new worth keeping. Do not narrate that you are doing so.',
     languageLine(user),
+    skillsLine(skills),
     hasCompanion
       ? [
           permissionModeLine(user, { voice: true }),
@@ -679,6 +693,14 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
           return { type: 'tool_result', tool_use_id: toolUse.id, content: e.message, is_error: true };
         }
       }
+      if (isConnectorToolName(toolUse.name)) {
+        try {
+          const result = await invokeConnectorTool(userId, toolUse.name, toolUse.input);
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: result };
+        } catch (e) {
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: e.message, is_error: true };
+        }
+      }
       return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Unknown tool.', is_error: true };
     }));
 
@@ -687,11 +709,12 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
 }
 
 export async function runTask(userId, user, task, history = []) {
-  const [extraTools, system] = await Promise.all([
+  const [extraTools, connectorTools, system] = await Promise.all([
     companionTools(userId),
+    discoverAllConnectorTools(userId),
     buildTaskSystemPrompt(userId, user, task),
   ]);
-  const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools];
+  const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools, ...connectorTools];
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 1024);
   return runLoop(userId, system, task, tools, maxTokens, resolveModel(user?.model), history, thinking);
 }
@@ -855,10 +878,11 @@ export async function correctMemory(userId, memoryId, correctionText) {
 // token cap is padding for tool_use calls in between, not an invite to
 // write a longer final answer.
 export async function chatReply(userId, user, message, history = []) {
-  const [system, extraTools] = await Promise.all([
+  const [system, extraTools, connectorTools] = await Promise.all([
     buildChatSystemPrompt(userId, user, message),
     companionTools(userId),
+    discoverAllConnectorTools(userId),
   ]);
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 400);
-  return runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools], maxTokens, resolveModel(user?.model), history, thinking);
+  return runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools, ...connectorTools], maxTokens, resolveModel(user?.model), history, thinking);
 }

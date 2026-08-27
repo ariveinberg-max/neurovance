@@ -475,6 +475,17 @@
   .settings-save-btn:disabled { opacity: 0.5; cursor: default; }
   .settings-field-status { font-size: 10.5px; color: var(--text-muted); margin-top: 6px; min-height: 13px; }
   .settings-field-status.error { color: var(--accent-red); }
+  .list-items { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .list-item-row {
+    display: flex; align-items: center; gap: 8px; background: rgba(var(--overlay-rgb),0.04);
+    border: 1px solid rgba(var(--overlay-rgb),0.1); border-radius: 4px; padding: 6px 9px;
+  }
+  .list-item-name { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list-item-remove {
+    flex-shrink: 0; background: none; border: none; color: var(--text-faint); cursor: pointer;
+    font-size: 13px; padding: 0 2px; line-height: 1; transition: color 0.2s ease;
+  }
+  .list-item-remove:hover { color: var(--accent-red); }
   .settings-field-status.success { color: var(--accent-green); }
   #settings-email-current { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
   #settings-email-change-trigger {
@@ -940,6 +951,25 @@
       <input id="settings-new-password-input" class="settings-input" type="password" placeholder="New password" style="margin-top:8px;" />
       <button class="settings-save-btn" id="settings-password-save" style="margin-top:10px;">Change password</button>
       <div class="settings-field-status" id="settings-password-status"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">Skills</div>
+      <div class="list-items" id="skills-list"></div>
+      <input id="skill-name-input" class="settings-input" type="text" placeholder="Skill name" maxlength="60" />
+      <textarea id="skill-instructions-input" class="settings-input" placeholder="What should it do?" rows="2" maxlength="2000" style="margin-top:6px; resize:vertical;"></textarea>
+      <button class="settings-save-btn" id="skill-add-btn" style="margin-top:8px;">Add skill</button>
+      <div class="settings-field-status" id="skill-status"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">Connectors</div>
+      <div class="list-items" id="connectors-list"></div>
+      <input id="connector-name-input" class="settings-input" type="text" placeholder="Connector name" maxlength="60" />
+      <input id="connector-url-input" class="settings-input" type="text" placeholder="https://..." style="margin-top:6px;" />
+      <input id="connector-token-input" class="settings-input" type="password" placeholder="Auth token (optional)" style="margin-top:6px;" />
+      <button class="settings-save-btn" id="connector-add-btn" style="margin-top:8px;">Add connector</button>
+      <div class="settings-field-status" id="connector-status"></div>
     </div>
   </div>
 </div>
@@ -2788,6 +2818,125 @@ function initSettings() {
     currentPasswordInput.value = '';
     newPasswordInput.value = '';
     setFieldStatus(passwordStatus, 'Password changed.', false);
+  });
+
+  // ---------- Skills: custom instructions the user writes and saves ----------
+
+  const skillsListEl = document.getElementById('skills-list');
+  const skillNameInput = document.getElementById('skill-name-input');
+  const skillInstructionsInput = document.getElementById('skill-instructions-input');
+  const skillAddBtn = document.getElementById('skill-add-btn');
+  const skillStatus = document.getElementById('skill-status');
+
+  async function refreshSkills() {
+    const res = await fetch('/api/skills', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const { skills } = await res.json();
+    skillsListEl.innerHTML = '';
+    for (const skill of skills) {
+      const row = document.createElement('div');
+      row.className = 'list-item-row';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'list-item-name';
+      nameEl.textContent = skill.name;
+      nameEl.title = skill.instructions;
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'list-item-remove';
+      removeBtn.textContent = '✕';
+      removeBtn.addEventListener('click', async () => {
+        await fetch('/api/skills/remove', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: skill.id }),
+        });
+        refreshSkills();
+      });
+      row.appendChild(nameEl);
+      row.appendChild(removeBtn);
+      skillsListEl.appendChild(row);
+    }
+  }
+  refreshSkills();
+
+  skillAddBtn.addEventListener('click', async () => {
+    const name = skillNameInput.value.trim();
+    const instructions = skillInstructionsInput.value.trim();
+    if (!name || !instructions) return setFieldStatus(skillStatus, 'Give it a name and instructions.', true);
+    skillAddBtn.disabled = true;
+    const res = await fetch('/api/skills', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, instructions }),
+    });
+    const data = await res.json();
+    skillAddBtn.disabled = false;
+    if (!res.ok) return setFieldStatus(skillStatus, data.error, true);
+    skillNameInput.value = '';
+    skillInstructionsInput.value = '';
+    setFieldStatus(skillStatus, 'Skill added.', false);
+    refreshSkills();
+  });
+
+  // ---------- Connectors: external MCP servers the user points their
+  // Superself at — its tools become the agent's tools mid-conversation. ----------
+
+  const connectorsListEl = document.getElementById('connectors-list');
+  const connectorNameInput = document.getElementById('connector-name-input');
+  const connectorUrlInput = document.getElementById('connector-url-input');
+  const connectorTokenInput = document.getElementById('connector-token-input');
+  const connectorAddBtn = document.getElementById('connector-add-btn');
+  const connectorStatus = document.getElementById('connector-status');
+
+  async function refreshConnectors() {
+    const res = await fetch('/api/connectors', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const { connectors } = await res.json();
+    connectorsListEl.innerHTML = '';
+    for (const conn of connectors) {
+      const row = document.createElement('div');
+      row.className = 'list-item-row';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'list-item-name';
+      nameEl.textContent = conn.name;
+      nameEl.title = conn.url;
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'list-item-remove';
+      removeBtn.textContent = '✕';
+      removeBtn.addEventListener('click', async () => {
+        await fetch('/api/connectors/remove', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: conn.id }),
+        });
+        refreshConnectors();
+      });
+      row.appendChild(nameEl);
+      row.appendChild(removeBtn);
+      connectorsListEl.appendChild(row);
+    }
+  }
+  refreshConnectors();
+
+  connectorAddBtn.addEventListener('click', async () => {
+    const name = connectorNameInput.value.trim();
+    const url = connectorUrlInput.value.trim();
+    const authToken = connectorTokenInput.value.trim();
+    if (!name || !url) return setFieldStatus(connectorStatus, 'Give it a name and a URL.', true);
+    connectorAddBtn.disabled = true;
+    setFieldStatus(connectorStatus, 'Connecting…', false);
+    const res = await fetch('/api/connectors', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, url, authToken }),
+    });
+    const data = await res.json();
+    connectorAddBtn.disabled = false;
+    if (!res.ok) return setFieldStatus(connectorStatus, data.error, true);
+    connectorNameInput.value = '';
+    connectorUrlInput.value = '';
+    connectorTokenInput.value = '';
+    setFieldStatus(connectorStatus, `Connected — ${data.connector.toolCount} tool${data.connector.toolCount === 1 ? '' : 's'} found.`, false);
+    refreshConnectors();
   });
 }
 
