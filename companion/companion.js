@@ -28,6 +28,16 @@
 // bigger piece of work. Both of these report they're unavailable rather
 // than silently doing nothing.
 //
+// On either platform, this can also run a real shell command — full reach,
+// not boxed into the one folder the file tools above are. That's exactly
+// why it's gated differently from everything else here: every command
+// prints to this terminal and waits for a literal "y" typed right here
+// before it runs, regardless of what the user's permission mode is set to
+// server-side, and it's the one action a scheduled/unattended run can never
+// reach at all (enforced server-side, by simply never handing that tool to
+// an unattended run — see agent.js). No prompt-injected webpage or 3am cron
+// job can act unattended just because it asked nicely.
+//
 // On either platform, this only ever runs when your own paired Superself
 // asks. Sending a message or an email only ever happens after you've
 // confirmed you actually want it sent (enforced by the Superself's own
@@ -35,18 +45,19 @@
 // reading your inbox, controlling your own Music playback, and adding to
 // your own calendar/reminders/notes doesn't need that since none of it
 // reaches anyone but you.
-// What it can't do: touch anything outside that one folder, write or delete
-// a local file, run arbitrary commands, edit/add/remove a contact, or type
-// into a password field — that last one is refused unconditionally right
-// here, no matter what it's asked to do. Reading a page only ever sees
-// what you already loaded yourself. These boundaries are enforced right
-// here, not on the server — the server only ever sees what this file lets it see.
+// What it can't do: touch anything outside that one folder when just
+// reading/listing files, write or delete a file through that read-only
+// path, edit/add/remove a contact, or type into a password field — that
+// last one is refused unconditionally right here, no matter what it's
+// asked to do. Reading a page only ever sees what you already loaded
+// yourself. These boundaries are enforced right here, not on the server —
+// the server only ever sees what this file lets it see.
 import WebSocket from 'ws';
 import { createInterface } from 'readline';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, watch } from 'fs';
 import { homedir, hostname } from 'os';
 import { join, resolve, sep } from 'path';
-import { execFile } from 'child_process';
+import { execFile, exec } from 'child_process';
 
 const { version: PKG_VERSION } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
 
@@ -74,6 +85,44 @@ const CONFIG_PATH = join(CONFIG_DIR, 'companion-config.json');
 const ALLOWED_ROOT = join(homedir(), 'Documents', 'Neurovance');
 const SERVER_WS_URL = process.env.NEUROVANCE_WS_URL || 'wss://app.neurovance.dev/companion-ws';
 const MAX_READ_BYTES = 200_000;
+const SHELL_TIMEOUT_MS = 120_000;
+const MAX_SHELL_OUTPUT_BYTES = 100_000;
+
+// Real shell access, on request, on this whole machine — not sandboxed to
+// ALLOWED_ROOT like the file tools above. That reach is exactly why every
+// command stops here for a live yes/no in this terminal before it runs,
+// unconditionally — not gated by permission mode like everything else, and
+// never reachable from an unattended scheduled run (the server-side agent
+// enforces that half; this prompt is what enforces the other half: no
+// command from this computer's owner ever executes without them physically
+// seeing it and typing y first, whether it was proposed by their own
+// request or by something the AI read on a page).
+function confirmShellCommand(command, cwd) {
+  return new Promise((resolve) => {
+    console.log('');
+    console.log(bold('Your Superself wants to run a command on this computer:'));
+    console.log(`  ${green('$')} ${command}`);
+    if (cwd) console.log(dim(`  in ${cwd}`));
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question('Run this? [y/N] ', (answer) => {
+      rl.close();
+      resolve(['y', 'yes'].includes(answer.trim().toLowerCase()));
+    });
+  });
+}
+
+function runShellCommand(command, cwd) {
+  return new Promise((resolvePromise) => {
+    exec(command, { cwd: cwd || homedir(), timeout: SHELL_TIMEOUT_MS, maxBuffer: MAX_SHELL_OUTPUT_BYTES }, (error, stdout, stderr) => {
+      resolvePromise({
+        exitCode: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
+        stdout: (stdout || '').slice(0, MAX_SHELL_OUTPUT_BYTES),
+        stderr: (stderr || '').slice(0, MAX_SHELL_OUTPUT_BYTES),
+        timedOut: !!(error && error.killed && error.signal === 'SIGTERM'),
+      });
+    });
+  });
+}
 
 function loadConfig() {
   if (!existsSync(CONFIG_PATH)) return null;
@@ -83,6 +132,45 @@ function loadConfig() {
 function saveConfig(config) {
   if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+}
+
+// The coding feature stays off until the user deliberately points it at a
+// folder — the same "open a project folder before anything happens" model
+// Claude Code itself uses, rather than a background process quietly having
+// full-machine reach the moment it's paired. Asked once, lazily, the first
+// time a command actually needs it; saved from then on. This is a
+// deliberate-setup gate, not a security sandbox — commands still run with
+// the same full-machine reach once set up (that part is real shell access,
+// unrestricted, per how this feature was scoped); the folder is only the
+// default working directory and the thing that makes turning this on an
+// intentional act instead of a silent default.
+function expandHome(p) {
+  return p.startsWith('~') ? join(homedir(), p.slice(1)) : p;
+}
+
+function ensureCodingFolder() {
+  const config = loadConfig() || {};
+  if (config.codingFolder && existsSync(config.codingFolder)) return Promise.resolve(config.codingFolder);
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    console.log('');
+    console.log(bold('Your Superself wants to run code on this computer for the first time.'));
+    console.log(dim('Pick a folder for it to work in — like opening a project folder in an editor.'));
+    console.log(dim('It\'ll be created if it doesn\'t exist yet. This only happens once.'));
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(`Folder path (default ${ALLOWED_ROOT}): `, (answer) => {
+      rl.close();
+      const chosen = resolve(expandHome(answer.trim() || ALLOWED_ROOT));
+      try {
+        if (!existsSync(chosen)) mkdirSync(chosen, { recursive: true });
+        saveConfig({ ...config, codingFolder: chosen });
+        console.log(green(`Set up. Commands will default to running in: ${chosen}`));
+        resolvePromise(chosen);
+      } catch (e) {
+        rejectPromise(new Error(`Could not set up that folder: ${e.message}`));
+      }
+    });
+  });
 }
 
 function ensureAllowedRoot() {
@@ -909,6 +997,21 @@ function handleCommand(action, params) {
         } catch (e) {
           rej(new Error('Could not parse Safari bookmarks: ' + e.message));
         }
+      });
+    });
+  }
+
+  // Real shell exec on this whole machine — see confirmShellCommand above
+  // for why this is the one action that always stops for a live prompt
+  // right here, no matter what permission mode is set to.
+  if (action === 'run_shell_command') {
+    const command = params.command;
+    if (typeof command !== 'string' || !command.trim()) throw new Error('No command given.');
+    return ensureCodingFolder().then((codingFolder) => {
+      const cwd = params.cwd ? resolve(params.cwd) : codingFolder;
+      return confirmShellCommand(command, cwd).then((approved) => {
+        if (!approved) throw new Error('Declined — the command was not run.');
+        return runShellCommand(command, cwd);
       });
     });
   }

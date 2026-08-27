@@ -324,15 +324,35 @@ const COMPANION_MUSIC_STATUS_TOOL = {
   },
 };
 
-const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL, COMPANION_GO_BACK_TOOL, COMPANION_LIST_ELEMENTS_TOOL, COMPANION_LIST_TABS_TOOL, COMPANION_SWITCH_TAB_TOOL, COMPANION_FIND_CONTACT_TOOL, COMPANION_SEND_MESSAGE_TOOL, COMPANION_ADD_CALENDAR_EVENT_TOOL, COMPANION_ADD_REMINDER_TOOL, COMPANION_ADD_NOTE_TOOL, COMPANION_READ_EMAILS_TOOL, COMPANION_SEND_EMAIL_TOOL, COMPANION_MUSIC_CONTROL_TOOL, COMPANION_PLAY_SONG_TOOL, COMPANION_MUSIC_STATUS_TOOL];
+const COMPANION_RUN_SHELL_TOOL = {
+  name: 'run_shell_command',
+  description:
+    'Run a real shell command on the user\'s own computer — full machine access once set up, not limited to one folder. Powerful: it can install packages, run scripts, move or delete files, anything a real terminal can do. The very first time this is ever used, the Companion will ask them, right there in their terminal, to pick a folder for it to work in — like opening a project folder in an editor — before anything runs; every call after that reuses the folder they picked. You do NOT need to get the user\'s go-ahead in chat first — before anything runs (including that first-time folder setup), the Companion shows them exactly what\'s happening on their own screen and waits for them to personally approve it right there, every single time, with no exceptions and regardless of their permission mode setting. If they decline, this returns a "Declined" error — tell them plainly and don\'t retry the same command without them asking you to.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      command: { type: 'string', description: 'The exact shell command to run, e.g. "npm install express" or "python3 script.py".' },
+      cwd: { type: 'string', description: 'Optional absolute path to run it in. Defaults to the coding folder they set up on first use.' },
+    },
+    required: ['command'],
+  },
+};
+
+const ALL_COMPANION_TOOLS = [COMPANION_LIST_FILES_TOOL, COMPANION_READ_FILE_TOOL, COMPANION_OPEN_URL_TOOL, COMPANION_READ_BROWSER_TOOL, COMPANION_READ_BOOKMARKS_TOOL, COMPANION_CLICK_TOOL, COMPANION_TYPE_TOOL, COMPANION_GO_BACK_TOOL, COMPANION_LIST_ELEMENTS_TOOL, COMPANION_LIST_TABS_TOOL, COMPANION_SWITCH_TAB_TOOL, COMPANION_FIND_CONTACT_TOOL, COMPANION_SEND_MESSAGE_TOOL, COMPANION_ADD_CALENDAR_EVENT_TOOL, COMPANION_ADD_REMINDER_TOOL, COMPANION_ADD_NOTE_TOOL, COMPANION_READ_EMAILS_TOOL, COMPANION_SEND_EMAIL_TOOL, COMPANION_MUSIC_CONTROL_TOOL, COMPANION_PLAY_SONG_TOOL, COMPANION_MUSIC_STATUS_TOOL, COMPANION_RUN_SHELL_TOOL];
 // Derived from the tool list itself, not hand-maintained separately — a
 // tool added to ALL_COMPANION_TOOLS above without also being added to a
 // second hardcoded name list here is exactly how read_current_browser_page
 // silently never worked: offered to the model, but never actually dispatched.
 const COMPANION_TOOL_NAMES = ALL_COMPANION_TOOLS.map((t) => t.name);
 
-async function companionTools(userId) {
-  return (await companion.isPaired(userId)) ? ALL_COMPANION_TOOLS : [];
+// run_shell_command is withheld outright from an unattended run — not just
+// told not to use it, the way permission mode is a written instruction the
+// model follows. A prompt-injected page or a scheduled 3am run can't call a
+// tool that was never handed to it in the first place. The terminal-side
+// confirm in companion.js is the other half of this same guarantee.
+async function companionTools(userId, opts = {}) {
+  if (!(await companion.isPaired(userId))) return [];
+  return opts.unattended ? ALL_COMPANION_TOOLS.filter((t) => t.name !== 'run_shell_command') : ALL_COMPANION_TOOLS;
 }
 
 async function handleCompanionTool(userId, toolUse) {
@@ -454,6 +474,13 @@ async function handleCompanionTool(userId, toolUse) {
     const result = await companion.sendCommand(userId, 'music_status', {});
     if (result.state === 'stopped') return 'Nothing is playing right now.';
     return `${result.state}: "${result.name}" by ${result.artist}.`;
+  }
+  if (toolUse.name === 'run_shell_command') {
+    const result = await companion.sendCommand(userId, 'run_shell_command', {
+      command: toolUse.input.command,
+      cwd: toolUse.input.cwd,
+    });
+    return JSON.stringify(result);
   }
   return null;
 }
@@ -717,7 +744,7 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
 
 export async function runTask(userId, user, task, history = [], opts = {}) {
   const [extraTools, connectorTools, system] = await Promise.all([
-    companionTools(userId),
+    companionTools(userId, opts),
     discoverAllConnectorTools(userId),
     buildTaskSystemPrompt(userId, user, task, opts),
   ]);

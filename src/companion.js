@@ -71,6 +71,11 @@ const pendingCommands = new Map(); // commandId -> { resolve, reject, timeout }
 
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 const COMMAND_TIMEOUT_MS = 15 * 1000;
+// run_shell_command waits on a live human at the terminal (to approve the
+// command) and then the command itself (up to 2 minutes, companion.js's own
+// cap) — the normal 15s budget every other action gets would time this out
+// before the person even finishes reading the prompt.
+const SHELL_COMMAND_TIMEOUT_MS = 3 * 60 * 1000;
 
 // A pairing code is only 6 digits (~1M possibilities) — fine against one
 // guess-then-reconnect at a time, not against someone opening many
@@ -321,11 +326,12 @@ export function sendCommand(userId, action, params = {}) {
     return Promise.reject(new Error(message));
   }
   const id = randomUUID();
+  const timeoutMs = action === 'run_shell_command' ? SHELL_COMMAND_TIMEOUT_MS : COMMAND_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       pendingCommands.delete(id);
       reject(new Error('Companion did not respond in time.'));
-    }, COMMAND_TIMEOUT_MS);
+    }, timeoutMs);
     pendingCommands.set(id, { resolve, reject, timeout });
     ws.send(JSON.stringify({ type: 'command', id, action, params }));
   });
