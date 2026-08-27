@@ -117,13 +117,13 @@ async function handleCommand(action, params) {
   if (action === 'open_url') {
     const url = params.url || '';
     if (!/^https:\/\//.test(url)) throw new Error('Only https:// URLs are allowed.');
-    const tab = await activeTab();
-    if (tab) {
-      await chrome.tabs.update(tab.id, { url });
-      await chrome.windows.update(tab.windowId, { focused: true });
-    } else {
-      await chrome.tabs.create({ url });
-    }
+    // Always a new tab — updating whichever tab happened to be active used
+    // to replace the user's own Neurovance tab out from under them if that's
+    // what they were looking at when they asked for something to open. The
+    // AppleScript path already opens a new tab via "open location"; this
+    // just matches that.
+    const tab = await chrome.tabs.create({ url });
+    await chrome.windows.update(tab.windowId, { focused: true });
     return { opened: url };
   }
 
