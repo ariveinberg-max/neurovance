@@ -48,6 +48,26 @@ import { homedir, hostname } from 'os';
 import { join, resolve, sep } from 'path';
 import { execFile } from 'child_process';
 
+const { version: PKG_VERSION } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
+
+// Hand-rolled ANSI color, not a dependency — a handful of escape codes isn't
+// worth a package. Skipped outright when stdout isn't a real terminal (piped
+// to a file/log) or NO_COLOR is set, so output never fills up with raw codes.
+const USE_COLOR = process.stdout.isTTY && !process.env.NO_COLOR;
+function paint(code, s) {
+  return USE_COLOR ? `\x1b[${code}m${s}\x1b[0m` : s;
+}
+const green = (s) => paint('38;2;127;217;154', s);
+const dim = (s) => paint('2', s);
+const bold = (s) => paint('1', s);
+
+function printBanner() {
+  console.log('');
+  console.log(`  ${green('◎◎')}  ${bold('NEUROVANCE')} ${dim('COMPANION')}  ${dim('v' + PKG_VERSION)}`);
+  console.log(`      ${dim('Runs on this computer only — never in the cloud.')}`);
+  console.log('');
+}
+
 const IS_WINDOWS = process.platform === 'win32';
 const CONFIG_DIR = join(homedir(), '.neurovance');
 const CONFIG_PATH = join(CONFIG_DIR, 'companion-config.json');
@@ -913,7 +933,7 @@ function connect(userId) {
     if (msg.type === 'pair_result') {
       if (msg.ok) {
         saveConfig({ userId: msg.userId });
-        console.log('Paired. Your Superself can now read from:\n  ' + ALLOWED_ROOT);
+        console.log(green('Paired.') + ' Your Superself can now read from:\n  ' + ALLOWED_ROOT);
       } else {
         console.error('Pairing failed:', msg.error);
         process.exit(1);
@@ -922,7 +942,7 @@ function connect(userId) {
     }
 
     if (msg.type === 'reconnect_result') {
-      console.log(msg.ok ? 'Connected.' : 'Reconnect rejected — delete ~/.neurovance/companion-config.json and pair again.');
+      console.log(msg.ok ? green('Connected.') : 'Reconnect rejected — delete ~/.neurovance/companion-config.json and pair again.');
       return;
     }
 
@@ -982,7 +1002,8 @@ function promptForCode() {
 }
 
 ensureAllowedRoot();
-console.log(`Neurovance Companion\nThis computer will only ever share files from:\n  ${ALLOWED_ROOT}\n`);
+printBanner();
+console.log(`This computer will only ever share files from:\n  ${dim(ALLOWED_ROOT)}\n`);
 watchAllowedRoot();
 
 const config = loadConfig();
