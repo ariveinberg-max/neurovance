@@ -611,6 +611,35 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // ---------- Public API — for a user's OWN external apps, authenticated
+  // by an API key (Settings → API Keys) instead of a browser session
+  // cookie. v1 is chat only for now: text in, a real reply out, same
+  // engine and same memory as the web app. Same daily usage cap applies —
+  // an API key is not a way around it. ----------
+
+  if (req.url === '/api/v1/chat' && req.method === 'POST') {
+    const authHeader = req.headers['authorization'] || '';
+    const rawKey = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    const apiUser = rawKey ? await auth.findUserByApiKey(rawKey) : null;
+    if (!apiUser) return sendJson(res, 401, { error: 'Invalid or missing API key. Pass it as: Authorization: Bearer nv_...' });
+
+    try {
+      const usage = await auth.checkAndIncrementUsage(apiUser.id);
+      if (!usage.allowed) {
+        return sendJson(res, 429, { error: `Daily limit reached (${usage.limit} messages) — resets at midnight UTC.` });
+      }
+      const { message, history } = await readJsonBody(req);
+      if (typeof message !== 'string' || !message.trim()) {
+        return sendJson(res, 400, { error: 'message must be a non-empty string' });
+      }
+      const reply = await chatReply(apiUser.id, apiUser, message.trim(), sanitizeHistory(history));
+      return sendJson(res, 200, { reply });
+    } catch (e) {
+      console.error('API v1 chat error:', e);
+      return sendJson(res, 500, { error: 'Chat failed: ' + e.message });
+    }
+  }
+
   // Everything below requires a valid session.
   if (req.url.startsWith('/api/')) {
     const { user } = await getSessionAndUser(req);
@@ -776,6 +805,37 @@ async function handleRequest(req, res) {
       try {
         const { id } = await readJsonBody(req);
         await connectors.removeConnector(user.id, id);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- API keys — for a user's own external apps, see /api/v1/chat above. ----------
+
+    if (req.url === '/api/keys' && req.method === 'GET') {
+      try {
+        const keys = await auth.listApiKeys(user.id);
+        return sendJson(res, 200, { ok: true, keys });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/keys' && req.method === 'POST') {
+      try {
+        const { name } = await readJsonBody(req);
+        const created = await auth.createApiKey(user.id, name);
+        return sendJson(res, 200, { ok: true, ...created });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/keys/remove' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        await auth.revokeApiKey(user.id, id);
         return sendJson(res, 200, { ok: true });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });

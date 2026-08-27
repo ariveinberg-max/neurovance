@@ -1,4 +1,4 @@
-import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import { randomUUID, randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto';
 import { getDoc, setDoc, deleteDoc, getAllDocs } from './db.js';
 
 // Every user is its own Firestore document (collection "users", doc id =
@@ -630,4 +630,76 @@ export async function removeSkill(userId, skillId) {
   if (!user) throw new Error('No such user.');
   user.skills = (user.skills || []).filter((s) => s.id !== skillId);
   await saveUser(user);
+}
+
+// API keys let a user call Neurovance from their own external apps
+// (Authorization: Bearer nv_...) instead of a browser session cookie.
+// Deliberately NOT the same hashing as passwords: a password is short,
+// human-chosen, and needs slow salted hashing to resist offline guessing;
+// an API key is a 192-bit random secret this app generates itself —
+// brute-forcing it is infeasible regardless of hash speed, and a request
+// needs to identify WHICH user a key belongs to without already knowing,
+// which needs a direct O(1) lookup a slow salted hash can't give you. A
+// plain SHA-256 of the full key is the standard pattern for this (same
+// approach GitHub/Stripe-style API keys use) — stored as the document id
+// in its own collection, keyed by the key itself rather than by user.
+const MAX_API_KEYS_PER_USER = 5;
+
+function hashApiKey(rawKey) {
+  return createHash('sha256').update(rawKey).digest('hex');
+}
+
+export async function listApiKeys(userId) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  return (user.apiKeys || []).map(({ keyHash, name, prefix, createdAt, lastUsedAt }) => ({
+    id: keyHash, name, prefix, createdAt, lastUsedAt,
+  }));
+}
+
+// Returns the full raw key exactly once — only the prefix and a hash are
+// ever stored, so this is the only time it's recoverable.
+export async function createApiKey(userId, name) {
+  if (!name?.trim()) throw new Error('Give the key a name.');
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  const existing = user.apiKeys || [];
+  if (existing.length >= MAX_API_KEYS_PER_USER) throw new Error(`You can have up to ${MAX_API_KEYS_PER_USER} API keys at a time.`);
+
+  const fullKey = `nv_${randomBytes(24).toString('base64url')}`;
+  const keyHash = hashApiKey(fullKey);
+  const now = new Date().toISOString();
+  const listEntry = { keyHash, name: name.trim(), prefix: fullKey.slice(0, 10), createdAt: now, lastUsedAt: null };
+
+  user.apiKeys = [...existing, listEntry];
+  await saveUser(user);
+  await setDoc('apiKeys', keyHash, { userId, createdAt: now });
+
+  return { name: listEntry.name, prefix: listEntry.prefix, key: fullKey };
+}
+
+export async function revokeApiKey(userId, keyHash) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.apiKeys = (user.apiKeys || []).filter((k) => k.keyHash !== keyHash);
+  await saveUser(user);
+  await deleteDoc('apiKeys', keyHash);
+}
+
+// The auth path for /api/v1/* — a raw key straight off the wire, resolved
+// to the account it belongs to. Updates lastUsedAt best-effort so it never
+// slows down or fails the actual request over a bookkeeping write.
+export async function findUserByApiKey(rawKey) {
+  if (!rawKey || !rawKey.startsWith('nv_')) return null;
+  const keyHash = hashApiKey(rawKey);
+  const record = await getDoc('apiKeys', keyHash);
+  if (!record) return null;
+  const user = await findUserById(record.userId);
+  if (!user) return null;
+  const entry = (user.apiKeys || []).find((k) => k.keyHash === keyHash);
+  if (entry) {
+    entry.lastUsedAt = new Date().toISOString();
+    saveUser(user).catch((e) => console.error('Failed to update API key lastUsedAt:', e.message));
+  }
+  return user;
 }

@@ -486,6 +486,19 @@
     font-size: 13px; padding: 0 2px; line-height: 1; transition: color 0.2s ease;
   }
   .list-item-remove:hover { color: var(--accent-red); }
+  #new-key-reveal {
+    background: rgba(127,217,154,0.06); border: 1px solid rgba(127,217,154,0.25);
+    border-radius: 4px; padding: 10px; margin-bottom: 10px;
+  }
+  #new-key-value {
+    font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--accent-green);
+    word-break: break-all; user-select: all;
+  }
+  #new-key-warning { font-size: 10px; color: var(--text-muted); margin-top: 6px; }
+  .settings-field-status code {
+    font-family: 'Share Tech Mono', monospace; font-size: 10px; background: rgba(var(--overlay-rgb),0.08);
+    padding: 1px 4px; border-radius: 3px;
+  }
   .settings-field-status.success { color: var(--accent-green); }
   #settings-email-current { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
   #settings-email-change-trigger {
@@ -970,6 +983,21 @@
       <input id="connector-token-input" class="settings-input" type="password" placeholder="Auth token (optional)" style="margin-top:6px;" />
       <button class="settings-save-btn" id="connector-add-btn" style="margin-top:8px;">Add connector</button>
       <div class="settings-field-status" id="connector-status"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sm-label">API Keys</div>
+      <div id="new-key-reveal" style="display:none;">
+        <div id="new-key-value"></div>
+        <div id="new-key-warning">Copy this now — it won't be shown again.</div>
+        <button class="settings-save-btn" id="new-key-copy-btn" style="margin-top:6px;">Copy</button>
+        <button class="settings-save-btn" id="new-key-done-btn" style="margin-top:6px;">Done</button>
+      </div>
+      <div class="list-items" id="keys-list"></div>
+      <input id="key-name-input" class="settings-input" type="text" placeholder="Key name (e.g. My Discord bot)" maxlength="60" />
+      <button class="settings-save-btn" id="key-add-btn" style="margin-top:8px;">Create key</button>
+      <div class="settings-field-status" id="key-status"></div>
+      <div class="settings-field-status">Call it from your own app: <code>Authorization: Bearer nv_...</code> to <code>POST /api/v1/chat</code> with <code>{"message": "..."}</code>.</div>
     </div>
   </div>
 </div>
@@ -2937,6 +2965,82 @@ function initSettings() {
     connectorTokenInput.value = '';
     setFieldStatus(connectorStatus, `Connected — ${data.connector.toolCount} tool${data.connector.toolCount === 1 ? '' : 's'} found.`, false);
     refreshConnectors();
+  });
+
+  // ---------- API keys: for a user's own external apps ----------
+
+  const keysListEl = document.getElementById('keys-list');
+  const keyNameInput = document.getElementById('key-name-input');
+  const keyAddBtn = document.getElementById('key-add-btn');
+  const keyStatus = document.getElementById('key-status');
+  const newKeyReveal = document.getElementById('new-key-reveal');
+  const newKeyValue = document.getElementById('new-key-value');
+  const newKeyCopyBtn = document.getElementById('new-key-copy-btn');
+  const newKeyDoneBtn = document.getElementById('new-key-done-btn');
+
+  async function refreshKeys() {
+    const res = await fetch('/api/keys', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const { keys } = await res.json();
+    keysListEl.innerHTML = '';
+    for (const key of keys) {
+      const row = document.createElement('div');
+      row.className = 'list-item-row';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'list-item-name';
+      nameEl.textContent = `${key.name} (${key.prefix}…)`;
+      nameEl.title = key.lastUsedAt ? `Last used ${new Date(key.lastUsedAt).toLocaleString()}` : 'Never used yet';
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'list-item-remove';
+      removeBtn.textContent = '✕';
+      removeBtn.addEventListener('click', async () => {
+        await fetch('/api/keys/remove', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: key.id }),
+        });
+        refreshKeys();
+      });
+      row.appendChild(nameEl);
+      row.appendChild(removeBtn);
+      keysListEl.appendChild(row);
+    }
+  }
+  refreshKeys();
+
+  keyAddBtn.addEventListener('click', async () => {
+    const name = keyNameInput.value.trim();
+    if (!name) return setFieldStatus(keyStatus, 'Give the key a name.', true);
+    keyAddBtn.disabled = true;
+    const res = await fetch('/api/keys', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    keyAddBtn.disabled = false;
+    if (!res.ok) return setFieldStatus(keyStatus, data.error, true);
+    keyNameInput.value = '';
+    setFieldStatus(keyStatus, '', false);
+    newKeyValue.textContent = data.key;
+    newKeyReveal.style.display = 'block';
+    refreshKeys();
+  });
+
+  newKeyCopyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(newKeyValue.textContent);
+      newKeyCopyBtn.textContent = 'Copied';
+      setTimeout(() => { newKeyCopyBtn.textContent = 'Copy'; }, 1500);
+    } catch {
+      // Clipboard API can be blocked (permissions, non-secure context) —
+      // the key is still selectable text in the box either way.
+    }
+  });
+
+  newKeyDoneBtn.addEventListener('click', () => {
+    newKeyReveal.style.display = 'none';
+    newKeyValue.textContent = '';
   });
 }
 
