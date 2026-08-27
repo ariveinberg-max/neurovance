@@ -436,6 +436,14 @@
   }
   .permission-tab.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
   #permission-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
+  #effort-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .effort-tab {
+    background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 8px; border-radius: 10px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .effort-tab.active { color: var(--accent-green); background: rgba(127,217,154,0.08); border-color: rgba(127,217,154,0.3); }
+  #effort-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
   #settings-plan-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); }
   #settings-plan-status .plan-paid { color: var(--accent-green); }
   #voice-select, #language-select {
@@ -880,6 +888,18 @@
     </div>
 
     <div class="settings-section">
+      <div class="sm-label">Effort</div>
+      <div id="effort-tabs">
+        <button class="effort-tab" data-level="low">Low</button>
+        <button class="effort-tab" data-level="medium">Med</button>
+        <button class="effort-tab" data-level="high">High</button>
+        <button class="effort-tab" data-level="max">Max</button>
+        <button class="effort-tab" data-level="extreme">Extreme</button>
+      </div>
+      <div id="effort-note"></div>
+    </div>
+
+    <div class="settings-section">
       <div class="sm-label">Voice</div>
       <select id="voice-select"></select>
     </div>
@@ -1065,13 +1085,14 @@ let pendingEmail = null;
 let pendingVerifiedToken = null;
 let oauthPendingToken = null;
 
-function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword, plan, billingConfigured, browser, language, permissionMode }) {
+function applyIdentity({ displayName, aiName, model, advisorMode, username, email, hasPassword, plan, billingConfigured, browser, language, permissionMode, effortLevel }) {
   currentIdentity = {
     displayName, aiName, model: model || 'core', advisorMode: advisorMode !== false,
     username: username || currentIdentity.username, email: email || currentIdentity.email,
     hasPassword: hasPassword !== false, plan: plan || currentIdentity.plan || 'free',
     billingConfigured: !!billingConfigured, browser: browser === 'chrome' ? 'chrome' : 'safari',
     language: language || 'English', permissionMode: permissionMode === 'ask' ? 'ask' : 'bypass',
+    effortLevel: effortLevel || 'low',
   };
   document.getElementById('app-title').textContent = aiName;
   document.getElementById('app-subtitle').textContent = `${displayName}'s Superself`;
@@ -2588,6 +2609,40 @@ function initSettings() {
       if (!res.ok) return;
       currentIdentity.permissionMode = mode;
       setActivePermissionTab(mode);
+    });
+  });
+
+  // How large a thinking budget the model gets before answering — "low"
+  // (default) sends no extended-thinking param at all, exactly like every
+  // conversation always behaved.
+  const effortTabs = document.querySelectorAll('.effort-tab');
+  const effortNote = document.getElementById('effort-note');
+  const EFFORT_NOTES = {
+    low: 'No extended thinking — fastest, today\'s default behavior.',
+    medium: 'A small thinking budget before answering.',
+    high: 'A larger thinking budget — noticeably slower, more thorough.',
+    max: 'A large thinking budget — slow, very thorough.',
+    extreme: 'The largest thinking budget — slowest, most thorough.',
+  };
+
+  function setActiveEffortTab(level) {
+    effortTabs.forEach((b) => b.classList.toggle('active', b.dataset.level === level));
+    effortNote.textContent = EFFORT_NOTES[level] || EFFORT_NOTES.low;
+  }
+  setActiveEffortTab(currentIdentity.effortLevel);
+
+  effortTabs.forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (btn.classList.contains('active')) return;
+      const level = btn.dataset.level;
+      const res = await fetch('/api/effort-level', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level }),
+      });
+      if (!res.ok) return;
+      currentIdentity.effortLevel = level;
+      setActiveEffortTab(level);
     });
   });
 

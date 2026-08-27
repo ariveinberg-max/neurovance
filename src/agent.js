@@ -19,6 +19,26 @@ function resolveModel(tier) {
   return MODEL_IDS[tier] || MODEL_IDS.core;
 }
 
+// Effort level -> Anthropic extended-thinking budget. "low" (the default)
+// stays exactly as every conversation already behaved — no thinking param
+// sent at all. Everything above it makes the model actually reason before
+// answering, at the cost of latency. max_tokens has to exceed budget_tokens
+// (the API rejects it otherwise, since thinking tokens count against the
+// same cap), so resolveThinking returns both together rather than letting
+// a caller forget to raise the ceiling to match.
+const THINKING_BUDGETS = {
+  low: 0,
+  medium: 2000,
+  high: 6000,
+  max: 12000,
+  extreme: 24000,
+};
+function resolveThinking(effortLevel, baseMaxTokens) {
+  const budget = THINKING_BUDGETS[effortLevel] || 0;
+  if (!budget) return { thinking: undefined, maxTokens: baseMaxTokens };
+  return { thinking: { type: 'enabled', budget_tokens: budget }, maxTokens: budget + baseMaxTokens };
+}
+
 const MEMORY_TOOL = {
   name: 'remember',
   description:
@@ -616,7 +636,7 @@ async function buildChatSystemPrompt(userId, user, message) {
   ].filter(Boolean).join('\n');
 }
 
-async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId, priorMessages = []) {
+async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId, priorMessages = [], thinking = undefined) {
   const messages = [...priorMessages, { role: 'user', content: initialMessage }];
 
   // eslint-disable-next-line no-constant-condition
@@ -627,6 +647,7 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
       system,
       tools,
       messages,
+      ...(thinking ? { thinking } : {}),
     });
 
     messages.push({ role: 'assistant', content: response.content });
@@ -671,7 +692,8 @@ export async function runTask(userId, user, task, history = []) {
     buildTaskSystemPrompt(userId, user, task),
   ]);
   const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools];
-  return runLoop(userId, system, task, tools, 1024, resolveModel(user?.model), history);
+  const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 1024);
+  return runLoop(userId, system, task, tools, maxTokens, resolveModel(user?.model), history, thinking);
 }
 
 // Turns a raw dump of text (typed or pasted, however messy) into individual
@@ -837,5 +859,6 @@ export async function chatReply(userId, user, message, history = []) {
     buildChatSystemPrompt(userId, user, message),
     companionTools(userId),
   ]);
-  return runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools], 400, resolveModel(user?.model), history);
+  const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 400);
+  return runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools], maxTokens, resolveModel(user?.model), history, thinking);
 }

@@ -205,6 +205,21 @@ export async function setLanguage(userId, language) {
   return user;
 }
 
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'max', 'extreme'];
+
+// How much the model actually reasons before answering — maps to Anthropic's
+// extended-thinking token budget (see resolveThinking in agent.js). Low is
+// today's existing behavior (no extended thinking, fastest); everything
+// above it trades latency for more thorough reasoning. Defaults to low.
+export async function setEffortLevel(userId, level) {
+  if (!EFFORT_LEVELS.includes(level)) throw new Error(`Unknown effort level: ${level}`);
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.effortLevel = level;
+  await saveUser(user);
+  return user;
+}
+
 export const PERMISSION_MODES = ['bypass', 'ask'];
 
 // Whether the Superself acts freely (including payments, sending messages,

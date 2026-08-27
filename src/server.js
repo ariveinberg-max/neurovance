@@ -191,6 +191,7 @@ function identityPayload(user) {
     browser: user.browser === 'chrome' ? 'chrome' : 'safari',
     language: auth.LANGUAGES.includes(user.language) ? user.language : 'English',
     permissionMode: user.permissionMode === 'ask' ? 'ask' : 'bypass',
+    effortLevel: auth.EFFORT_LEVELS.includes(user.effortLevel) ? user.effortLevel : 'low',
   };
 }
 
@@ -694,6 +695,23 @@ async function handleRequest(req, res) {
         }
         await auth.setPermissionMode(user.id, mode);
         return sendJson(res, 200, { ok: true, mode });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Effort level — maps to how large an extended-thinking
+    // budget the model gets before answering. 'low' sends no thinking
+    // param at all, exactly like every conversation already behaved. ----------
+
+    if (req.url === '/api/effort-level' && req.method === 'POST') {
+      try {
+        const { level } = await readJsonBody(req);
+        if (!auth.EFFORT_LEVELS.includes(level)) {
+          return sendJson(res, 400, { error: `level must be one of: ${auth.EFFORT_LEVELS.join(', ')}` });
+        }
+        await auth.setEffortLevel(user.id, level);
+        return sendJson(res, 200, { ok: true, level });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }
