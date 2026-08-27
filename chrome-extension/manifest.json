@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Neurovance Companion",
+  "version": "0.1.0",
+  "description": "Lets your Superself open links, read the page you're on, click things, and fill in fields in your own Chrome — only when you ask.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["scripting", "tabs", "storage", "alarms"],
+  "host_permissions": ["<all_urls>"]
+}

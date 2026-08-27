@@ -762,7 +762,8 @@ async function handleRequest(req, res) {
     }
 
     if (req.url === '/api/companion/unpair' && req.method === 'POST') {
-      await companion.unpair(user.id);
+      const { kind } = await readJsonBody(req).catch(() => ({}));
+      await companion.unpair(user.id, kind);
       return sendJson(res, 200, { ok: true });
     }
 

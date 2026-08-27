@@ -4,27 +4,53 @@ import { getDoc, setDoc } from './db.js';
 import * as pendingNotes from './pending-notes.js';
 
 // Lets a user's own agent reach a small, read-only, explicitly-scoped folder
-// on their own computer, plus open URLs in their own Safari — via a local
-// "Companion" app they install and pair themselves (companion/companion.js).
-// Nothing here can read outside that one folder or write/delete anything;
-// that's enforced on the companion side (see resolveScoped there), since
-// the companion is the thing that actually touches the filesystem.
+// on their own computer, and drive their own browser — via two kinds of
+// client they can pair independently and use at the same time:
+//   - "native": the local Companion app (companion/companion.js, macOS or
+//     Windows) — files, Contacts, iMessage, Calendar, Mail, Music, and
+//     AppleScript-driven browser control on Mac.
+//   - "browser": the Chrome extension — browser actions only (open/read/
+//     click/type/list), no download, no AppleScript permission gate.
+// When both are paired, browser actions prefer whichever is actually
+// connected right now, falling back to the other; native-only actions
+// (files, Contacts, etc.) only ever go through the native connection, since
+// a browser extension has no way to reach any of that.
+//
+// Firestore keeps them as two sibling fields on the same companions/{userId}
+// doc: the native pairing lives in the same top-level fields it always has
+// (pairedAt/hostname/lastSeen/unpaired), untouched, so no migration is
+// needed for existing accounts. The extension's pairing lives entirely
+// under a new `browserExt` key. Firestore's set() is a full overwrite, not
+// a merge, so every write below reads the whole doc first and spreads it —
+// forgetting that would silently drop whichever kind isn't being touched.
 
-async function loadRecord(userId) {
-  const record = await getDoc('companions', userId);
-  return record && !record.unpaired ? record : null;
+const BROWSER_ROUTABLE_ACTIONS = new Set([
+  'open_url', 'read_safari_content', 'click_page_element',
+  'type_into_page_field', 'go_back', 'list_page_elements',
+]);
+
+function normalizeKind(kind) {
+  return kind === 'browser' ? 'browser' : 'native';
 }
 
-async function saveRecord(userId, record) {
-  await setDoc('companions', userId, record);
+async function loadDoc(userId) {
+  return (await getDoc('companions', userId)) || null;
+}
+
+function nativeRecord(doc) {
+  return doc && !doc.unpaired ? doc : null;
+}
+
+function browserRecord(doc) {
+  return doc?.browserExt && !doc.browserExt.unpaired ? doc.browserExt : null;
 }
 
 // Pairing codes and live sockets are in-memory only — a server restart just
-// means paired companions reconnect on their own (they retry every 5s), and
-// any pairing code that was mid-flight has to be requested again, which is
-// fine since it's a 10-minute-lived, one-time-use code anyway.
+// means paired clients reconnect on their own (they retry every 5s), and any
+// pairing code that was mid-flight has to be requested again, which is fine
+// since it's a 10-minute-lived, one-time-use code anyway.
 const pairingCodes = new Map(); // code -> { userId, expiresAt }
-const liveConnections = new Map(); // userId -> WebSocket
+const liveConnections = new Map(); // userId -> { native: WebSocket|null, browser: WebSocket|null }
 const pendingCommands = new Map(); // commandId -> { resolve, reject, timeout }
 
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
@@ -54,6 +80,10 @@ function checkPairRateLimit(ip) {
   return true;
 }
 
+// Kind-agnostic on purpose — the same code works for either client. Which
+// kind gets paired is decided by whichever client actually uses it (the
+// Node Companion never sends `kind`, so it defaults to native; the
+// extension sends `kind: 'browser'`).
 export function generatePairingCode(userId) {
   const code = String(randomBytes(3).readUIntBE(0, 3) % 1000000).padStart(6, '0');
   pairingCodes.set(code, { userId, expiresAt: Date.now() + PAIRING_CODE_TTL_MS });
@@ -61,19 +91,44 @@ export function generatePairingCode(userId) {
 }
 
 export async function isPaired(userId) {
-  return !!(await loadRecord(userId));
+  const doc = await loadDoc(userId);
+  return !!(nativeRecord(doc) || browserRecord(doc));
 }
 
 export async function companionStatus(userId) {
-  const record = await loadRecord(userId);
-  if (!record) return { paired: false };
-  return { paired: true, pairedAt: record.pairedAt, hostname: record.hostname, online: liveConnections.has(userId), lastSeen: record.lastSeen };
+  const doc = await loadDoc(userId);
+  const conns = liveConnections.get(userId) || {};
+  const native = nativeRecord(doc);
+  const browser = browserRecord(doc);
+  return {
+    native: native
+      ? { paired: true, pairedAt: native.pairedAt, hostname: native.hostname, online: !!conns.native, lastSeen: native.lastSeen }
+      : { paired: false },
+    browser: browser
+      ? { paired: true, pairedAt: browser.pairedAt, online: !!conns.browser, lastSeen: browser.lastSeen }
+      : { paired: false },
+  };
 }
 
-export async function unpair(userId) {
-  liveConnections.get(userId)?.close();
-  liveConnections.delete(userId);
-  await saveRecord(userId, { unpaired: true });
+// kind omitted unpairs both — kept for a single "disconnect everything"
+// action; the Settings UI passes an explicit kind for its two separate
+// disconnect buttons.
+export async function unpair(userId, kind) {
+  const conns = liveConnections.get(userId);
+  const doc = (await loadDoc(userId)) || {};
+  const next = { ...doc };
+
+  if (!kind || kind === 'native') {
+    conns?.native?.close();
+    if (conns) conns.native = null;
+    next.unpaired = true;
+  }
+  if (!kind || kind === 'browser') {
+    conns?.browser?.close();
+    if (conns) conns.browser = null;
+    next.browserExt = { ...doc.browserExt, unpaired: true };
+  }
+  await setDoc('companions', userId, next);
 }
 
 export function attach(server) {
@@ -86,6 +141,7 @@ export function attach(server) {
 
   wss.on('connection', (ws, req) => {
     let userId = null;
+    let kind = null;
     const ip = clientIp(req);
 
     ws.on('message', async (raw) => {
@@ -104,26 +160,55 @@ export function attach(server) {
         }
         pairingCodes.delete(msg.code);
         userId = entry.userId;
-        liveConnections.set(userId, ws);
-        const existing = await loadRecord(userId);
-        await saveRecord(userId, {
-          pairedAt: existing?.pairedAt || new Date().toISOString(),
-          lastSeen: new Date().toISOString(),
-          hostname: msg.hostname || 'unknown computer',
-        });
+        kind = normalizeKind(msg.kind);
+
+        const conns = liveConnections.get(userId) || { native: null, browser: null };
+        conns[kind] = ws;
+        liveConnections.set(userId, conns);
+
+        const doc = (await loadDoc(userId)) || {};
+        const now = new Date().toISOString();
+        if (kind === 'native') {
+          const prev = nativeRecord(doc);
+          await setDoc('companions', userId, {
+            ...doc,
+            pairedAt: prev?.pairedAt || now,
+            lastSeen: now,
+            hostname: msg.hostname || 'unknown computer',
+            unpaired: false,
+          });
+        } else {
+          const prev = browserRecord(doc);
+          await setDoc('companions', userId, {
+            ...doc,
+            browserExt: { pairedAt: prev?.pairedAt || now, lastSeen: now, unpaired: false },
+          });
+        }
         ws.send(JSON.stringify({ type: 'pair_result', ok: true, userId }));
         return;
       }
 
       if (msg.type === 'reconnect') {
-        if (!(await isPaired(msg.userId))) {
+        const reqKind = normalizeKind(msg.kind);
+        const doc = await loadDoc(msg.userId);
+        const record = reqKind === 'native' ? nativeRecord(doc) : browserRecord(doc);
+        if (!record) {
           ws.send(JSON.stringify({ type: 'reconnect_result', ok: false }));
           return ws.close();
         }
         userId = msg.userId;
-        liveConnections.set(userId, ws);
-        const existing = await loadRecord(userId);
-        await saveRecord(userId, { ...existing, lastSeen: new Date().toISOString() });
+        kind = reqKind;
+
+        const conns = liveConnections.get(userId) || { native: null, browser: null };
+        conns[kind] = ws;
+        liveConnections.set(userId, conns);
+
+        const now = new Date().toISOString();
+        if (kind === 'native') {
+          await setDoc('companions', userId, { ...doc, lastSeen: now });
+        } else {
+          await setDoc('companions', userId, { ...doc, browserExt: { ...doc.browserExt, lastSeen: now } });
+        }
         ws.send(JSON.stringify({ type: 'reconnect_result', ok: true }));
         return;
       }
@@ -131,6 +216,7 @@ export function attach(server) {
       // Ambient presence: the Companion watches the shared folder itself and
       // tells us when something changes — this only ever queues a note the
       // user sees inside a session they opened, never a push notification.
+      // Native-only; the browser extension never sends this.
       if (msg.type === 'event' && msg.name === 'file_changed' && userId) {
         await pendingNotes.addNote(userId, 'companion', `I noticed "${msg.data.filename}" changed in your Neurovance folder.`);
         return;
@@ -143,19 +229,38 @@ export function attach(server) {
         pendingCommands.delete(msg.id);
         if (msg.ok) pending.resolve(msg.data);
         else pending.reject(new Error(msg.error || 'Companion command failed.'));
+        return;
+      }
+
+      // Self-service disconnect — the extension has no session cookie on
+      // the main site, so it can't call the authenticated /api/companion/
+      // unpair route. It's already proven its identity by pairing in the
+      // first place, so it can ask to unpair itself over this same
+      // connection instead. Scoped to whichever kind THIS socket is.
+      if (msg.type === 'unpair' && userId && kind) {
+        await unpair(userId, kind);
+        return;
       }
     });
 
     ws.on('close', () => {
-      if (userId && liveConnections.get(userId) === ws) liveConnections.delete(userId);
+      if (!userId || !kind) return;
+      const conns = liveConnections.get(userId);
+      if (conns && conns[kind] === ws) conns[kind] = null;
     });
   });
 }
 
 export function sendCommand(userId, action, params = {}) {
-  const ws = liveConnections.get(userId);
+  const conns = liveConnections.get(userId) || {};
+  // Browser actions prefer the extension when it's connected — if it's
+  // installed, that's what should drive the browser, not AppleScript.
+  const ws = BROWSER_ROUTABLE_ACTIONS.has(action) ? (conns.browser || conns.native) : conns.native;
   if (!ws) {
-    return Promise.reject(new Error('The Neurovance Companion app is not connected right now — open it on your computer.'));
+    const message = BROWSER_ROUTABLE_ACTIONS.has(action)
+      ? 'Not connected — pair a computer or connect the browser extension first.'
+      : 'The Neurovance Companion app is not connected right now — open it on your computer.';
+    return Promise.reject(new Error(message));
   }
   const id = randomUUID();
   return new Promise((resolve, reject) => {

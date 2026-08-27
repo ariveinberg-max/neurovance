@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; width: 260px; background: #0a0a0b; color: #d6d6d9;
+    font-family: -apple-system, 'Inter', sans-serif; font-size: 13px;
+  }
+  .wrap { padding: 16px; }
+  .brand {
+    font-family: 'Courier New', monospace; font-size: 10px; letter-spacing: 2px;
+    color: #63636a; text-transform: uppercase; margin-bottom: 10px;
+  }
+  h1 { font-size: 14px; font-weight: 600; margin: 0 0 4px; color: #f0efec; }
+  .sub { font-size: 11px; color: #7a7a82; margin-bottom: 14px; line-height: 1.5; }
+
+  .status-row { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #63636a; flex: 0 0 auto; }
+  .dot.online { background: #7fd99a; box-shadow: 0 0 6px rgba(127,217,154,0.6); }
+  .status-text { font-size: 12px; color: #b0b0b7; }
+  .status-text.online { color: #7fd99a; }
+
+  input {
+    width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 4px; color: #f0efec; font-size: 13px; padding: 8px 10px; margin-bottom: 8px;
+    font-family: 'Courier New', monospace; letter-spacing: 2px; text-align: center;
+  }
+  input:focus { outline: none; border-color: rgba(127,217,154,0.5); }
+
+  button {
+    width: 100%; background: rgba(255,255,255,0.08); border: none; color: #d6d6d9;
+    font-size: 12px; font-weight: 500; padding: 9px 10px; border-radius: 4px; cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover { background: rgba(255,255,255,0.14); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.danger { background: rgba(232,67,44,0.12); color: #e8432c; }
+  button.danger:hover { background: rgba(232,67,44,0.2); }
+
+  .error { color: #e8432c; font-size: 11px; margin: 6px 0 0; min-height: 14px; }
+  .hint { font-size: 10.5px; color: #63636a; margin-top: 12px; line-height: 1.5; }
+  .hint a { color: #8fb4e0; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">NEUROVANCE</div>
+
+  <div id="disconnected-view">
+    <h1>Connect this browser</h1>
+    <div class="sub">Get a pairing code from Neurovance (Settings &rarr; Companion &rarr; Pair a computer), then enter it here.</div>
+    <input id="code-input" type="text" inputmode="numeric" maxlength="6" placeholder="000000" />
+    <button id="connect-btn">Connect</button>
+    <div class="error" id="error-text"></div>
+  </div>
+
+  <div id="connected-view" style="display:none;">
+    <h1>Connected</h1>
+    <div class="status-row">
+      <div class="dot online" id="status-dot"></div>
+      <div class="status-text online" id="status-text">Online</div>
+    </div>
+    <div class="sub">Your Superself can open links, read the page you're on, click things, and fill in fields here — only when you ask it to.</div>
+    <button class="danger" id="disconnect-btn">Disconnect</button>
+  </div>
+
+  <div class="hint">Everything else — Contacts, Calendar, Mail, Music, files — still runs through the desktop Companion, paired separately.</div>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>

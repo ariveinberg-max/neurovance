@@ -371,6 +371,20 @@
   }
   #companion-panel button:hover, #companion-panel a.companion-btn:hover { background: rgba(var(--overlay-rgb),0.1); }
 
+  /* A second, independent connection (the Chrome extension) alongside the
+     desktop Companion above — same visual language, its own sub-heading. */
+  .companion-sub-label {
+    font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-faint);
+    margin: 16px 0 6px;
+  }
+  #browserext-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); }
+  #browserext-status.online { color: var(--accent-green); }
+  #browserext-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 6px; max-width: 200px; }
+  #browserext-pair-code {
+    font-family: 'Share Tech Mono', monospace; font-size: 20px; letter-spacing: 5px; color: var(--text-bright);
+    margin-top: 10px; display: none;
+  }
+
   /* ---------- Settings — a real modal, not more stuff crammed into the
      sidebar. Personality tone + speech voice live here; more settings
      (model tier, appearance, etc.) belong in this same modal later
@@ -762,6 +776,12 @@
     <div id="companion-note"></div>
     <div id="companion-pair-code"></div>
     <div id="companion-actions"></div>
+
+    <div class="companion-sub-label">Browser extension</div>
+    <div id="browserext-status">Checking…</div>
+    <div id="browserext-note"></div>
+    <div id="browserext-pair-code"></div>
+    <div id="browserext-actions"></div>
   </div>
 
   <div id="connections-panel">
@@ -2268,37 +2288,72 @@ function initTalkDrawer() {
   });
 }
 
-// Pairs the local Companion app (companion/companion.js) that lets this
-// user's own Superself read from one folder they chose on their own
-// computer, and open browser links there — nothing else on their machine is
-// ever reachable. Renders one of three states: not paired, paired+offline
-// (companion installed but not currently running), paired+online.
+// Pairs two independent kinds of client, either or both at once: the local
+// Companion app (companion/companion.js) for files/Contacts/Calendar/Mail/
+// Music/browser, and the Chrome extension for browser actions only, no
+// download needed. Browser actions prefer whichever is actually connected;
+// native-only actions always need the desktop Companion. Each block renders
+// one of three states: not paired, paired+offline, paired+online.
 function initCompanion() {
-  const statusEl = document.getElementById('companion-status');
-  const noteEl = document.getElementById('companion-note');
-  const codeEl = document.getElementById('companion-pair-code');
-  const actionsEl = document.getElementById('companion-actions');
+  initCompanionBlock({
+    kind: 'native',
+    statusEl: document.getElementById('companion-status'),
+    noteEl: document.getElementById('companion-note'),
+    codeEl: document.getElementById('companion-pair-code'),
+    actionsEl: document.getElementById('companion-actions'),
+    notPairedNote: 'Pair a computer to let this Superself read files you choose and control your browser.',
+    pairButtonText: 'Pair a computer',
+    onlineLabel: (status) => `Online — ${status.hostname}`,
+    offlineLabel: (status) => `Paired, offline — ${status.hostname}`,
+    offlineNote: 'Open the Companion app on that computer to reconnect it.',
+    pairingNote: 'Download the Companion below, unzip it, then double-click <strong>Setup</strong> inside it (Setup.command on Mac, Setup.bat on Windows) and enter this code when asked. Code expires in 10 minutes.<br><br>Mac may say it "cannot verify" Setup.command the first time — that\'s normal for a new app, not a problem. Click Done (not Move to Trash), go to <strong>System Settings → Privacy & Security</strong>, scroll down, and click <strong>Open Anyway</strong> next to it — it starts right up from there.',
+    pairingActionsHtml: '<a class="companion-btn" href="/downloads/neurovance-companion.zip" download>Download Companion</a>',
+  });
+
+  initCompanionBlock({
+    kind: 'browser',
+    statusEl: document.getElementById('browserext-status'),
+    noteEl: document.getElementById('browserext-note'),
+    codeEl: document.getElementById('browserext-pair-code'),
+    actionsEl: document.getElementById('browserext-actions'),
+    notPairedNote: 'Connect the Chrome extension so this Superself can open links, read the page you\'re on, click things, and fill in fields — no download needed.',
+    pairButtonText: 'Connect browser extension',
+    onlineLabel: () => 'Online',
+    offlineLabel: () => 'Paired, offline',
+    offlineNote: 'Open Chrome so the extension can reconnect.',
+    pairingNote: 'Click the Neurovance extension\'s icon in your Chrome toolbar and paste this code in. Code expires in 10 minutes.',
+    pairingActionsHtml: '',
+  });
+}
+
+function initCompanionBlock(opts) {
+  const { kind, statusEl, noteEl, codeEl, actionsEl } = opts;
 
   async function refresh() {
-    const status = await fetch('/api/companion/status', { credentials: 'same-origin' }).then((r) => r.json());
+    const allStatus = await fetch('/api/companion/status', { credentials: 'same-origin' }).then((r) => r.json());
+    const status = allStatus[kind];
     codeEl.style.display = 'none';
     codeEl.textContent = '';
 
     if (!status.paired) {
       statusEl.textContent = 'Not paired';
       statusEl.className = '';
-      noteEl.textContent = 'Pair a computer to let this Superself read files you choose and open browser links.';
-      actionsEl.innerHTML = '<button id="companion-pair-btn">Pair a computer</button>';
-      document.getElementById('companion-pair-btn').addEventListener('click', startPairing);
+      noteEl.textContent = opts.notPairedNote;
+      actionsEl.innerHTML = `<button class="pair-btn">${opts.pairButtonText}</button>`;
+      actionsEl.querySelector('.pair-btn').addEventListener('click', startPairing);
       return;
     }
 
-    statusEl.textContent = status.online ? `Online — ${status.hostname}` : `Paired, offline — ${status.hostname}`;
+    statusEl.textContent = status.online ? opts.onlineLabel(status) : opts.offlineLabel(status);
     statusEl.className = status.online ? 'online' : '';
-    noteEl.textContent = status.online ? '' : 'Open the Companion app on that computer to reconnect it.';
-    actionsEl.innerHTML = '<button id="companion-unpair-btn">Unpair</button>';
-    document.getElementById('companion-unpair-btn').addEventListener('click', async () => {
-      await fetch('/api/companion/unpair', { method: 'POST', credentials: 'same-origin' });
+    noteEl.textContent = status.online ? '' : opts.offlineNote;
+    actionsEl.innerHTML = '<button class="unpair-btn">Disconnect</button>';
+    actionsEl.querySelector('.unpair-btn').addEventListener('click', async () => {
+      await fetch('/api/companion/unpair', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind }),
+      });
       refresh();
     });
   }
@@ -2307,13 +2362,13 @@ function initCompanion() {
     const { code } = await fetch('/api/companion/pair-code', { method: 'POST', credentials: 'same-origin' }).then((r) => r.json());
     codeEl.textContent = code;
     codeEl.style.display = 'block';
-    noteEl.innerHTML = 'Download the Companion below, unzip it, then double-click <strong>Setup</strong> inside it (Setup.command on Mac, Setup.bat on Windows) and enter this code when asked. Code expires in 10 minutes.<br><br>Mac may say it "cannot verify" Setup.command the first time — that\'s normal for a new app, not a problem. Click Done (not Move to Trash), go to <strong>System Settings → Privacy & Security</strong>, scroll down, and click <strong>Open Anyway</strong> next to it — it starts right up from there.';
-    actionsEl.innerHTML = '<a class="companion-btn" href="/downloads/neurovance-companion.zip" download>Download Companion</a>';
+    noteEl.innerHTML = opts.pairingNote;
+    actionsEl.innerHTML = opts.pairingActionsHtml;
     // Poll for pairing to complete rather than requiring a manual refresh —
-    // the whole point is the user is off in Terminal, not watching this tab.
+    // the whole point is the user is off in another window, not watching this tab.
     const poll = setInterval(async () => {
-      const status = await fetch('/api/companion/status', { credentials: 'same-origin' }).then((r) => r.json());
-      if (status.paired) { clearInterval(poll); refresh(); }
+      const allStatus = await fetch('/api/companion/status', { credentials: 'same-origin' }).then((r) => r.json());
+      if (allStatus[kind].paired) { clearInterval(poll); refresh(); }
     }, 3000);
   }
 
