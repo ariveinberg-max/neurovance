@@ -230,6 +230,7 @@
       <input class="auth-field" id="forgot-code" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" />
       <div class="auth-error" id="forgot-code-error"></div>
       <button class="auth-submit" id="forgot-code-submit">Verify</button>
+      <div class="auth-toggle" id="goto-forgot-email-from-code" role="button" tabindex="0">Wrong email? <span>Go back</span></div>
     </div>
 
     <div id="screen-forgot-newpassword" class="auth-screen" style="display:none">
@@ -270,6 +271,7 @@
       <input class="auth-field" id="signup-code" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" />
       <div class="auth-error" id="signup-code-error"></div>
       <button class="auth-submit" id="signup-code-submit">Verify</button>
+      <div class="auth-toggle" id="goto-signup-email-from-code" role="button" tabindex="0">Wrong email? <span>Go back</span></div>
     </div>
 
     <div id="screen-signup-username" class="auth-screen" style="display:none">
@@ -278,6 +280,7 @@
       <input class="auth-field" id="signup-ainame" type="text" placeholder="Name your Superself" />
       <div class="auth-error" id="signup-username-error"></div>
       <button class="auth-submit" id="signup-username-submit">Create account</button>
+      <div class="auth-toggle" id="goto-login-from-username" role="button" tabindex="0">Already have an account? <span>Sign in</span></div>
     </div>
   </div>
 </div>
@@ -443,6 +446,9 @@ onActivate(document.getElementById('goto-signup'), () => goToScreen('screen-sign
 onActivate(document.getElementById('goto-login'), () => goToScreen('screen-login'));
 onActivate(document.getElementById('goto-forgot'), () => goToScreen('screen-forgot-email'));
 onActivate(document.getElementById('goto-login-from-forgot'), () => goToScreen('screen-login'));
+onActivate(document.getElementById('goto-forgot-email-from-code'), () => goToScreen('screen-forgot-email'));
+onActivate(document.getElementById('goto-signup-email-from-code'), () => goToScreen('screen-signup-email'));
+onActivate(document.getElementById('goto-login-from-username'), () => goToScreen('screen-login'));
 
 // ---------- Forgot password: emailed code -> reset token -> new password ----------
 const forgotEmail = document.getElementById('forgot-email');
