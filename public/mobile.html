@@ -207,7 +207,7 @@
       <input class="auth-field" id="login-username" type="text" placeholder="Username" autocomplete="username" autocapitalize="off" />
       <div class="password-field">
         <input class="auth-field" id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
-        <button type="button" class="toggle-password" data-target="login-password">Show</button>
+        <button type="button" class="toggle-password" data-target="login-password" aria-pressed="false">Show</button>
       </div>
       <div class="auth-error" id="login-error"></div>
       <button class="auth-submit" id="login-submit">Sign in</button>
@@ -235,7 +235,7 @@
     <div id="screen-forgot-newpassword" class="auth-screen" style="display:none">
       <div class="password-field">
         <input class="auth-field" id="forgot-new-password" type="password" placeholder="New password" autocomplete="new-password" />
-        <button type="button" class="toggle-password" data-target="forgot-new-password">Show</button>
+        <button type="button" class="toggle-password" data-target="forgot-new-password" aria-pressed="false">Show</button>
       </div>
       <div class="password-reqs" id="forgot-password-reqs">
         <div class="req" id="forgot-req-length">At least 8 characters</div>
@@ -250,7 +250,7 @@
       <input class="auth-field" id="signup-email" type="email" placeholder="Email" autocomplete="email" autocapitalize="off" />
       <div class="password-field">
         <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" />
-        <button type="button" class="toggle-password" data-target="signup-password">Show</button>
+        <button type="button" class="toggle-password" data-target="signup-password" aria-pressed="false">Show</button>
       </div>
       <div class="password-reqs" id="password-reqs">
         <div class="req" id="req-length">At least 8 characters</div>
@@ -306,7 +306,7 @@
 
   <div id="composer-wrap">
     <div id="composer">
-      <textarea id="composer-input" rows="1" placeholder="Message" enterkeyhint="send"></textarea>
+      <textarea id="composer-input" rows="1" placeholder="Message" aria-label="Message" enterkeyhint="send"></textarea>
       <button id="send-btn" aria-label="Send">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
       </button>
@@ -381,6 +381,7 @@ document.querySelectorAll('.toggle-password').forEach((btn) => {
     const showing = input.type === 'text';
     input.type = showing ? 'password' : 'text';
     btn.textContent = showing ? 'Show' : 'Hide';
+    btn.setAttribute('aria-pressed', String(!showing));
   });
 });
 
