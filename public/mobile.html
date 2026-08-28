@@ -876,6 +876,10 @@ if (oauthPendingFromUrl) {
     .then((data) => showApp(data))
     .catch(() => goToScreen('screen-login'));
 }
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js');
+}
 </script>
 </body>
 </html>
