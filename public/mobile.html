@@ -76,6 +76,15 @@
   .req { font-size: 11.5px; color: var(--text-faint); }
   .req.met { color: var(--green-bright); }
 
+  .oauth-divider { display: flex; align-items: center; gap: 12px; margin: 6px 0; }
+  .oauth-divider::before, .oauth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .oauth-divider span { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; }
+  .oauth-btn {
+    display: block; width: 100%; text-align: center; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text-bright); font-size: 15px; padding: 14px; text-decoration: none;
+  }
+  .oauth-btn:active { background: var(--surface-2); }
+
   /* ============================================================
      APP SHELL — chat-first
      ============================================================ */
@@ -196,6 +205,9 @@
       </div>
       <div class="auth-error" id="login-error"></div>
       <button class="auth-submit" id="login-submit">Sign in</button>
+      <div class="oauth-divider"><span>or</span></div>
+      <a class="oauth-btn" href="/api/oauth/google/start?from=mobile">Continue with Google</a>
+      <a class="oauth-btn" href="/api/oauth/github/start?from=mobile">Continue with GitHub</a>
       <div class="auth-toggle" id="goto-signup" role="button" tabindex="0">Don't have an account? <span>Sign up</span></div>
     </div>
 
@@ -212,6 +224,9 @@
       </div>
       <div class="auth-error" id="signup-email-error"></div>
       <button class="auth-submit" id="signup-email-submit">Send code</button>
+      <div class="oauth-divider"><span>or</span></div>
+      <a class="oauth-btn" href="/api/oauth/google/start?from=mobile">Continue with Google</a>
+      <a class="oauth-btn" href="/api/oauth/github/start?from=mobile">Continue with GitHub</a>
       <div class="auth-toggle" id="goto-login" role="button" tabindex="0">Already have an account? <span>Sign in</span></div>
     </div>
 
@@ -299,6 +314,7 @@ document.querySelectorAll('.toggle-password').forEach((btn) => {
 
 let pendingEmail = '';
 let pendingVerifiedToken = '';
+let oauthPendingToken = null;
 
 // ---------- Login ----------
 const loginUsername = document.getElementById('login-username');
@@ -438,10 +454,14 @@ async function doFinishSignup() {
   let referralCode;
   try { referralCode = sessionStorage.getItem('neurovance_ref') || undefined; } catch (e) {}
   try {
-    const res = await fetch('/api/signup-finish', {
+    const endpoint = oauthPendingToken ? '/api/oauth-finish' : '/api/signup-finish';
+    const body = oauthPendingToken
+      ? { pendingToken: oauthPendingToken, username, displayName, aiName, referralCode }
+      : { email: pendingEmail, verifiedToken: pendingVerifiedToken, username, displayName, aiName, referralCode };
+    const res = await fetch(endpoint, {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: pendingEmail, verifiedToken: pendingVerifiedToken, username, displayName, aiName, referralCode }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');
@@ -562,10 +582,24 @@ if (refFromUrl) {
 }
 
 // ---------- Boot ----------
-fetch('/api/me', { credentials: 'same-origin' })
-  .then((r) => (r.ok ? r.json() : Promise.reject()))
-  .then((data) => showApp(data))
-  .catch(() => goToScreen('screen-login'));
+const oauthPendingFromUrl = urlParams.get('oauthPending');
+const oauthError = urlParams.get('error');
+if (oauthPendingFromUrl || oauthError) {
+  window.history.replaceState({}, '', window.location.pathname); // scrub the token/error out of the visible URL
+}
+
+if (oauthPendingFromUrl) {
+  oauthPendingToken = oauthPendingFromUrl;
+  goToScreen('screen-signup-username');
+} else if (oauthError) {
+  document.getElementById('login-error').textContent = 'Sign-in with that provider failed — try again.';
+  goToScreen('screen-login');
+} else {
+  fetch('/api/me', { credentials: 'same-origin' })
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((data) => showApp(data))
+    .catch(() => goToScreen('screen-login'));
+}
 </script>
 </body>
 </html>

@@ -212,23 +212,31 @@ function oauthRedirectUri(provider) {
   return process.env[`${provider.toUpperCase()}_REDIRECT_URI`];
 }
 
-function startOAuthRedirect(res, provider, authUrl, params) {
+// `from` records which page sent the user into the OAuth detour (desktop
+// index.html vs mobile.html) so the round trip lands them back where they
+// started instead of always dropping a phone user onto the desktop layout.
+// Packed into the same state cookie rather than a query param, since Google/
+// GitHub echo back only what's in their own `state` value, not arbitrary
+// request state.
+function startOAuthRedirect(res, provider, authUrl, params, from) {
   const state = randomBytes(16).toString('hex');
-  res.setHeader('Set-Cookie', `${OAUTH_STATE_COOKIE}=${provider}:${state}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`);
+  const safeFrom = from === 'mobile' ? 'mobile' : 'desktop';
+  res.setHeader('Set-Cookie', `${OAUTH_STATE_COOKIE}=${provider}:${state}:${safeFrom}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`);
   const query = new URLSearchParams({ ...params, state }).toString();
   res.writeHead(302, { Location: `${authUrl}?${query}` });
   res.end();
 }
 
-async function finishOAuthLogin(res, result) {
+async function finishOAuthLogin(res, result, from) {
+  const base = from === 'mobile' ? '/mobile.html' : '/';
   if (result.linked) {
     const token = await auth.createSession(result.user.id);
     setSessionCookie(res, token);
-    res.writeHead(302, { Location: '/' });
+    res.writeHead(302, { Location: base });
   } else {
     // Brand-new identity — no session yet, just a short-lived pending token
     // the client uses to finish picking a username.
-    res.writeHead(302, { Location: `/?oauthPending=${result.pendingToken}` });
+    res.writeHead(302, { Location: `${base}?oauthPending=${result.pendingToken}` });
   }
   res.end();
 }
@@ -238,10 +246,11 @@ async function handleOAuthCallback(req, res, provider) {
   const code = url.searchParams.get('code');
   const returnedState = url.searchParams.get('state');
   const cookies = parseCookies(req.headers.cookie || '');
-  const [savedProvider, savedState] = (cookies[OAUTH_STATE_COOKIE] || '').split(':');
+  const [savedProvider, savedState, savedFrom] = (cookies[OAUTH_STATE_COOKIE] || '').split(':');
+  const from = savedFrom === 'mobile' ? 'mobile' : 'desktop';
 
   if (!code || !returnedState || savedProvider !== provider || savedState !== returnedState) {
-    res.writeHead(302, { Location: '/?error=oauth_failed' });
+    res.writeHead(302, { Location: `${from === 'mobile' ? '/mobile.html' : '/'}?error=oauth_failed` });
     return res.end();
   }
 
@@ -296,10 +305,10 @@ async function handleOAuthCallback(req, res, provider) {
     }
 
     const result = await auth.startOAuthSignup({ provider, providerId: profile.providerId, email: profile.email });
-    await finishOAuthLogin(res, result);
+    await finishOAuthLogin(res, result, from);
   } catch (e) {
     console.error(`${provider} OAuth error:`, e);
-    res.writeHead(302, { Location: '/?error=oauth_failed' });
+    res.writeHead(302, { Location: `${from === 'mobile' ? '/mobile.html' : '/'}?error=oauth_failed` });
     res.end();
   }
 }
@@ -555,26 +564,28 @@ async function handleRequest(req, res) {
 
   // ---------- OAuth: Google + GitHub ----------
 
-  if (req.url === '/api/oauth/google/start') {
+  if (req.url.startsWith('/api/oauth/google/start')) {
+    const from = new URL(req.url, `http://${req.headers.host}`).searchParams.get('from');
     return startOAuthRedirect(res, 'google', 'https://accounts.google.com/o/oauth2/v2/auth', {
       client_id: process.env.GOOGLE_CLIENT_ID,
       redirect_uri: oauthRedirectUri('google'),
       response_type: 'code',
       scope: 'openid email profile',
       prompt: 'select_account',
-    });
+    }, from);
   }
 
   if (req.url.startsWith('/api/oauth/google/callback')) {
     return handleOAuthCallback(req, res, 'google');
   }
 
-  if (req.url === '/api/oauth/github/start') {
+  if (req.url.startsWith('/api/oauth/github/start')) {
+    const from = new URL(req.url, `http://${req.headers.host}`).searchParams.get('from');
     return startOAuthRedirect(res, 'github', 'https://github.com/login/oauth/authorize', {
       client_id: process.env.GITHUB_CLIENT_ID,
       redirect_uri: oauthRedirectUri('github'),
       scope: 'read:user user:email',
-    });
+    }, from);
   }
 
   if (req.url.startsWith('/api/oauth/github/callback')) {
