@@ -161,9 +161,15 @@
 
   #limit-banner {
     flex: 0 0 auto; background: rgba(217,138,138,0.1); border-bottom: 1px solid rgba(217,138,138,0.3);
-    color: var(--red); font-size: 12.5px; text-align: center; padding: 8px 16px; display: none;
+    color: var(--red); font-size: 12.5px; padding: 8px 12px 8px 16px; display: none;
+    align-items: center; justify-content: center; gap: 8px;
   }
-  #limit-banner.show { display: block; }
+  #limit-banner.show { display: flex; }
+  #limit-banner-text { flex: 1; text-align: center; }
+  #limit-banner-close {
+    flex-shrink: 0; background: none; border: none; color: var(--red); font-size: 17px;
+    line-height: 1; padding: 4px 6px; cursor: pointer; opacity: 0.75;
+  }
 </style>
 </head>
 <body>
@@ -301,7 +307,10 @@
     </div>
   </div>
 
-  <div id="limit-banner" role="alert"></div>
+  <div id="limit-banner" role="alert">
+    <span id="limit-banner-text"></span>
+    <button type="button" id="limit-banner-close" aria-label="Dismiss">&times;</button>
+  </div>
 
   <div id="messages" aria-live="polite" aria-relevant="additions">
     <div id="messages-empty">Say something — your Superself remembers everything from before, even here.</div>
@@ -699,6 +708,8 @@ const messagesEmpty = document.getElementById('messages-empty');
 const composerInput = document.getElementById('composer-input');
 const sendBtn = document.getElementById('send-btn');
 const limitBanner = document.getElementById('limit-banner');
+const limitBannerText = document.getElementById('limit-banner-text');
+document.getElementById('limit-banner-close').addEventListener('click', () => limitBanner.classList.remove('show'));
 
 // Persists the visible transcript across a reload/backgrounding — a phone
 // tab getting discarded and reloaded is routine, and losing the whole
@@ -800,7 +811,7 @@ async function sendMessage() {
       return;
     }
     if (res.status === 429) {
-      limitBanner.textContent = data.error;
+      limitBannerText.textContent = data.error;
       limitBanner.classList.add('show');
       addMessage('error', data.error);
       return;
