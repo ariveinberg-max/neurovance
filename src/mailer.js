@@ -109,6 +109,25 @@ export async function sendBroadcast(toEmail, subject, bodyHtml, bodyText) {
   });
 }
 
+// A user's feedback, straight to Ari's own inbox — no dashboard to
+// remember to check, no queue that quietly fills up unread. Also saved to
+// Firestore (see server.js) so there's a durable record even if an email
+// gets missed.
+export async function sendFeedbackNotification(user, message) {
+  const t = getTransporter();
+  if (!t) {
+    console.log(`[mailer] GMAIL_USER/GMAIL_APP_PASSWORD not set — feedback from ${user.username}: ${message}`);
+    return;
+  }
+  await t.sendMail({
+    from: process.env.GMAIL_SEND_AS || `"Neurovance" <${process.env.GMAIL_USER}>`,
+    to: process.env.GMAIL_USER,
+    subject: `Feedback from ${user.username}`,
+    text: `${user.username} (${user.email || 'no email on file'}):\n\n${message}`,
+    html: `<p><strong>${user.username}</strong> (${user.email || 'no email on file'}):</p><p>${message.replace(/\n/g, '<br>')}</p>`,
+  });
+}
+
 export async function sendWaitlistNotification(email) {
   const t = getTransporter();
   if (!t) {

@@ -14,7 +14,7 @@ import * as connections from './connections.js';
 import * as connectors from './connectors.js';
 import * as scheduler from './scheduler.js';
 import { getAllDocs, setDoc } from './db.js';
-import { sendVerificationCode, sendWaitlistNotification, sendBroadcast } from './mailer.js';
+import { sendVerificationCode, sendWaitlistNotification, sendBroadcast, sendFeedbackNotification } from './mailer.js';
 import * as billing from './stripe.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -890,6 +890,28 @@ async function handleRequest(req, res) {
         const { id } = await readJsonBody(req);
         const tasks = await scheduler.runScheduledTaskNow(user.id, id);
         return sendJson(res, 200, { ok: true, tasks });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Feedback — straight to Ari's inbox, plus a durable record
+    // in Firestore so nothing depends on an email actually landing. ----------
+
+    if (req.url === '/api/feedback' && req.method === 'POST') {
+      try {
+        const { message } = await readJsonBody(req);
+        if (typeof message !== 'string' || !message.trim()) {
+          return sendJson(res, 400, { error: 'Say something first.' });
+        }
+        const trimmed = message.trim().slice(0, 4000);
+        const id = randomBytes(8).toString('hex');
+        await setDoc('feedback', id, {
+          id, userId: user.id, username: user.username, message: trimmed,
+          createdAt: new Date().toISOString(),
+        });
+        sendFeedbackNotification(user, trimmed).catch((e) => console.error('Feedback email failed:', e));
+        return sendJson(res, 200, { ok: true });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }

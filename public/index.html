@@ -413,17 +413,59 @@
   }
   #settings-modal-backdrop.open { display: flex; }
   #settings-modal {
-    width: 360px; max-width: 90vw; max-height: 80vh; overflow-y: auto;
-    background: var(--surface-modal); border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 10px;
-    padding: 22px 24px; box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    width: 1040px; max-width: 94vw; height: 680px; max-height: 88vh;
+    background: var(--surface-modal); border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 14px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    display: flex; flex-direction: column; overflow: hidden;
   }
-  #settings-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
-  #settings-modal-title { font-size: 13px; font-weight: 600; letter-spacing: 1px; color: var(--text-bright); }
-  #settings-modal-close { color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 4px; transition: color 0.2s ease; }
-  #settings-modal-close:hover { color: var(--text-primary); }
-  .settings-section { margin-bottom: 20px; }
-  .settings-section:last-child { margin-bottom: 0; }
-  .settings-section .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; }
+  #settings-modal-header {
+    flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 24px; border-bottom: 1px solid rgba(var(--overlay-rgb),0.08);
+  }
+  #settings-modal-title { font-size: 15px; font-weight: 600; letter-spacing: 0.3px; color: var(--text-bright); }
+  #settings-modal-close {
+    color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 5px 8px; border-radius: 6px;
+    transition: color 0.2s ease, background 0.2s ease;
+  }
+  #settings-modal-close:hover { color: var(--text-primary); background: rgba(var(--overlay-rgb),0.08); }
+
+  #settings-modal-body { flex: 1 1 auto; display: flex; min-height: 0; }
+
+  #settings-nav {
+    flex: 0 0 236px; border-right: 1px solid rgba(var(--overlay-rgb),0.08);
+    padding: 16px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px;
+  }
+  #settings-nav-search {
+    width: 100%; background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.12);
+    border-radius: 7px; color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12.5px;
+    padding: 8px 10px; outline: none; transition: border-color 0.2s ease;
+  }
+  #settings-nav-search::placeholder { color: var(--text-faint); }
+  #settings-nav-search:focus { border-color: rgba(210,230,255,0.5); }
+  .settings-nav-group { display: flex; flex-direction: column; gap: 1px; }
+  .settings-nav-group-label {
+    font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-faint);
+    padding: 0 9px; margin-bottom: 6px;
+  }
+  .settings-nav-item {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: none; border: none; color: var(--text-secondary); font-family: 'Inter', sans-serif;
+    font-size: 12.5px; padding: 8px 9px; border-radius: 7px; cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .settings-nav-item svg { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.8; }
+  .settings-nav-item:hover { background: rgba(var(--overlay-rgb),0.06); color: var(--text-primary); }
+  .settings-nav-item.active { background: rgba(127,217,154,0.1); color: var(--accent-green); }
+  .settings-nav-item.active svg { opacity: 1; }
+  .settings-nav-item.nav-hidden, .settings-nav-group.nav-hidden { display: none; }
+
+  #settings-panels { flex: 1 1 auto; overflow-y: auto; padding: 30px 34px; }
+  .settings-panel { display: none; max-width: 560px; }
+  .settings-panel.active { display: block; }
+  .settings-panel-title { font-size: 20px; font-weight: 600; color: var(--text-bright); margin: 0 0 6px; }
+  .settings-panel-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; margin: 0 0 24px; }
+  .settings-subsection { margin-bottom: 20px; }
+  .settings-subsection:last-child { margin-bottom: 0; }
   #personality-tabs { display: flex; gap: 6px; }
   .personality-mode {
     background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
@@ -920,181 +962,244 @@
       <div id="settings-modal-close">✕</div>
     </div>
 
-    <div class="settings-section" id="settings-plan-section">
-      <div class="sm-label">Plan</div>
-      <div id="settings-plan-status"></div>
-      <button class="settings-save-btn" id="settings-plan-action" style="margin-top:8px; display:none;"></button>
-      <div class="settings-field-status" id="settings-plan-error"></div>
-    </div>
+    <div id="settings-modal-body">
+      <div id="settings-nav">
+        <input id="settings-nav-search" type="text" placeholder="Search" autocomplete="off" />
 
-    <div class="settings-section">
-      <div class="sm-label">Theme</div>
-      <div id="theme-tabs">
-        <button class="theme-mode" data-mode="dark">Dark</button>
-        <button class="theme-mode" data-mode="light">Light</button>
-      </div>
-    </div>
+        <div class="settings-nav-group" data-group="general">
+          <div class="settings-nav-group-label">General</div>
+          <button class="settings-nav-item" data-section="plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 12.5 12.5 20.6a2 2 0 0 1-2.8 0l-6.3-6.3a2 2 0 0 1 0-2.8L11.5 3.4a2 2 0 0 1 1.4-.6H19a2 2 0 0 1 2 2v5.3a2 2 0 0 1-.6 1.4Z"/><circle cx="15.5" cy="7.5" r="1.2"/></svg>Plan</button>
+          <button class="settings-nav-item" data-section="theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9c0-.3 0-.6-.05-.9a5.5 5.5 0 0 1-7.55-7.55C13.4 3.2 12.7 3 12 3Z"/></svg>Theme</button>
+          <button class="settings-nav-item" data-section="personality"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H7l-3 3z"/></svg>Personality</button>
+          <button class="settings-nav-item" data-section="browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Browser</button>
+          <button class="settings-nav-item" data-section="language"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9M8 4v2c0 4-1.5 7.5-5 9.5M6 10c1 2 3 3.5 6 4"/><path d="M13 20l3.5-9 3.5 9M14.3 17h4.4"/></svg>Language</button>
+          <button class="settings-nav-item" data-section="permission"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>Permission Mode</button>
+          <button class="settings-nav-item" data-section="effort"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-5"/><circle cx="12" cy="15" r="1"/></svg>Effort</button>
+          <button class="settings-nav-item" data-section="voice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Voice</button>
+        </div>
 
-    <div class="settings-section">
-      <div class="sm-label">Personality</div>
-      <div id="personality-tabs">
-        <button class="personality-mode" data-mode="advisor">Advisor</button>
-        <button class="personality-mode" data-mode="companion">Companion</button>
-      </div>
-      <div id="personality-note"></div>
-    </div>
+        <div class="settings-nav-group" data-group="account">
+          <div class="settings-nav-group-label">Account</div>
+          <button class="settings-nav-item" data-section="account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c1.4-3.6 4.3-5.5 7.5-5.5s6.1 1.9 7.5 5.5"/></svg>Account</button>
+          <button class="settings-nav-item" data-section="email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6 8.5 7 8.5-7"/></svg>Email</button>
+          <button class="settings-nav-item" data-section="password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>Password</button>
+        </div>
 
-    <div class="settings-section">
-      <div class="sm-label">Browser</div>
-      <div id="browser-tabs">
-        <button class="browser-mode" data-mode="safari">Safari</button>
-        <button class="browser-mode" data-mode="chrome">Chrome</button>
-      </div>
-      <div id="browser-note"></div>
-    </div>
+        <div class="settings-nav-group" data-group="customize">
+          <div class="settings-nav-group-label">Customize</div>
+          <button class="settings-nav-item" data-section="skills"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/><path d="M18.5 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>Skills</button>
+          <button class="settings-nav-item" data-section="connectors"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v4M15 3v4M6 7h12l-1 5a5 5 0 0 1-10 0z"/><path d="M12 16v5"/></svg>Connectors</button>
+          <button class="settings-nav-item" data-section="keys"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 6l2.5 2.5M13 9l2 2"/></svg>API Keys</button>
+          <button class="settings-nav-item" data-section="scheduled"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>Scheduled Tasks</button>
+        </div>
 
-    <div class="settings-section">
-      <div class="sm-label">Language</div>
-      <select id="language-select">
-        <option value="English">English</option>
-        <option value="Spanish">Spanish</option>
-        <option value="French">French</option>
-        <option value="German">German</option>
-        <option value="Portuguese">Portuguese</option>
-        <option value="Italian">Italian</option>
-        <option value="Japanese">Japanese</option>
-        <option value="Korean">Korean</option>
-        <option value="Chinese">Chinese</option>
-        <option value="Hindi">Hindi</option>
-        <option value="Arabic">Arabic</option>
-        <option value="Russian">Russian</option>
-      </select>
-    </div>
-
-    <div class="settings-section">
-      <div class="sm-label">Permission Mode</div>
-      <div id="permission-tabs">
-        <button class="permission-tab" data-mode="bypass">Bypass</button>
-        <button class="permission-tab" data-mode="ask">Always Ask</button>
-      </div>
-      <div id="permission-note"></div>
-    </div>
-
-    <div class="settings-section">
-      <div class="sm-label">Effort</div>
-      <div id="effort-tabs">
-        <button class="effort-tab" data-level="low">Low</button>
-        <button class="effort-tab" data-level="medium">Med</button>
-        <button class="effort-tab" data-level="high">High</button>
-        <button class="effort-tab" data-level="max">Max</button>
-        <button class="effort-tab" data-level="extreme">Extreme</button>
-      </div>
-      <div id="effort-note"></div>
-    </div>
-
-    <div class="settings-section">
-      <div class="sm-label">Voice</div>
-      <select id="voice-select"></select>
-    </div>
-
-    <div class="settings-section">
-      <div class="sm-label">Account</div>
-      <div class="settings-field">
-        <input id="settings-username-input" class="settings-input" type="text" placeholder="Username" pattern="[a-z0-9_]{3,20}" title="Lowercase letters, numbers, and underscores only (3-20 characters)" />
-        <button class="settings-save-btn" id="settings-username-save">Save</button>
-      </div>
-      <div class="settings-field-status" id="settings-username-status"></div>
-      <div class="settings-field" style="margin-top:10px;">
-        <input id="settings-ainame-input" class="settings-input" type="text" placeholder="Superself name" />
-        <button class="settings-save-btn" id="settings-ainame-save">Save</button>
-      </div>
-      <div class="settings-field-status" id="settings-ainame-status"></div>
-    </div>
-
-    <div class="settings-section">
-      <div class="sm-label">Email</div>
-      <div id="settings-email-current"></div>
-      <div id="settings-email-change-trigger">Change email</div>
-      <div id="settings-email-change-form">
-        <input id="settings-new-email-input" class="settings-input" type="email" placeholder="New email" />
-        <input id="settings-email-password-input" class="settings-input" type="password" placeholder="Current password" />
-        <button class="settings-save-btn" id="settings-email-send-code">Send code</button>
-        <div id="settings-email-code-row">
-          <input id="settings-email-code-input" class="settings-input" type="text" placeholder="6-digit code" />
-          <button class="settings-save-btn" id="settings-email-confirm-code">Confirm</button>
+        <div class="settings-nav-group" data-group="support">
+          <div class="settings-nav-group-label">Support</div>
+          <button class="settings-nav-item" data-section="feedback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H7l-3 3z"/><path d="M8 9h8M8 12h5"/></svg>Feedback</button>
         </div>
       </div>
-      <div class="settings-field-status" id="settings-email-status"></div>
-    </div>
 
-    <div class="settings-section">
-      <div class="sm-label">Password</div>
-      <input id="settings-current-password-input" class="settings-input" type="password" placeholder="Current password" />
-      <input id="settings-new-password-input" class="settings-input" type="password" placeholder="New password" style="margin-top:8px;" />
-      <button class="settings-save-btn" id="settings-password-save" style="margin-top:10px;">Change password</button>
-      <div class="settings-field-status" id="settings-password-status"></div>
-    </div>
+      <div id="settings-panels">
+        <div class="settings-panel" data-panel="plan" id="settings-plan-section">
+          <h2 class="settings-panel-title">Plan</h2>
+          <p class="settings-panel-desc">See your current plan and manage billing.</p>
+          <div id="settings-plan-status"></div>
+          <button class="settings-save-btn" id="settings-plan-action" style="margin-top:8px; display:none;"></button>
+          <div class="settings-field-status" id="settings-plan-error"></div>
+        </div>
 
-    <div class="settings-section">
-      <div class="sm-label">Skills</div>
-      <div class="list-items" id="skills-list"></div>
-      <input id="skill-name-input" class="settings-input" type="text" placeholder="Skill name" maxlength="60" />
-      <textarea id="skill-instructions-input" class="settings-input" placeholder="What should it do?" rows="2" maxlength="2000" style="margin-top:6px; resize:vertical;"></textarea>
-      <button class="settings-save-btn" id="skill-add-btn" style="margin-top:8px;">Add skill</button>
-      <div class="settings-field-status" id="skill-status"></div>
-    </div>
+        <div class="settings-panel" data-panel="theme">
+          <h2 class="settings-panel-title">Theme</h2>
+          <p class="settings-panel-desc">Choose how Neurovance looks.</p>
+          <div id="theme-tabs">
+            <button class="theme-mode" data-mode="dark">Dark</button>
+            <button class="theme-mode" data-mode="light">Light</button>
+          </div>
+        </div>
 
-    <div class="settings-section">
-      <div class="sm-label">Connectors</div>
-      <div class="list-items" id="connectors-list"></div>
-      <input id="connector-name-input" class="settings-input" type="text" placeholder="Connector name" maxlength="60" />
-      <input id="connector-url-input" class="settings-input" type="text" placeholder="https://..." style="margin-top:6px;" />
-      <input id="connector-token-input" class="settings-input" type="password" placeholder="Auth token (optional)" style="margin-top:6px;" />
-      <button class="settings-save-btn" id="connector-add-btn" style="margin-top:8px;">Add connector</button>
-      <div class="settings-field-status" id="connector-status"></div>
-    </div>
+        <div class="settings-panel" data-panel="personality">
+          <h2 class="settings-panel-title">Personality</h2>
+          <p class="settings-panel-desc">How your Superself talks to you.</p>
+          <div id="personality-tabs">
+            <button class="personality-mode" data-mode="advisor">Advisor</button>
+            <button class="personality-mode" data-mode="companion">Companion</button>
+          </div>
+          <div id="personality-note"></div>
+        </div>
 
-    <div class="settings-section">
-      <div class="sm-label">API Keys</div>
-      <div id="new-key-reveal" style="display:none;">
-        <div id="new-key-value"></div>
-        <div id="new-key-warning">Copy this now — it won't be shown again.</div>
-        <button class="settings-save-btn" id="new-key-copy-btn" style="margin-top:6px;">Copy</button>
-        <button class="settings-save-btn" id="new-key-done-btn" style="margin-top:6px;">Done</button>
+        <div class="settings-panel" data-panel="browser">
+          <h2 class="settings-panel-title">Browser</h2>
+          <p class="settings-panel-desc">Which browser the Companion drives for links, page reads, clicks, and typing.</p>
+          <div id="browser-tabs">
+            <button class="browser-mode" data-mode="safari">Safari</button>
+            <button class="browser-mode" data-mode="chrome">Chrome</button>
+          </div>
+          <div id="browser-note"></div>
+        </div>
+
+        <div class="settings-panel" data-panel="language">
+          <h2 class="settings-panel-title">Language</h2>
+          <p class="settings-panel-desc">The language your Superself replies in.</p>
+          <select id="language-select">
+            <option value="English">English</option>
+            <option value="Spanish">Spanish</option>
+            <option value="French">French</option>
+            <option value="German">German</option>
+            <option value="Portuguese">Portuguese</option>
+            <option value="Italian">Italian</option>
+            <option value="Japanese">Japanese</option>
+            <option value="Korean">Korean</option>
+            <option value="Chinese">Chinese</option>
+            <option value="Hindi">Hindi</option>
+            <option value="Arabic">Arabic</option>
+            <option value="Russian">Russian</option>
+          </select>
+        </div>
+
+        <div class="settings-panel" data-panel="permission">
+          <h2 class="settings-panel-title">Permission Mode</h2>
+          <p class="settings-panel-desc">Whether it acts on its own or checks with you first.</p>
+          <div id="permission-tabs">
+            <button class="permission-tab" data-mode="bypass">Bypass</button>
+            <button class="permission-tab" data-mode="ask">Always Ask</button>
+          </div>
+          <div id="permission-note"></div>
+        </div>
+
+        <div class="settings-panel" data-panel="effort">
+          <h2 class="settings-panel-title">Effort</h2>
+          <p class="settings-panel-desc">How much it thinks before responding — higher is slower but sharper.</p>
+          <div id="effort-tabs">
+            <button class="effort-tab" data-level="low">Low</button>
+            <button class="effort-tab" data-level="medium">Med</button>
+            <button class="effort-tab" data-level="high">High</button>
+            <button class="effort-tab" data-level="max">Max</button>
+            <button class="effort-tab" data-level="extreme">Extreme</button>
+          </div>
+          <div id="effort-note"></div>
+        </div>
+
+        <div class="settings-panel" data-panel="voice">
+          <h2 class="settings-panel-title">Voice</h2>
+          <p class="settings-panel-desc">The voice used when it speaks out loud.</p>
+          <select id="voice-select"></select>
+        </div>
+
+        <div class="settings-panel" data-panel="account">
+          <h2 class="settings-panel-title">Account</h2>
+          <p class="settings-panel-desc">Your username and your Superself's name.</p>
+          <div class="settings-field">
+            <input id="settings-username-input" class="settings-input" type="text" placeholder="Username" pattern="[a-z0-9_]{3,20}" title="Lowercase letters, numbers, and underscores only (3-20 characters)" />
+            <button class="settings-save-btn" id="settings-username-save">Save</button>
+          </div>
+          <div class="settings-field-status" id="settings-username-status"></div>
+          <div class="settings-field" style="margin-top:10px;">
+            <input id="settings-ainame-input" class="settings-input" type="text" placeholder="Superself name" />
+            <button class="settings-save-btn" id="settings-ainame-save">Save</button>
+          </div>
+          <div class="settings-field-status" id="settings-ainame-status"></div>
+        </div>
+
+        <div class="settings-panel" data-panel="email">
+          <h2 class="settings-panel-title">Email</h2>
+          <p class="settings-panel-desc">Used to sign in and for account recovery.</p>
+          <div id="settings-email-current"></div>
+          <div id="settings-email-change-trigger">Change email</div>
+          <div id="settings-email-change-form">
+            <input id="settings-new-email-input" class="settings-input" type="email" placeholder="New email" />
+            <input id="settings-email-password-input" class="settings-input" type="password" placeholder="Current password" />
+            <button class="settings-save-btn" id="settings-email-send-code">Send code</button>
+            <div id="settings-email-code-row">
+              <input id="settings-email-code-input" class="settings-input" type="text" placeholder="6-digit code" />
+              <button class="settings-save-btn" id="settings-email-confirm-code">Confirm</button>
+            </div>
+          </div>
+          <div class="settings-field-status" id="settings-email-status"></div>
+        </div>
+
+        <div class="settings-panel" data-panel="password">
+          <h2 class="settings-panel-title">Password</h2>
+          <p class="settings-panel-desc">Change the password you sign in with.</p>
+          <input id="settings-current-password-input" class="settings-input" type="password" placeholder="Current password" />
+          <input id="settings-new-password-input" class="settings-input" type="password" placeholder="New password" style="margin-top:8px;" />
+          <button class="settings-save-btn" id="settings-password-save" style="margin-top:10px;">Change password</button>
+          <div class="settings-field-status" id="settings-password-status"></div>
+        </div>
+
+        <div class="settings-panel" data-panel="skills">
+          <h2 class="settings-panel-title">Skills</h2>
+          <p class="settings-panel-desc">Custom instructions your Superself always follows.</p>
+          <div class="list-items" id="skills-list"></div>
+          <input id="skill-name-input" class="settings-input" type="text" placeholder="Skill name" maxlength="60" />
+          <textarea id="skill-instructions-input" class="settings-input" placeholder="What should it do?" rows="2" maxlength="2000" style="margin-top:6px; resize:vertical;"></textarea>
+          <button class="settings-save-btn" id="skill-add-btn" style="margin-top:8px;">Add skill</button>
+          <div class="settings-field-status" id="skill-status"></div>
+        </div>
+
+        <div class="settings-panel" data-panel="connectors">
+          <h2 class="settings-panel-title">Connectors</h2>
+          <p class="settings-panel-desc">External MCP servers whose tools become available mid-conversation.</p>
+          <div class="list-items" id="connectors-list"></div>
+          <input id="connector-name-input" class="settings-input" type="text" placeholder="Connector name" maxlength="60" />
+          <input id="connector-url-input" class="settings-input" type="text" placeholder="https://..." style="margin-top:6px;" />
+          <input id="connector-token-input" class="settings-input" type="password" placeholder="Auth token (optional)" style="margin-top:6px;" />
+          <button class="settings-save-btn" id="connector-add-btn" style="margin-top:8px;">Add connector</button>
+          <div class="settings-field-status" id="connector-status"></div>
+        </div>
+
+        <div class="settings-panel" data-panel="keys">
+          <h2 class="settings-panel-title">API Keys</h2>
+          <p class="settings-panel-desc">Call Neurovance from your own apps.</p>
+          <div id="new-key-reveal" style="display:none;">
+            <div id="new-key-value"></div>
+            <div id="new-key-warning">Copy this now — it won't be shown again.</div>
+            <button class="settings-save-btn" id="new-key-copy-btn" style="margin-top:6px;">Copy</button>
+            <button class="settings-save-btn" id="new-key-done-btn" style="margin-top:6px;">Done</button>
+          </div>
+          <div class="list-items" id="keys-list"></div>
+          <input id="key-name-input" class="settings-input" type="text" placeholder="Key name (e.g. My Discord bot)" maxlength="60" />
+          <button class="settings-save-btn" id="key-add-btn" style="margin-top:8px;">Create key</button>
+          <div class="settings-field-status" id="key-status"></div>
+          <div class="settings-field-status">Call it from your own app: <code>Authorization: Bearer nv_...</code> to <code>POST /api/v1/chat</code> with <code>{"message": "..."}</code>.</div>
+        </div>
+
+        <div class="settings-panel" data-panel="scheduled">
+          <h2 class="settings-panel-title">Scheduled Tasks</h2>
+          <p class="settings-panel-desc">Recurring prompts that run on their own and save results as memories.</p>
+          <div id="scheduled-presets"></div>
+          <div class="list-items" id="scheduled-tasks-list"></div>
+          <input id="task-name-input" class="settings-input" type="text" placeholder="Task name" maxlength="60" />
+          <textarea id="task-prompt-input" class="settings-input" placeholder="What should it do?" rows="2" maxlength="2000" style="margin-top:6px; resize:vertical;"></textarea>
+          <div id="task-freq-tabs" style="margin-top:8px;">
+            <button class="freq-tab active" data-freq="daily">Daily</button>
+            <button class="freq-tab" data-freq="weekdays">Weekdays</button>
+            <button class="freq-tab" data-freq="weekly">Weekly</button>
+          </div>
+          <div id="task-schedule-fields">
+            <input id="task-time-input" class="settings-input" type="time" value="09:00" />
+            <select id="task-weekday-select" class="settings-input" style="display:none;">
+              <option value="0">Sunday</option>
+              <option value="1">Monday</option>
+              <option value="2">Tuesday</option>
+              <option value="3">Wednesday</option>
+              <option value="4">Thursday</option>
+              <option value="5" selected>Friday</option>
+              <option value="6">Saturday</option>
+            </select>
+          </div>
+          <button class="settings-save-btn" id="task-add-btn" style="margin-top:8px;">Add task</button>
+          <div class="settings-field-status" id="task-status"></div>
+          <div class="settings-field-status">Runs unattended — it can read, check, and draft, but never sends, buys, or deletes anything on its own. Output is saved as a memory.</div>
+        </div>
+
+        <div class="settings-panel" data-panel="feedback">
+          <h2 class="settings-panel-title">Feedback</h2>
+          <p class="settings-panel-desc">Goes straight to Ari's inbox — bugs, feature requests, anything that's not working the way you'd want.</p>
+          <textarea id="feedback-input" class="settings-input" placeholder="What's on your mind?" rows="5" maxlength="4000" style="resize:vertical;"></textarea>
+          <button class="settings-save-btn" id="feedback-send-btn" style="margin-top:8px;">Send feedback</button>
+          <div class="settings-field-status" id="feedback-status"></div>
+        </div>
       </div>
-      <div class="list-items" id="keys-list"></div>
-      <input id="key-name-input" class="settings-input" type="text" placeholder="Key name (e.g. My Discord bot)" maxlength="60" />
-      <button class="settings-save-btn" id="key-add-btn" style="margin-top:8px;">Create key</button>
-      <div class="settings-field-status" id="key-status"></div>
-      <div class="settings-field-status">Call it from your own app: <code>Authorization: Bearer nv_...</code> to <code>POST /api/v1/chat</code> with <code>{"message": "..."}</code>.</div>
-    </div>
-
-    <div class="settings-section">
-      <div class="sm-label">Scheduled Tasks</div>
-      <div id="scheduled-presets"></div>
-      <div class="list-items" id="scheduled-tasks-list"></div>
-      <input id="task-name-input" class="settings-input" type="text" placeholder="Task name" maxlength="60" />
-      <textarea id="task-prompt-input" class="settings-input" placeholder="What should it do?" rows="2" maxlength="2000" style="margin-top:6px; resize:vertical;"></textarea>
-      <div id="task-freq-tabs" style="margin-top:8px;">
-        <button class="freq-tab active" data-freq="daily">Daily</button>
-        <button class="freq-tab" data-freq="weekdays">Weekdays</button>
-        <button class="freq-tab" data-freq="weekly">Weekly</button>
-      </div>
-      <div id="task-schedule-fields">
-        <input id="task-time-input" class="settings-input" type="time" value="09:00" />
-        <select id="task-weekday-select" class="settings-input" style="display:none;">
-          <option value="0">Sunday</option>
-          <option value="1">Monday</option>
-          <option value="2">Tuesday</option>
-          <option value="3">Wednesday</option>
-          <option value="4">Thursday</option>
-          <option value="5" selected>Friday</option>
-          <option value="6">Saturday</option>
-        </select>
-      </div>
-      <button class="settings-save-btn" id="task-add-btn" style="margin-top:8px;">Add task</button>
-      <div class="settings-field-status" id="task-status"></div>
-      <div class="settings-field-status">Runs unattended — it can read, check, and draft, but never sends, buys, or deletes anything on its own. Output is saved as a memory.</div>
     </div>
   </div>
 </div>
@@ -2621,8 +2726,38 @@ function initSettings() {
   document.getElementById('settings-modal-close').addEventListener('click', () => backdrop.classList.remove('open'));
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
 
+  // ---------- Left nav: switches which panel is shown; search filters the nav itself ----------
+
+  const navItems = document.querySelectorAll('.settings-nav-item');
+  const navGroups = document.querySelectorAll('.settings-nav-group');
+  const panels = document.querySelectorAll('.settings-panel');
+  const navSearch = document.getElementById('settings-nav-search');
+
+  function showSettingsPanel(name) {
+    panels.forEach((p) => p.classList.toggle('active', p.dataset.panel === name));
+    navItems.forEach((n) => n.classList.toggle('active', n.dataset.section === name));
+  }
+  navItems.forEach((item) => {
+    item.addEventListener('click', () => showSettingsPanel(item.dataset.section));
+  });
+  showSettingsPanel('theme');
+
+  navSearch.addEventListener('input', () => {
+    const q = navSearch.value.trim().toLowerCase();
+    navGroups.forEach((group) => {
+      let anyVisible = false;
+      group.querySelectorAll('.settings-nav-item').forEach((item) => {
+        const match = !q || item.textContent.toLowerCase().includes(q);
+        item.classList.toggle('nav-hidden', !match);
+        if (match) anyVisible = true;
+      });
+      group.classList.toggle('nav-hidden', !anyVisible);
+    });
+  });
+
   if (!PAYMENTS_ENABLED) {
     document.getElementById('settings-plan-section').style.display = 'none';
+    document.querySelector('.settings-nav-item[data-section="plan"]').style.display = 'none';
   } else {
     const planStatusEl = document.getElementById('settings-plan-status');
     const planActionBtn = document.getElementById('settings-plan-action');
@@ -3298,6 +3433,28 @@ function initSettings() {
     taskPromptInput.value = '';
     setFieldStatus(taskStatus, 'Task added.', false);
     refreshScheduledTasks();
+  });
+
+  // ---------- Feedback: straight to Ari's inbox ----------
+
+  const feedbackInput = document.getElementById('feedback-input');
+  const feedbackSendBtn = document.getElementById('feedback-send-btn');
+  const feedbackStatus = document.getElementById('feedback-status');
+
+  feedbackSendBtn.addEventListener('click', async () => {
+    const message = feedbackInput.value.trim();
+    if (!message) return setFieldStatus(feedbackStatus, 'Write something first.', true);
+    feedbackSendBtn.disabled = true;
+    const res = await fetch('/api/feedback', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+    const data = await res.json();
+    feedbackSendBtn.disabled = false;
+    if (!res.ok) return setFieldStatus(feedbackStatus, data.error, true);
+    feedbackInput.value = '';
+    setFieldStatus(feedbackStatus, 'Sent — thank you.', false);
   });
 }
 
