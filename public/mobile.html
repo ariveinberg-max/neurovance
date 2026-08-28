@@ -145,7 +145,9 @@
     position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--border);
     border-radius: 18px 18px 0 0; padding: 10px 20px calc(24px + env(safe-area-inset-bottom));
     transform: translateY(100%); transition: transform 0.25s ease; z-index: 51; max-height: 80dvh; overflow-y: auto;
+    outline: none; /* programmatic focus target, not a tab stop — the slide-up itself is the visible cue */
   }
+  #settings-close-btn:focus-visible { outline: 1px solid var(--green-bright); outline-offset: 2px; border-radius: 4px; }
   #settings-backdrop.open #settings-sheet { transform: translateY(0); }
   #settings-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 18px; }
   #settings-sheet h2 { font-family: 'Michroma', sans-serif; font-size: 14px; color: var(--text-bright); margin: 0 0 18px; }
@@ -313,9 +315,12 @@
 </div>
 
 <div id="settings-backdrop">
-  <div id="settings-sheet">
+  <div id="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-sheet-title" tabindex="-1">
     <div id="settings-handle"></div>
-    <h2>Settings</h2>
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
+      <h2 id="settings-sheet-title" style="margin:0;">Settings</h2>
+      <button id="settings-close-btn" aria-label="Close settings" style="background:none; border:none; color:var(--text-faint); font-size:20px; line-height:1; padding:4px 8px; cursor:pointer;">&times;</button>
+    </div>
     <div class="settings-row"><div class="settings-row-label" id="settings-username-row">—</div></div>
 
     <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:8px;">
@@ -764,13 +769,16 @@ async function sendMessage() {
 
 // ---------- Settings sheet ----------
 const settingsBackdrop = document.getElementById('settings-backdrop');
+const settingsSheet = document.getElementById('settings-sheet');
+const settingsOpenBtn = document.getElementById('settings-open-btn');
 const referralSummary = document.getElementById('referral-summary');
 const referralLinkInput = document.getElementById('referral-link-input');
 const referralCopyBtn = document.getElementById('referral-copy-btn');
 let referralLoaded = false;
 
-document.getElementById('settings-open-btn').addEventListener('click', () => {
+function openSettings() {
   settingsBackdrop.classList.add('open');
+  settingsSheet.focus(); // moves focus into the dialog for keyboard/screen-reader users
   if (referralLoaded) return;
   referralLoaded = true;
   fetch('/api/referral', { credentials: 'same-origin' })
@@ -780,8 +788,15 @@ document.getElementById('settings-open-btn').addEventListener('click', () => {
       referralSummary.textContent = `${info.count} joined · +${info.bonus}/day`;
     })
     .catch(() => { referralSummary.textContent = 'Unavailable'; });
-});
-settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) settingsBackdrop.classList.remove('open'); });
+}
+function closeSettings() {
+  settingsBackdrop.classList.remove('open');
+  settingsOpenBtn.focus(); // returns focus to the trigger, standard modal-dialog behavior
+}
+settingsOpenBtn.addEventListener('click', openSettings);
+document.getElementById('settings-close-btn').addEventListener('click', closeSettings);
+settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) closeSettings(); });
+settingsSheet.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSettings(); });
 referralCopyBtn.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(referralLinkInput.value);
