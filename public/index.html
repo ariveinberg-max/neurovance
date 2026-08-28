@@ -779,8 +779,18 @@
 
 <div id="mobile-gate">
   <div id="brand-lockup"><span class="brand-mark-slot"></span>NEUROVANCE</div>
-  <p>Neurovance is a desktop experience for now — open this page on a computer to continue.</p>
+  <p>Taking you to the mobile app…</p>
 </div>
+<script>
+  // Narrow viewport (same breakpoint the #mobile-gate CSS media query uses)
+  // means the desktop layout wouldn't fit — send it straight to the
+  // purpose-built mobile page instead of showing a blocking message.
+  // Query params (like a referral ?ref=) ride along so a link still works
+  // regardless of which device opens it.
+  if (window.matchMedia('(max-width: 1024px)').matches) {
+    window.location.replace('/mobile.html' + window.location.search);
+  }
+</script>
 
 <div id="auth-gate">
   <div id="auth-card">
