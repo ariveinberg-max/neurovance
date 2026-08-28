@@ -469,11 +469,11 @@ async function handleRequest(req, res) {
 
   if (req.url === '/api/signup-finish' && req.method === 'POST') {
     try {
-      const { email, verifiedToken, username, displayName, aiName } = await readJsonBody(req);
+      const { email, verifiedToken, username, displayName, aiName, referralCode } = await readJsonBody(req);
       if (!email?.trim() || !verifiedToken || !username?.trim() || !displayName?.trim() || !aiName?.trim()) {
         return sendJson(res, 400, { error: 'Username, your name, and an AI name are all required.' });
       }
-      const user = await auth.finishSignup({ email, verifiedToken, username, displayName, aiName });
+      const user = await auth.finishSignup({ email, verifiedToken, username, displayName, aiName, referralCode });
       const token = await auth.createSession(user.id);
       setSessionCookie(res, token);
       sendJson(res, 200, identityPayload(user));
@@ -583,11 +583,11 @@ async function handleRequest(req, res) {
 
   if (req.url === '/api/oauth-finish' && req.method === 'POST') {
     try {
-      const { pendingToken, username, displayName, aiName } = await readJsonBody(req);
+      const { pendingToken, username, displayName, aiName, referralCode } = await readJsonBody(req);
       if (!pendingToken || !username?.trim() || !displayName?.trim() || !aiName?.trim()) {
         return sendJson(res, 400, { error: 'Username, your name, and an AI name are all required.' });
       }
-      const user = await auth.finishOAuthSignup({ pendingToken, username, displayName, aiName });
+      const user = await auth.finishOAuthSignup({ pendingToken, username, displayName, aiName, referralCode });
       const token = await auth.createSession(user.id);
       setSessionCookie(res, token);
       sendJson(res, 200, identityPayload(user));
@@ -912,6 +912,18 @@ async function handleRequest(req, res) {
         });
         sendFeedbackNotification(user, trimmed).catch((e) => console.error('Feedback email failed:', e));
         return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Referrals — every account's own invite code, and how many
+    // people have used it so far. ----------
+
+    if (req.url === '/api/referral' && req.method === 'GET') {
+      try {
+        const info = await auth.getReferralInfo(user.id);
+        return sendJson(res, 200, { ok: true, ...info });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }

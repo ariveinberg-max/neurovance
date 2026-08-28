@@ -227,9 +227,63 @@ export async function setEffortLevel(userId, level) {
 // UTC midnight. 500/day is a generous default for real usage, cheap
 // insurance against a runaway loop or a compromised account.
 const DEFAULT_DAILY_LIMIT = 500;
-function dailyLimit() {
+
+// Referral codes: every account gets one, assigned at signup (or backfilled
+// on first request from an older account). Each successful referral raises
+// the referrer's own daily limit — a real, immediate perk that doesn't need
+// Stripe, a price, or any money at all, which matters since there's nothing
+// paid to offer yet. Capped so it can't be farmed into an unlimited bypass
+// of the cap the limit exists to enforce in the first place.
+const REFERRAL_BONUS_PER_INVITE = 50;
+const REFERRAL_BONUS_MAX = 500;
+
+function generateReferralCode() {
+  return randomBytes(4).toString('hex').toUpperCase();
+}
+
+async function findUserByReferralCode(code) {
+  if (!code) return null;
+  const users = await loadUsers();
+  return users.find((u) => u.referralCode === code.toUpperCase()) || null;
+}
+
+// Called once, on a brand-new user object, before its first save — never
+// on an existing account, so a code can't be "applied" twice to farm bonus
+// messages. Mutates `user` in place (assigns its own code; sets referredBy
+// if it arrived via someone else's) and separately saves the referrer.
+async function applyReferral(user, referralCode) {
+  user.referralCode = generateReferralCode();
+  if (!referralCode) return;
+  const referrer = await findUserByReferralCode(referralCode);
+  if (!referrer || referrer.id === user.id) return;
+  referrer.referralCount = (referrer.referralCount || 0) + 1;
+  await saveUser(referrer);
+  user.referredBy = referrer.id;
+}
+
+export async function getReferralInfo(userId) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  if (!user.referralCode) {
+    // Backfill for an account that existed before this feature shipped.
+    user.referralCode = generateReferralCode();
+    await saveUser(user);
+  }
+  const count = user.referralCount || 0;
+  return {
+    code: user.referralCode,
+    count,
+    bonus: Math.min(count * REFERRAL_BONUS_PER_INVITE, REFERRAL_BONUS_MAX),
+    maxBonus: REFERRAL_BONUS_MAX,
+    perInvite: REFERRAL_BONUS_PER_INVITE,
+  };
+}
+
+function dailyLimit(user) {
   const envVal = parseInt(process.env.DAILY_MESSAGE_LIMIT, 10);
-  return Number.isFinite(envVal) && envVal > 0 ? envVal : DEFAULT_DAILY_LIMIT;
+  const base = Number.isFinite(envVal) && envVal > 0 ? envVal : DEFAULT_DAILY_LIMIT;
+  const bonus = Math.min((user?.referralCount || 0) * REFERRAL_BONUS_PER_INVITE, REFERRAL_BONUS_MAX);
+  return base + bonus;
 }
 function todayUTC() {
   return new Date().toISOString().slice(0, 10);
@@ -244,7 +298,7 @@ function todayUTC() {
 export async function checkAndIncrementUsage(userId) {
   const user = await findUserById(userId);
   if (!user) throw new Error('No such user.');
-  const limit = dailyLimit();
+  const limit = dailyLimit(user);
   const today = todayUTC();
   const usage = user.usage?.date === today ? user.usage : { date: today, count: 0 };
   if (usage.count >= limit) {
@@ -368,7 +422,7 @@ export async function verifySignupCode({ email, code }) {
   return record.verifiedToken;
 }
 
-export async function finishSignup({ email, verifiedToken, username, displayName, aiName }) {
+export async function finishSignup({ email, verifiedToken, username, displayName, aiName, referralCode }) {
   const normalizedEmail = email.trim().toLowerCase();
   const record = await getPendingSignup(normalizedEmail);
   if (!record || !record.verified || record.verifiedToken !== verifiedToken) {
@@ -395,6 +449,7 @@ export async function finishSignup({ email, verifiedToken, username, displayName
     model: 'pulse', // free-tier default — Core requires 'paid', see setModelTier
     createdAt: new Date().toISOString(),
   };
+  await applyReferral(user, referralCode);
   await saveUser(user);
   await deletePendingSignup(normalizedEmail);
 
@@ -550,7 +605,7 @@ export async function startOAuthSignup({ provider, providerId, email }) {
   return { linked: false, pendingToken };
 }
 
-export async function finishOAuthSignup({ pendingToken, username, displayName, aiName }) {
+export async function finishOAuthSignup({ pendingToken, username, displayName, aiName, referralCode }) {
   const record = await getPendingOAuth(pendingToken);
   if (!record) throw new Error('That sign-in expired — start over.');
   if (Date.now() > record.expiresAt) throw new Error('That sign-in expired — start over.');
@@ -574,6 +629,7 @@ export async function finishOAuthSignup({ pendingToken, username, displayName, a
     model: 'pulse', // free-tier default — Core requires 'paid', see setModelTier
     createdAt: new Date().toISOString(),
   };
+  await applyReferral(user, referralCode);
   await saveUser(user);
   await deletePendingOAuthRecord(pendingToken);
 
