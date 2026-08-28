@@ -234,10 +234,10 @@
 
     <div id="screen-forgot-newpassword" class="auth-screen" style="display:none">
       <div class="password-field">
-        <input class="auth-field" id="forgot-new-password" type="password" placeholder="New password" autocomplete="new-password" />
+        <input class="auth-field" id="forgot-new-password" type="password" placeholder="New password" autocomplete="new-password" aria-describedby="forgot-password-reqs" />
         <button type="button" class="toggle-password" data-target="forgot-new-password" aria-pressed="false">Show</button>
       </div>
-      <div class="password-reqs" id="forgot-password-reqs">
+      <div class="password-reqs" id="forgot-password-reqs" role="group" aria-label="Password requirements">
         <div class="req" id="forgot-req-length">At least 8 characters</div>
         <div class="req" id="forgot-req-upper">One uppercase letter</div>
         <div class="req" id="forgot-req-lower">One lowercase letter</div>
@@ -249,10 +249,10 @@
     <div id="screen-signup-email" class="auth-screen" style="display:none">
       <input class="auth-field" id="signup-email" type="email" placeholder="Email" autocomplete="email" autocapitalize="off" />
       <div class="password-field">
-        <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" />
+        <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" aria-describedby="password-reqs" />
         <button type="button" class="toggle-password" data-target="signup-password" aria-pressed="false">Show</button>
       </div>
-      <div class="password-reqs" id="password-reqs">
+      <div class="password-reqs" id="password-reqs" role="group" aria-label="Password requirements">
         <div class="req" id="req-length">At least 8 characters</div>
         <div class="req" id="req-upper">One uppercase letter</div>
         <div class="req" id="req-lower">One lowercase letter</div>
@@ -362,6 +362,18 @@
   });
 })();
 
+// The password-requirement checklist only ever signals met/unmet via a CSS
+// class (a checkmark color change) — invisible to a screen reader, which
+// otherwise just reads the same static text regardless of state. aria-label
+// carries the state explicitly; not a live region, since re-announcing all
+// three items on every keystroke would be far noisier than useful — a
+// screen reader user checks the group (wired via aria-describedby on the
+// password field) on demand instead.
+function setReqState(el, met) {
+  el.classList.toggle('met', met);
+  el.setAttribute('aria-label', `${el.textContent} — ${met ? 'met' : 'not yet met'}`);
+}
+
 // ---------- Screen helpers ----------
 const SCREEN_TITLES = {
   'screen-login': 'Sign in',
@@ -446,14 +458,15 @@ const forgotNewPasswordSubmit = document.getElementById('forgot-newpassword-subm
 const forgotReqLength = document.getElementById('forgot-req-length');
 const forgotReqUpper = document.getElementById('forgot-req-upper');
 const forgotReqLower = document.getElementById('forgot-req-lower');
+[forgotReqLength, forgotReqUpper, forgotReqLower].forEach((el) => setReqState(el, false));
 let forgotPasswordEmail = '';
 let forgotResetToken = '';
 
 forgotNewPassword.addEventListener('input', () => {
   const v = forgotNewPassword.value;
-  forgotReqLength.classList.toggle('met', v.length >= 8);
-  forgotReqUpper.classList.toggle('met', /[A-Z]/.test(v));
-  forgotReqLower.classList.toggle('met', /[a-z]/.test(v));
+  setReqState(forgotReqLength, v.length >= 8);
+  setReqState(forgotReqUpper, /[A-Z]/.test(v));
+  setReqState(forgotReqLower, /[a-z]/.test(v));
 });
 
 async function doForgotEmailStart() {
@@ -544,11 +557,12 @@ const codeSentTo = document.getElementById('code-sent-to');
 const reqLength = document.getElementById('req-length');
 const reqUpper = document.getElementById('req-upper');
 const reqLower = document.getElementById('req-lower');
+[reqLength, reqUpper, reqLower].forEach((el) => setReqState(el, false));
 signupPassword.addEventListener('input', () => {
   const v = signupPassword.value;
-  reqLength.classList.toggle('met', v.length >= 8);
-  reqUpper.classList.toggle('met', /[A-Z]/.test(v));
-  reqLower.classList.toggle('met', /[a-z]/.test(v));
+  setReqState(reqLength, v.length >= 8);
+  setReqState(reqUpper, /[A-Z]/.test(v));
+  setReqState(reqLower, /[a-z]/.test(v));
 });
 
 async function doSignupStart() {
