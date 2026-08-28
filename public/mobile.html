@@ -5,8 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Neurovance</title>
 <link rel="icon" type="image/png" href="/favicon.png">
-<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="manifest" href="/manifest-mobile.json">
 <meta name="theme-color" content="#050505">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Neurovance">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Michroma&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
@@ -313,6 +317,18 @@
     <div id="settings-handle"></div>
     <h2>Settings</h2>
     <div class="settings-row"><div class="settings-row-label" id="settings-username-row">—</div></div>
+
+    <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:8px;">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <div class="settings-row-label">Referrals</div>
+        <div id="referral-summary" style="font-size:12.5px; color:var(--text-faint);">—</div>
+      </div>
+      <div style="display:flex; gap:6px;">
+        <input id="referral-link-input" class="auth-field" type="text" readonly style="font-size:12.5px; padding:10px 12px;" />
+        <button id="referral-copy-btn" style="flex-shrink:0; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; color:var(--text-bright); font-size:12.5px; padding:0 14px;">Copy</button>
+      </div>
+    </div>
+
     <div class="settings-row"><div class="settings-row-label">Open the full app</div><a href="/" id="desktop-link" style="color:var(--green-bright); font-size:13.5px;">neurovance.dev →</a></div>
     <button id="logout-btn">Log out</button>
   </div>
@@ -705,8 +721,33 @@ async function sendMessage() {
 
 // ---------- Settings sheet ----------
 const settingsBackdrop = document.getElementById('settings-backdrop');
-document.getElementById('settings-open-btn').addEventListener('click', () => settingsBackdrop.classList.add('open'));
+const referralSummary = document.getElementById('referral-summary');
+const referralLinkInput = document.getElementById('referral-link-input');
+const referralCopyBtn = document.getElementById('referral-copy-btn');
+let referralLoaded = false;
+
+document.getElementById('settings-open-btn').addEventListener('click', () => {
+  settingsBackdrop.classList.add('open');
+  if (referralLoaded) return;
+  referralLoaded = true;
+  fetch('/api/referral', { credentials: 'same-origin' })
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((info) => {
+      referralLinkInput.value = `${window.location.origin}/?ref=${info.code}`;
+      referralSummary.textContent = `${info.count} joined · +${info.bonus}/day`;
+    })
+    .catch(() => { referralSummary.textContent = 'Unavailable'; });
+});
 settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) settingsBackdrop.classList.remove('open'); });
+referralCopyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(referralLinkInput.value);
+    referralCopyBtn.textContent = 'Copied';
+    setTimeout(() => { referralCopyBtn.textContent = 'Copy'; }, 1500);
+  } catch (e) {
+    referralLinkInput.select();
+  }
+});
 document.getElementById('logout-btn').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
   window.location.reload();
