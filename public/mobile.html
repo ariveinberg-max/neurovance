@@ -841,9 +841,25 @@ const referralLinkInput = document.getElementById('referral-link-input');
 const referralCopyBtn = document.getElementById('referral-copy-btn');
 let referralLoaded = false;
 
+// The sheet pushes a history entry when it opens, so the phone's own back
+// gesture/button closes it instead of leaving the whole app — without this,
+// Android's hardware back button (or an edge-swipe) navigates away entirely
+// while the sheet is open, which is not how any real app behaves. Every
+// close path (button, backdrop tap, Escape) goes through history.back()
+// rather than touching the DOM directly, so a real back-button press and an
+// in-app close both converge on the same closeSettingsVisual().
+function closeSettingsVisual() {
+  settingsBackdrop.classList.remove('open');
+  settingsOpenBtn.focus(); // returns focus to the trigger, standard modal-dialog behavior
+}
+window.addEventListener('popstate', () => {
+  if (settingsBackdrop.classList.contains('open')) closeSettingsVisual();
+});
+
 function openSettings() {
   settingsBackdrop.classList.add('open');
   settingsSheet.focus(); // moves focus into the dialog for keyboard/screen-reader users
+  window.history.pushState({ modal: 'settings' }, ''); // window.history, not the chat `history` array in scope above
   if (referralLoaded) return;
   referralLoaded = true;
   fetch('/api/referral', { credentials: 'same-origin' })
@@ -855,8 +871,11 @@ function openSettings() {
     .catch(() => { referralSummary.textContent = 'Unavailable'; });
 }
 function closeSettings() {
-  settingsBackdrop.classList.remove('open');
-  settingsOpenBtn.focus(); // returns focus to the trigger, standard modal-dialog behavior
+  if (window.history.state && window.history.state.modal === 'settings') {
+    window.history.back(); // triggers the popstate listener above, which does the actual close
+  } else {
+    closeSettingsVisual();
+  }
 }
 settingsOpenBtn.addEventListener('click', openSettings);
 document.getElementById('settings-close-btn').addEventListener('click', closeSettings);
