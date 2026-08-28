@@ -298,7 +298,7 @@
     </div>
   </div>
 
-  <div id="limit-banner"></div>
+  <div id="limit-banner" role="alert"></div>
 
   <div id="messages">
     <div id="messages-empty">Say something — your Superself remembers everything from before, even here.</div>
@@ -343,6 +343,23 @@
 (function () {
   const tpl = document.getElementById('brand-mark-tpl');
   document.querySelectorAll('.brand-mark-slot').forEach((slot) => slot.appendChild(tpl.content.cloneNode(true)));
+})();
+
+// Accessibility pass, applied once at load rather than hand-repeated on
+// every one of the ~15 form fields/error slots across the auth screens:
+// - role="alert" makes each error div an assertive live region, so a
+//   screen reader announces a validation failure the moment it appears —
+//   without this, submitting a bad password or wrong code is silent.
+// - placeholder text alone isn't a reliable accessible name (inconsistent
+//   support, and it vanishes the moment you start typing), so every field
+//   that only has a placeholder gets a real aria-label mirroring it.
+(function () {
+  document.querySelectorAll('.auth-error').forEach((el) => el.setAttribute('role', 'alert'));
+  document.querySelectorAll('.auth-field, select').forEach((el) => {
+    if (!el.hasAttribute('aria-label') && !el.hasAttribute('aria-labelledby') && el.placeholder) {
+      el.setAttribute('aria-label', el.placeholder);
+    }
+  });
 })();
 
 // ---------- Screen helpers ----------
@@ -704,6 +721,7 @@ function addMessage(role, text) {
   messagesEmpty.style.display = 'none';
   const el = document.createElement('div');
   el.className = 'msg ' + role;
+  if (role === 'error') el.setAttribute('role', 'alert');
   el.textContent = text;
   messagesEl.appendChild(el);
   messagesEl.scrollTop = messagesEl.scrollHeight;
