@@ -300,7 +300,7 @@
 
   <div id="limit-banner" role="alert"></div>
 
-  <div id="messages">
+  <div id="messages" aria-live="polite" aria-relevant="additions">
     <div id="messages-empty">Say something — your Superself remembers everything from before, even here.</div>
   </div>
 
@@ -731,6 +731,7 @@ function addMessage(role, text) {
 function addPending() {
   const el = document.createElement('div');
   el.className = 'msg pending';
+  el.setAttribute('aria-label', 'Thinking…');
   el.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
   messagesEl.appendChild(el);
   messagesEl.scrollTop = messagesEl.scrollHeight;
