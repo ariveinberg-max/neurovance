@@ -204,9 +204,9 @@
     <div class="auth-subtitle">Your Superself</div>
 
     <div id="screen-login" class="auth-screen">
-      <input class="auth-field" id="login-username" type="text" placeholder="Username" autocomplete="username" autocapitalize="off" />
+      <input class="auth-field" id="login-username" type="text" placeholder="Username" autocomplete="username" autocapitalize="off" enterkeyhint="next" />
       <div class="password-field">
-        <input class="auth-field" id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+        <input class="auth-field" id="login-password" type="password" placeholder="Password" autocomplete="current-password" enterkeyhint="go" />
         <button type="button" class="toggle-password" data-target="login-password" aria-pressed="false">Show</button>
       </div>
       <div class="auth-error" id="login-error"></div>
@@ -219,7 +219,7 @@
     </div>
 
     <div id="screen-forgot-email" class="auth-screen" style="display:none">
-      <input class="auth-field" id="forgot-email" type="email" placeholder="Email" autocomplete="email" autocapitalize="off" />
+      <input class="auth-field" id="forgot-email" type="email" placeholder="Email" autocomplete="email" autocapitalize="off" enterkeyhint="go" />
       <div class="auth-error" id="forgot-email-error"></div>
       <button class="auth-submit" id="forgot-email-submit">Send code</button>
       <div class="auth-toggle" id="goto-login-from-forgot" role="button" tabindex="0">Back to <span>sign in</span></div>
@@ -227,7 +227,7 @@
 
     <div id="screen-forgot-code" class="auth-screen" style="display:none">
       <div class="auth-subtitle" id="forgot-code-sent-to" style="margin-bottom:4px;"></div>
-      <input class="auth-field" id="forgot-code" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" />
+      <input class="auth-field" id="forgot-code" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" enterkeyhint="go" />
       <div class="auth-error" id="forgot-code-error"></div>
       <button class="auth-submit" id="forgot-code-submit">Verify</button>
       <div class="auth-toggle" id="goto-forgot-email-from-code" role="button" tabindex="0">Wrong email? <span>Go back</span></div>
@@ -235,7 +235,7 @@
 
     <div id="screen-forgot-newpassword" class="auth-screen" style="display:none">
       <div class="password-field">
-        <input class="auth-field" id="forgot-new-password" type="password" placeholder="New password" autocomplete="new-password" aria-describedby="forgot-password-reqs" />
+        <input class="auth-field" id="forgot-new-password" type="password" placeholder="New password" autocomplete="new-password" aria-describedby="forgot-password-reqs" enterkeyhint="go" />
         <button type="button" class="toggle-password" data-target="forgot-new-password" aria-pressed="false">Show</button>
       </div>
       <div class="password-reqs" id="forgot-password-reqs" role="group" aria-label="Password requirements">
@@ -248,9 +248,9 @@
     </div>
 
     <div id="screen-signup-email" class="auth-screen" style="display:none">
-      <input class="auth-field" id="signup-email" type="email" placeholder="Email" autocomplete="email" autocapitalize="off" />
+      <input class="auth-field" id="signup-email" type="email" placeholder="Email" autocomplete="email" autocapitalize="off" enterkeyhint="next" />
       <div class="password-field">
-        <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" aria-describedby="password-reqs" />
+        <input class="auth-field" id="signup-password" type="password" placeholder="Password" autocomplete="new-password" aria-describedby="password-reqs" enterkeyhint="go" />
         <button type="button" class="toggle-password" data-target="signup-password" aria-pressed="false">Show</button>
       </div>
       <div class="password-reqs" id="password-reqs" role="group" aria-label="Password requirements">
@@ -268,16 +268,16 @@
 
     <div id="screen-signup-code" class="auth-screen" style="display:none">
       <div class="auth-subtitle" id="code-sent-to" style="margin-bottom:4px;"></div>
-      <input class="auth-field" id="signup-code" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" />
+      <input class="auth-field" id="signup-code" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" enterkeyhint="go" />
       <div class="auth-error" id="signup-code-error"></div>
       <button class="auth-submit" id="signup-code-submit">Verify</button>
       <div class="auth-toggle" id="goto-signup-email-from-code" role="button" tabindex="0">Wrong email? <span>Go back</span></div>
     </div>
 
     <div id="screen-signup-username" class="auth-screen" style="display:none">
-      <input class="auth-field" id="signup-username" type="text" placeholder="Choose a username" autocomplete="username" autocapitalize="off" pattern="[a-z0-9_]{3,20}" />
-      <input class="auth-field" id="signup-displayname" type="text" placeholder="Your name" />
-      <input class="auth-field" id="signup-ainame" type="text" placeholder="Name your Superself" />
+      <input class="auth-field" id="signup-username" type="text" placeholder="Choose a username" autocomplete="username" autocapitalize="off" pattern="[a-z0-9_]{3,20}" enterkeyhint="next" />
+      <input class="auth-field" id="signup-displayname" type="text" placeholder="Your name" enterkeyhint="next" />
+      <input class="auth-field" id="signup-ainame" type="text" placeholder="Name your Superself" enterkeyhint="go" />
       <div class="auth-error" id="signup-username-error"></div>
       <button class="auth-submit" id="signup-username-submit">Create account</button>
       <div class="auth-toggle" id="goto-login-from-username" role="button" tabindex="0">Already have an account? <span>Sign in</span></div>
@@ -433,6 +433,7 @@ async function doLogin() {
 }
 loginSubmit.addEventListener('click', doLogin);
 loginPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+loginUsername.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); loginPassword.focus(); } });
 
 // role="button" divs need their own keyboard activation — a real <button>
 // gets Enter/Space for free, a div with a click listener doesn't.
@@ -601,6 +602,8 @@ async function doSignupStart() {
   }
 }
 signupEmailSubmit.addEventListener('click', doSignupStart);
+signupEmail.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); signupPassword.focus(); } });
+signupPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSignupStart(); });
 
 // ---------- Signup: verify code ----------
 const signupCode = document.getElementById('signup-code');
@@ -671,6 +674,8 @@ async function doFinishSignup() {
 }
 signupUsernameSubmit.addEventListener('click', doFinishSignup);
 signupAiName.addEventListener('keydown', (e) => { if (e.key === 'Enter') doFinishSignup(); });
+signupUsername.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); signupDisplayName.focus(); } });
+signupDisplayName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); signupAiName.focus(); } });
 
 // ============================================================
 // APP — chat
