@@ -205,10 +205,39 @@
       </div>
       <div class="auth-error" id="login-error"></div>
       <button class="auth-submit" id="login-submit">Sign in</button>
+      <div class="auth-toggle" id="goto-forgot" role="button" tabindex="0"><span>Forgot password?</span></div>
       <div class="oauth-divider"><span>or</span></div>
       <a class="oauth-btn" href="/api/oauth/google/start?from=mobile">Continue with Google</a>
       <a class="oauth-btn" href="/api/oauth/github/start?from=mobile">Continue with GitHub</a>
       <div class="auth-toggle" id="goto-signup" role="button" tabindex="0">Don't have an account? <span>Sign up</span></div>
+    </div>
+
+    <div id="screen-forgot-email" class="auth-screen" style="display:none">
+      <input class="auth-field" id="forgot-email" type="email" placeholder="Email" autocomplete="email" autocapitalize="off" />
+      <div class="auth-error" id="forgot-email-error"></div>
+      <button class="auth-submit" id="forgot-email-submit">Send code</button>
+      <div class="auth-toggle" id="goto-login-from-forgot" role="button" tabindex="0">Back to <span>sign in</span></div>
+    </div>
+
+    <div id="screen-forgot-code" class="auth-screen" style="display:none">
+      <div class="auth-subtitle" id="forgot-code-sent-to" style="margin-bottom:4px;"></div>
+      <input class="auth-field" id="forgot-code" type="text" placeholder="6-digit code" maxlength="6" inputmode="numeric" />
+      <div class="auth-error" id="forgot-code-error"></div>
+      <button class="auth-submit" id="forgot-code-submit">Verify</button>
+    </div>
+
+    <div id="screen-forgot-newpassword" class="auth-screen" style="display:none">
+      <div class="password-field">
+        <input class="auth-field" id="forgot-new-password" type="password" placeholder="New password" autocomplete="new-password" />
+        <button type="button" class="toggle-password" data-target="forgot-new-password">Show</button>
+      </div>
+      <div class="password-reqs" id="forgot-password-reqs">
+        <div class="req" id="forgot-req-length">At least 8 characters</div>
+        <div class="req" id="forgot-req-upper">One uppercase letter</div>
+        <div class="req" id="forgot-req-lower">One lowercase letter</div>
+      </div>
+      <div class="auth-error" id="forgot-newpassword-error"></div>
+      <button class="auth-submit" id="forgot-newpassword-submit">Reset password</button>
     </div>
 
     <div id="screen-signup-email" class="auth-screen" style="display:none">
@@ -296,11 +325,16 @@
 })();
 
 // ---------- Screen helpers ----------
+const SCREEN_TITLES = {
+  'screen-login': 'Sign in',
+  'screen-forgot-email': 'Reset password',
+  'screen-forgot-code': 'Reset password',
+  'screen-forgot-newpassword': 'Reset password',
+};
 function goToScreen(id) {
   document.querySelectorAll('.auth-screen').forEach((el) => { el.style.display = 'none'; });
   document.getElementById(id).style.display = 'flex';
-  const title = document.getElementById('auth-title');
-  title.textContent = id === 'screen-login' ? 'Sign in' : 'Create your Superself';
+  document.getElementById('auth-title').textContent = SCREEN_TITLES[id] || 'Create your Superself';
 }
 
 document.querySelectorAll('.toggle-password').forEach((btn) => {
@@ -356,6 +390,110 @@ function onActivate(el, fn) {
 }
 onActivate(document.getElementById('goto-signup'), () => goToScreen('screen-signup-email'));
 onActivate(document.getElementById('goto-login'), () => goToScreen('screen-login'));
+onActivate(document.getElementById('goto-forgot'), () => goToScreen('screen-forgot-email'));
+onActivate(document.getElementById('goto-login-from-forgot'), () => goToScreen('screen-login'));
+
+// ---------- Forgot password: emailed code -> reset token -> new password ----------
+const forgotEmail = document.getElementById('forgot-email');
+const forgotEmailError = document.getElementById('forgot-email-error');
+const forgotEmailSubmit = document.getElementById('forgot-email-submit');
+const forgotCodeSentTo = document.getElementById('forgot-code-sent-to');
+const forgotCode = document.getElementById('forgot-code');
+const forgotCodeError = document.getElementById('forgot-code-error');
+const forgotCodeSubmit = document.getElementById('forgot-code-submit');
+const forgotNewPassword = document.getElementById('forgot-new-password');
+const forgotNewPasswordError = document.getElementById('forgot-newpassword-error');
+const forgotNewPasswordSubmit = document.getElementById('forgot-newpassword-submit');
+const forgotReqLength = document.getElementById('forgot-req-length');
+const forgotReqUpper = document.getElementById('forgot-req-upper');
+const forgotReqLower = document.getElementById('forgot-req-lower');
+let forgotPasswordEmail = '';
+let forgotResetToken = '';
+
+forgotNewPassword.addEventListener('input', () => {
+  const v = forgotNewPassword.value;
+  forgotReqLength.classList.toggle('met', v.length >= 8);
+  forgotReqUpper.classList.toggle('met', /[A-Z]/.test(v));
+  forgotReqLower.classList.toggle('met', /[a-z]/.test(v));
+});
+
+async function doForgotEmailStart() {
+  forgotEmailError.textContent = '';
+  const email = forgotEmail.value.trim();
+  if (!email) { forgotEmailError.textContent = 'Enter your email.'; return; }
+  forgotEmailSubmit.disabled = true;
+  try {
+    const res = await fetch('/api/forgot-password', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+    forgotPasswordEmail = email;
+    forgotCodeSentTo.textContent = `If an account exists for ${email}, a code was sent.`;
+    goToScreen('screen-forgot-code');
+  } catch (err) {
+    forgotEmailError.textContent = err.message;
+  } finally {
+    forgotEmailSubmit.disabled = false;
+  }
+}
+forgotEmailSubmit.addEventListener('click', doForgotEmailStart);
+forgotEmail.addEventListener('keydown', (e) => { if (e.key === 'Enter') doForgotEmailStart(); });
+
+async function doForgotCodeVerify() {
+  forgotCodeError.textContent = '';
+  const code = forgotCode.value.trim();
+  if (!code) { forgotCodeError.textContent = 'Enter the code.'; return; }
+  forgotCodeSubmit.disabled = true;
+  try {
+    const res = await fetch('/api/reset-password-verify', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: forgotPasswordEmail, code }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+    forgotResetToken = data.resetToken;
+    goToScreen('screen-forgot-newpassword');
+  } catch (err) {
+    forgotCodeError.textContent = err.message;
+  } finally {
+    forgotCodeSubmit.disabled = false;
+  }
+}
+forgotCodeSubmit.addEventListener('click', doForgotCodeVerify);
+forgotCode.addEventListener('keydown', (e) => { if (e.key === 'Enter') doForgotCodeVerify(); });
+
+async function doForgotNewPassword() {
+  forgotNewPasswordError.textContent = '';
+  const newPassword = forgotNewPassword.value;
+  if (!newPassword) { forgotNewPasswordError.textContent = 'Enter a new password.'; return; }
+  forgotNewPasswordSubmit.disabled = true;
+  try {
+    const res = await fetch('/api/reset-password-finish', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: forgotPasswordEmail, resetToken: forgotResetToken, newPassword }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+    loginUsername.value = '';
+    loginPassword.value = '';
+    loginError.textContent = '';
+    forgotEmail.value = '';
+    forgotCode.value = '';
+    forgotNewPassword.value = '';
+    goToScreen('screen-login');
+  } catch (err) {
+    forgotNewPasswordError.textContent = err.message;
+  } finally {
+    forgotNewPasswordSubmit.disabled = false;
+  }
+}
+forgotNewPasswordSubmit.addEventListener('click', doForgotNewPassword);
+forgotNewPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') doForgotNewPassword(); });
 
 // ---------- Signup: email + password ----------
 const signupEmail = document.getElementById('signup-email');

@@ -454,7 +454,15 @@ async function handleRequest(req, res) {
         return sendJson(res, 400, { error: 'Email and password are required.' });
       }
       const code = await auth.startSignup({ email, password });
-      await sendVerificationCode(email.trim(), code);
+      try {
+        await sendVerificationCode(email.trim(), code);
+      } catch (mailErr) {
+        // Never surface raw SMTP/provider errors to the client — they can
+        // contain infrastructure detail that's not this user's business,
+        // and isn't actionable for them anyway.
+        console.error('Verification email failed to send:', mailErr);
+        return sendJson(res, 500, { error: 'Could not send the verification email right now — try again in a moment.' });
+      }
       sendJson(res, 200, { ok: true });
     } catch (e) {
       sendJson(res, 400, { error: e.message });
@@ -528,7 +536,17 @@ async function handleRequest(req, res) {
       const { email } = await readJsonBody(req);
       if (!email?.trim()) return sendJson(res, 400, { error: 'Email is required.' });
       const code = await auth.startPasswordReset(email);
-      if (code) await sendVerificationCode(email.trim(), code);
+      if (code) {
+        try {
+          await sendVerificationCode(email.trim(), code);
+        } catch (mailErr) {
+          console.error('Password reset email failed to send:', mailErr);
+          // Deliberately still returns ok:true here — this response's whole
+          // point is to never reveal whether the email matched an account,
+          // and a failed send for an email that WASN'T real is not this
+          // user's business either. The real failure is already logged.
+        }
+      }
       sendJson(res, 200, { ok: true });
     } catch (e) {
       sendJson(res, 400, { error: e.message });
