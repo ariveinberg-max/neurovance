@@ -377,6 +377,16 @@ function setReqState(el, met) {
   el.setAttribute('aria-label', `${el.textContent} — ${met ? 'met' : 'not yet met'}`);
 }
 
+// fetch's own failure mode for offline/DNS/unreachable-server is a TypeError
+// with a cryptic browser-specific message ("Failed to fetch", "NetworkError
+// when attempting to fetch resource") — every auth screen's catch block
+// showed that raw text verbatim. On a page whose whole reason for existing
+// is a phone with a flaky signal, that's the single most likely error a
+// real user hits.
+function friendlyErrorMessage(err) {
+  return err instanceof TypeError ? 'No connection — check your signal and try again.' : err.message;
+}
+
 // ---------- Screen helpers ----------
 const SCREEN_TITLES = {
   'screen-login': 'Sign in',
@@ -426,7 +436,7 @@ async function doLogin() {
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');
     showApp(data);
   } catch (err) {
-    loginError.textContent = err.message;
+    loginError.textContent = friendlyErrorMessage(err);
   } finally {
     loginSubmit.disabled = false;
   }
@@ -493,7 +503,7 @@ async function doForgotEmailStart() {
     forgotCodeSentTo.textContent = `If an account exists for ${email}, a code was sent.`;
     goToScreen('screen-forgot-code');
   } catch (err) {
-    forgotEmailError.textContent = err.message;
+    forgotEmailError.textContent = friendlyErrorMessage(err);
   } finally {
     forgotEmailSubmit.disabled = false;
   }
@@ -517,7 +527,7 @@ async function doForgotCodeVerify() {
     forgotResetToken = data.resetToken;
     goToScreen('screen-forgot-newpassword');
   } catch (err) {
-    forgotCodeError.textContent = err.message;
+    forgotCodeError.textContent = friendlyErrorMessage(err);
   } finally {
     forgotCodeSubmit.disabled = false;
   }
@@ -546,7 +556,7 @@ async function doForgotNewPassword() {
     forgotNewPassword.value = '';
     goToScreen('screen-login');
   } catch (err) {
-    forgotNewPasswordError.textContent = err.message;
+    forgotNewPasswordError.textContent = friendlyErrorMessage(err);
   } finally {
     forgotNewPasswordSubmit.disabled = false;
   }
@@ -595,7 +605,7 @@ async function doSignupStart() {
     codeSentTo.textContent = `Code sent to ${email}`;
     goToScreen('screen-signup-code');
   } catch (err) {
-    signupEmailError.textContent = err.message;
+    signupEmailError.textContent = friendlyErrorMessage(err);
   } finally {
     signupEmailSubmit.disabled = false;
     signupEmailSubmit.textContent = 'Send code';
@@ -626,7 +636,7 @@ async function doVerifyCode() {
     pendingVerifiedToken = data.verifiedToken;
     goToScreen('screen-signup-username');
   } catch (err) {
-    signupCodeError.textContent = err.message;
+    signupCodeError.textContent = friendlyErrorMessage(err);
   } finally {
     signupCodeSubmit.disabled = false;
   }
@@ -667,7 +677,7 @@ async function doFinishSignup() {
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');
     showApp(data);
   } catch (err) {
-    signupUsernameError.textContent = err.message;
+    signupUsernameError.textContent = friendlyErrorMessage(err);
   } finally {
     signupUsernameSubmit.disabled = false;
   }
@@ -803,8 +813,7 @@ async function sendMessage() {
     saveChatHistory();
   } catch (err) {
     pending.remove();
-    const isNetworkErr = err instanceof TypeError; // fetch's own failure mode for offline/DNS/etc.
-    addMessage('error', isNetworkErr ? 'No connection — check your signal and try again.' : err.message);
+    addMessage('error', friendlyErrorMessage(err));
   } finally {
     sending = false;
     sendBtn.disabled = false;
