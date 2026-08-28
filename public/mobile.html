@@ -698,6 +698,13 @@ async function sendMessage() {
     });
     const data = await res.json();
     pending.remove();
+    if (res.status === 401) {
+      // Session expired mid-conversation — reload rather than leave them
+      // stuck on a chat screen that can never send again.
+      addMessage('error', 'Signed out — reloading…');
+      setTimeout(() => window.location.reload(), 1200);
+      return;
+    }
     if (res.status === 429) {
       limitBanner.textContent = data.error;
       limitBanner.classList.add('show');
@@ -711,7 +718,8 @@ async function sendMessage() {
     history = history.slice(-12);
   } catch (err) {
     pending.remove();
-    addMessage('error', err.message);
+    const isNetworkErr = err instanceof TypeError; // fetch's own failure mode for offline/DNS/etc.
+    addMessage('error', isNetworkErr ? 'No connection — check your signal and try again.' : err.message);
   } finally {
     sending = false;
     sendBtn.disabled = false;
