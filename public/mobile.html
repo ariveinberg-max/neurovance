@@ -642,12 +642,46 @@ const composerInput = document.getElementById('composer-input');
 const sendBtn = document.getElementById('send-btn');
 const limitBanner = document.getElementById('limit-banner');
 
+// Persists the visible transcript across a reload/backgrounding — a phone
+// tab getting discarded and reloaded is routine, and losing the whole
+// on-screen conversation on every reload would feel broken even though the
+// Superself itself still remembers everything server-side regardless.
+// Scoped to sessionStorage (this tab only) and keyed by username so
+// logging out and a different account logging in on the same tab never
+// shows the wrong person's messages.
+const CHAT_STORAGE_KEY = 'neurovance_mobile_chat';
+
+function loadStoredChat(username) {
+  try {
+    const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed.username === username ? parsed.history : null;
+  } catch (e) { return null; }
+}
+
+function saveChatHistory() {
+  try {
+    sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ username: identity?.username, history }));
+  } catch (e) {}
+}
+
+function clearStoredChat() {
+  try { sessionStorage.removeItem(CHAT_STORAGE_KEY); } catch (e) {}
+}
+
 function showApp(data) {
   identity = data;
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('chat-ai-name').textContent = data.aiName || 'Superself';
   document.getElementById('settings-username-row').textContent = '@' + (data.username || '');
+
+  const stored = loadStoredChat(data.username);
+  if (stored && stored.length) {
+    history = stored;
+    history.forEach((m) => addMessage(m.role, m.content));
+  }
   composerInput.focus();
 }
 
@@ -716,6 +750,7 @@ async function sendMessage() {
     history.push({ role: 'user', content: text });
     history.push({ role: 'assistant', content: data.reply });
     history = history.slice(-12);
+    saveChatHistory();
   } catch (err) {
     pending.remove();
     const isNetworkErr = err instanceof TypeError; // fetch's own failure mode for offline/DNS/etc.
@@ -757,6 +792,7 @@ referralCopyBtn.addEventListener('click', async () => {
   }
 });
 document.getElementById('logout-btn').addEventListener('click', async () => {
+  clearStoredChat();
   await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
   window.location.reload();
 });
