@@ -688,8 +688,18 @@ async function buildChatSystemPrompt(userId, user, message, mode = 'voice') {
   ].filter(Boolean).join('\n');
 }
 
+// Returns { text, thinking } rather than a bare string — when extended
+// thinking is on (resolveThinking / effort level above "low"), the API
+// actually reasons before every response in the loop, tool-use turns
+// included, and that reasoning was previously just thrown away with
+// nothing to show for the extra latency/tokens it cost. Collected across
+// every iteration (not just the final one) and joined, so a multi-step
+// tool-use turn surfaces the reasoning behind each step, not only the
+// last. Empty string (never undefined) when thinking wasn't requested or
+// produced none, so callers can check truthiness without an extra null check.
 async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId, priorMessages = [], thinking = undefined) {
   const messages = [...priorMessages, { role: 'user', content: initialMessage }];
+  const thinkingParts = [];
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -703,10 +713,12 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
     });
 
     messages.push({ role: 'assistant', content: response.content });
+    thinkingParts.push(...response.content.filter((b) => b.type === 'thinking').map((b) => b.thinking));
 
     const toolUses = response.content.filter((b) => b.type === 'tool_use');
     if (toolUses.length === 0) {
-      return response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+      const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+      return { text, thinking: thinkingParts.join('\n\n---\n\n') };
     }
 
     const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
@@ -754,7 +766,8 @@ export async function runTask(userId, user, task, history = [], opts = {}) {
   ]);
   const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools, ...connectorTools];
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 1024);
-  return runLoop(userId, system, task, tools, maxTokens, resolveModel(user?.model), history, thinking);
+  const { text } = await runLoop(userId, system, task, tools, maxTokens, resolveModel(user?.model), history, thinking);
+  return text; // task mode's own contract is still a plain string — thinking display is a chat-only feature for now
 }
 
 // Turns a raw dump of text (typed or pasted, however messy) into individual
@@ -927,5 +940,6 @@ export async function chatReply(userId, user, message, history = [], mode = 'voi
   ]);
   const baseMaxTokens = mode === 'voice' ? 400 : 1536;
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, baseMaxTokens);
-  return runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools, ...connectorTools], maxTokens, resolveModel(user?.model), history, thinking);
+  const { text, thinking: thinkingText } = await runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools, ...connectorTools], maxTokens, resolveModel(user?.model), history, thinking);
+  return { reply: text, thinking: thinkingText };
 }

@@ -662,7 +662,7 @@ async function handleRequest(req, res) {
       if (typeof message !== 'string' || !message.trim()) {
         return sendJson(res, 400, { error: 'message must be a non-empty string' });
       }
-      const reply = await chatReply(apiUser.id, apiUser, message.trim(), sanitizeHistory(history));
+      const { reply } = await chatReply(apiUser.id, apiUser, message.trim(), sanitizeHistory(history));
       return sendJson(res, 200, { reply });
     } catch (e) {
       console.error('API v1 chat error:', e);
@@ -1238,8 +1238,8 @@ async function handleRequest(req, res) {
         if (typeof message !== 'string' || !message.trim()) {
           return sendJson(res, 400, { error: 'message must be a non-empty string' });
         }
-        const reply = await chatReply(user.id, user, message.trim(), sanitizeHistory(history), mode === 'text' ? 'text' : 'voice');
-        return sendJson(res, 200, { reply });
+        const { reply, thinking } = await chatReply(user.id, user, message.trim(), sanitizeHistory(history), mode === 'text' ? 'text' : 'voice');
+        return sendJson(res, 200, thinking ? { reply, thinking } : { reply });
       } catch (e) {
         console.error('Chat error:', e);
         return sendJson(res, 500, { error: 'Chat failed: ' + e.message });
@@ -1313,7 +1313,8 @@ companion.registerAgentHooks({
     // panel would be a free way around it, since it never touches that route.
     const usage = await auth.checkAndIncrementUsage(userId);
     if (!usage.allowed) throw new Error(`Daily limit reached (${usage.limit} messages) — resets at midnight UTC.`);
-    return await chatReply(userId, user, message.trim(), sanitizeHistory(history));
+    const { reply } = await chatReply(userId, user, message.trim(), sanitizeHistory(history));
+    return reply;
   },
   identity: async (userId) => {
     const user = await auth.findUserById(userId);
