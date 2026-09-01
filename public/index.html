@@ -2818,6 +2818,21 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+// Talk, Code, and Settings are three separate full-panel overlays (added
+// across different points this session, each with its own open/close
+// wiring in its own closure) — without this, opening one while another was
+// already open just stacked them by z-index instead of replacing it, so
+// closing the top one silently dropped you into a panel you'd forgotten
+// was still open underneath. Called at the start of each one's own open
+// handler; artifact-backdrop is deliberately NOT in this list since it's
+// opened by clicking a card inside an already-open Talk transcript and is
+// meant to layer on top of that, not replace it.
+function closeOtherOverlays(exceptBackdropId) {
+  ['talk-backdrop', 'code-backdrop', 'settings-modal-backdrop'].forEach((id) => {
+    if (id !== exceptBackdropId) document.getElementById(id)?.classList.remove('open');
+  });
+}
+
 // Text-mode chat is told (agent.js) it can write markdown since nobody's
 // listening to it — assistant/task-result turns render it; user/status/
 // error stay plain escaped text (no reason to markdown-render your own
@@ -3020,7 +3035,11 @@ function initTalkDrawer() {
   const modeTabs = document.querySelectorAll('.talk-mode');
   let mode = 'chat';
 
-  toggle.addEventListener('click', () => backdrop.classList.toggle('open'));
+  toggle.addEventListener('click', () => {
+    const opening = !backdrop.classList.contains('open');
+    if (opening) closeOtherOverlays('talk-backdrop');
+    backdrop.classList.toggle('open');
+  });
   closeBtn.addEventListener('click', () => backdrop.classList.remove('open'));
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
 
@@ -3326,6 +3345,7 @@ function initCodePanel() {
   });
 
   function openPanel() {
+    closeOtherOverlays('code-backdrop');
     backdrop.classList.add('open');
     ensureEditor();
     refreshFileList();
@@ -3446,8 +3466,12 @@ function getCurrentVoice() {
 
 function initSettings() {
   const backdrop = document.getElementById('settings-modal-backdrop');
-  document.getElementById('settings-trigger').addEventListener('click', () => backdrop.classList.add('open'));
-  document.getElementById('settings-gear-btn').addEventListener('click', () => backdrop.classList.add('open'));
+  function openSettingsModal() {
+    closeOtherOverlays('settings-modal-backdrop');
+    backdrop.classList.add('open');
+  }
+  document.getElementById('settings-trigger').addEventListener('click', openSettingsModal);
+  document.getElementById('settings-gear-btn').addEventListener('click', openSettingsModal);
   document.getElementById('settings-modal-close').addEventListener('click', () => backdrop.classList.remove('open'));
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
 
