@@ -13,6 +13,14 @@
 <meta name="apple-mobile-web-app-title" content="Neurovance">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Michroma&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<!-- Assistant replies are now markdown (agent.js tells text-mode chat to use
+     it) — marked parses it, DOMPurify sanitizes the resulting HTML before it
+     ever touches innerHTML, highlight.js colors code blocks. hljs-theme-link
+     is swapped at runtime by the theme picker in Settings. -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<link id="hljs-theme-link" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 <style>
   :root {
     --bg: #050505;
@@ -115,6 +123,46 @@
   .msg.assistant { align-self: flex-start; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
   .msg.pending { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; display: flex; gap: 5px; padding: 14px 16px; }
   .msg.error { align-self: center; color: var(--red); background: none; border: 1px dashed rgba(217,138,138,0.4); font-size: 13px; }
+
+  /* ---------- Rendered markdown inside an assistant bubble ---------- */
+  .msg.assistant p { margin: 0 0 10px; }
+  .msg.assistant p:last-child { margin-bottom: 0; }
+  .msg.assistant ul, .msg.assistant ol { margin: 0 0 10px; padding-left: 22px; }
+  .msg.assistant li { margin-bottom: 4px; }
+  .msg.assistant li:last-child { margin-bottom: 0; }
+  .msg.assistant strong { color: var(--text-bright); font-weight: 600; }
+  .msg.assistant a { color: var(--green-bright); text-decoration: underline; text-underline-offset: 2px; }
+  .msg.assistant blockquote {
+    margin: 0 0 10px; padding-left: 12px; border-left: 2px solid var(--border); color: var(--text-muted);
+  }
+  .msg.assistant blockquote:last-child { margin-bottom: 0; }
+  .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 {
+    font-family: 'Michroma', sans-serif; font-size: 13px; letter-spacing: 0.5px; color: var(--text-bright);
+    margin: 4px 0 10px; line-height: 1.4;
+  }
+  .msg.assistant code {
+    font-family: 'Share Tech Mono', monospace; font-size: 0.88em; background: var(--surface-2);
+    padding: 2px 5px; border-radius: 4px; word-break: break-word;
+  }
+  .msg.assistant table { border-collapse: collapse; margin: 0 0 10px; font-size: 0.92em; display: block; overflow-x: auto; }
+  .msg.assistant th, .msg.assistant td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+  .msg.assistant th { color: var(--text-bright); font-weight: 600; }
+  .msg.assistant hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+
+  .code-block-wrap { position: relative; margin: 0 0 10px; }
+  .code-block-wrap:last-child { margin-bottom: 0; }
+  .code-block-wrap pre {
+    margin: 0; padding: 14px 14px; border-radius: 10px; overflow-x: auto; background: var(--surface-2) !important;
+    border: 1px solid var(--border);
+  }
+  .code-block-wrap pre code { font-family: 'Share Tech Mono', monospace; font-size: 12.5px; line-height: 1.55; background: none !important; padding: 0 !important; }
+  .code-copy-btn {
+    position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+    color: var(--text-muted); font-size: 10.5px; letter-spacing: 0.4px; text-transform: uppercase;
+    padding: 4px 9px; border-radius: 6px; cursor: pointer;
+  }
+  .code-copy-btn:active { background: rgba(0,0,0,0.6); }
+
   .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); animation: pulse 1.1s infinite ease-in-out; }
   .dot:nth-child(2) { animation-delay: 0.15s; }
   .dot:nth-child(3) { animation-delay: 0.3s; }
@@ -344,6 +392,18 @@
         <input id="referral-link-input" class="auth-field" type="text" readonly aria-label="Your referral link" style="font-size:12.5px; padding:10px 12px;" />
         <button id="referral-copy-btn" style="flex-shrink:0; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; color:var(--text-bright); font-size:12.5px; padding:0 14px;">Copy</button>
       </div>
+    </div>
+
+    <div class="settings-row">
+      <label class="settings-row-label" for="code-theme-select">Code color</label>
+      <select id="code-theme-select" class="auth-field" style="width:auto; padding:8px 30px 8px 12px; font-size:13px;">
+        <option value="github-dark">GitHub Dark</option>
+        <option value="monokai">Monokai</option>
+        <option value="atom-one-dark">Atom One Dark</option>
+        <option value="nord">Nord</option>
+        <option value="night-owl">Night Owl</option>
+        <option value="tokyo-night-dark">Tokyo Night</option>
+      </select>
     </div>
 
     <div class="settings-row"><div class="settings-row-label">Open the full app</div><a href="/" id="desktop-link" style="color:var(--green-bright); font-size:13.5px;">neurovance.dev →</a></div>
@@ -764,12 +824,54 @@ composerInput.addEventListener('keydown', (e) => {
 });
 sendBtn.addEventListener('click', sendMessage);
 
+// Assistant replies are markdown now (agent.js's text-mode prompt asks for
+// it) — everything else (the user's own typed text, error strings) stays
+// plain textContent, both because there's no reason to markdown-render your
+// own input and because it's one less thing routed through innerHTML.
+marked.setOptions({ breaks: true, gfm: true });
+
+function renderMarkdown(text) {
+  return DOMPurify.sanitize(marked.parse(text));
+}
+
+// marked emits plain <pre><code class="language-x">; this wraps each one in
+// a positioned div for the copy button and runs it through highlight.js.
+// Copy reads the code element's own textContent, not the outer wrapper, so
+// the copy button's label never ends up in the clipboard.
+function enhanceCodeBlocks(container) {
+  container.querySelectorAll('pre').forEach((pre) => {
+    const codeEl = pre.querySelector('code');
+    if (codeEl) hljs.highlightElement(codeEl);
+    const wrap = document.createElement('div');
+    wrap.className = 'code-block-wrap';
+    pre.replaceWith(wrap);
+    wrap.appendChild(pre);
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'code-copy-btn';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(codeEl ? codeEl.textContent : pre.textContent);
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      } catch (e) {}
+    });
+    wrap.appendChild(copyBtn);
+  });
+}
+
 function addMessage(role, text) {
   messagesEmpty.style.display = 'none';
   const el = document.createElement('div');
   el.className = 'msg ' + role;
   if (role === 'error') el.setAttribute('role', 'alert');
-  el.textContent = text;
+  if (role === 'assistant') {
+    el.innerHTML = renderMarkdown(text);
+    enhanceCodeBlocks(el);
+  } else {
+    el.textContent = text;
+  }
   messagesEl.appendChild(el);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return el;
@@ -912,6 +1014,27 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
   clearStoredChat();
   await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
   window.location.reload();
+});
+
+// ---------- Code color theme (purely a display preference, so it lives in
+// localStorage rather than the account — no reason it needs to sync
+// server-side or across devices) ----------
+const CODE_THEME_KEY = 'neurovance_code_theme';
+const codeThemeSelect = document.getElementById('code-theme-select');
+const hljsThemeLink = document.getElementById('hljs-theme-link');
+function applyCodeTheme(theme) {
+  hljsThemeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${theme}.min.css`;
+}
+let storedCodeTheme;
+try { storedCodeTheme = localStorage.getItem(CODE_THEME_KEY); } catch (e) {}
+if (storedCodeTheme) {
+  codeThemeSelect.value = storedCodeTheme;
+  applyCodeTheme(storedCodeTheme);
+}
+codeThemeSelect.addEventListener('change', () => {
+  const theme = codeThemeSelect.value;
+  applyCodeTheme(theme);
+  try { localStorage.setItem(CODE_THEME_KEY, theme); } catch (e) {}
 });
 
 // ---------- Referral capture (mirrors index.html) ----------
