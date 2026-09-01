@@ -415,6 +415,100 @@
   #talk-send:hover { background: rgba(var(--overlay-rgb),0.14); }
   #talk-send:disabled { opacity: 0.5; cursor: default; }
 
+  /* ---------- Code — VSCode explorer/editor layout wrapped in a Claude-
+     Code-style terminal prompt bar. Desktop only: hidden below the same
+     1024px breakpoint the mobile gate uses, since a phone is not a place
+     to run a code editor. ---------- */
+  #code-toggle {
+    position: fixed; bottom: 24px; right: 110px; z-index: 40;
+    background: var(--surface-alt); border: 1px solid rgba(var(--overlay-rgb),0.14); color: var(--text-primary);
+    font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: 0.3px;
+    padding: 11px 18px; border-radius: 20px; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  #code-toggle:hover { background: var(--surface); border-color: rgba(var(--overlay-rgb),0.28); }
+  #code-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 42;
+    background: rgba(0,0,0,0.45); align-items: center; justify-content: center; padding: 20px;
+  }
+  #code-backdrop.open { display: flex; }
+  #code-panel {
+    width: 94vw; max-width: 1400px; height: 90vh; max-height: 960px;
+    background: #0b0c0e; border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 12px;
+    display: flex; flex-direction: column; box-shadow: 0 60px 140px rgba(0,0,0,0.6);
+    opacity: 0; transform: scale(0.97); transition: opacity 0.2s ease, transform 0.2s ease;
+    font-family: 'Share Tech Mono', monospace; overflow: hidden;
+  }
+  #code-backdrop.open #code-panel { opacity: 1; transform: scale(1); }
+  #code-panel-header {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08); background: #0e0f12;
+  }
+  #code-panel-title { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: #8a8a92; }
+  #code-editor-theme-select {
+    margin-left: auto; background: #16171b; border: 1px solid rgba(255,255,255,0.1); color: #c8c8ce;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px; padding: 5px 8px; border-radius: 5px; outline: none;
+  }
+  #code-panel-close { color: #8a8a92; cursor: pointer; padding: 2px 6px; font-size: 14px; }
+  #code-panel-close:hover { color: #e8e8ec; }
+  #code-panel-body { flex: 1 1 auto; display: flex; min-height: 0; }
+  #code-file-tree {
+    flex: 0 0 200px; border-right: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column;
+    background: #0e0f12; overflow-y: auto;
+  }
+  #code-file-tree-header {
+    display: flex; align-items: center; justify-content: space-between; padding: 10px 12px;
+    font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #6e6e76; flex-shrink: 0;
+  }
+  #code-new-file-btn {
+    background: none; border: 1px solid rgba(255,255,255,0.14); color: #c8c8ce; width: 20px; height: 20px;
+    border-radius: 4px; cursor: pointer; font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  }
+  #code-new-file-btn:hover { background: rgba(255,255,255,0.06); }
+  #code-file-list { flex: 1; padding: 0 6px 8px; }
+  .code-file-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px;
+    border-radius: 5px; cursor: pointer; font-size: 12px; color: #a8a8b0;
+  }
+  .code-file-row:hover { background: rgba(255,255,255,0.05); }
+  .code-file-row.active { background: rgba(127,217,154,0.12); color: #eafff0; }
+  .code-file-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .code-file-row-delete {
+    flex-shrink: 0; opacity: 0; color: #8a8a92; font-size: 13px; line-height: 1; padding: 0 2px;
+  }
+  .code-file-row:hover .code-file-row-delete { opacity: 1; }
+  .code-file-row-delete:hover { color: #e87a7a; }
+  #code-file-tree-empty { padding: 14px 12px; font-size: 11px; color: #6e6e76; line-height: 1.6; }
+  #code-editor-area { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; position: relative; }
+  #code-editor-mount { flex: 1 1 auto; min-height: 0; display: none; }
+  #code-editor-mount .CodeMirror { height: 100%; font-family: 'Share Tech Mono', monospace; font-size: 12.5px; }
+  #code-empty-state {
+    flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
+    color: #6e6e76; font-size: 12.5px; padding: 40px; line-height: 1.7;
+  }
+  #code-terminal-log {
+    flex: 0 1 auto; max-height: 160px; overflow-y: auto; border-top: 1px solid rgba(255,255,255,0.08);
+    padding: 10px 16px; font-size: 11.5px; line-height: 1.7; background: #0e0f12;
+  }
+  .code-log-entry { margin-bottom: 8px; }
+  .code-log-entry:last-child { margin-bottom: 0; }
+  .code-log-prompt { color: #7fd99a; }
+  .code-log-prompt::before { content: '> '; color: #4a9d68; }
+  .code-log-reply { color: #b8b8c0; padding-left: 14px; }
+  .code-log-files { color: #6e6e76; padding-left: 14px; font-size: 10.5px; }
+  .code-log-error { color: #e8896f; padding-left: 14px; }
+  #code-prompt-row {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+    border-top: 1px solid rgba(255,255,255,0.08); background: #0b0c0e;
+  }
+  #code-prompt-caret { color: #7fd99a; font-size: 14px; }
+  #code-prompt-input {
+    flex: 1; background: none; border: none; color: #e8e8ec; font-family: 'Share Tech Mono', monospace;
+    font-size: 13px; outline: none;
+  }
+  #code-prompt-input::placeholder { color: #57575f; }
+  #code-prompt-input:disabled { opacity: 0.5; }
+  @media (max-width: 1024px) { #code-toggle { display: none; } }
+
   /* ---------- Companion — pairs a local app on the user's own computer ---------- */
   #companion-panel { margin-top: 24px; }
   #companion-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
@@ -1367,10 +1461,72 @@
   </div>
 </div>
 </div>
+
+<!-- ============================================================
+     CODE — a VSCode/Claude-Code hybrid: file tree + editor + a
+     terminal-style prompt bar at the bottom, same idea as the Claude
+     Code CLI's own input. Desktop only (no toggle rendered on mobile
+     widths) — a phone screen is not a place to edit code.
+     ============================================================ -->
+<button id="code-toggle" title="Code">Code</button>
+<div id="code-backdrop">
+<div id="code-panel" role="dialog" aria-modal="true" aria-label="Code editor" tabindex="-1">
+  <div id="code-panel-header">
+    <div id="code-panel-title">Code</div>
+    <select id="code-editor-theme-select" title="Editor color">
+      <option value="monokai">Monokai</option>
+      <option value="nord">Nord</option>
+      <option value="dracula">Dracula</option>
+      <option value="material-darker">Material Darker</option>
+      <option value="idea">Idea Light</option>
+    </select>
+    <div id="code-panel-close">✕</div>
+  </div>
+  <div id="code-panel-body">
+    <div id="code-file-tree">
+      <div id="code-file-tree-header">
+        <span>Files</span>
+        <button id="code-new-file-btn" title="New file">+</button>
+      </div>
+      <div id="code-file-list"></div>
+    </div>
+    <div id="code-editor-area">
+      <div id="code-editor-mount"></div>
+      <div id="code-empty-state">No file open yet — create one, or just ask below and one will show up.</div>
+    </div>
+  </div>
+  <div id="code-terminal-log"></div>
+  <div id="code-prompt-row">
+    <span id="code-prompt-caret">&gt;</span>
+    <input id="code-prompt-input" type="text" placeholder="Ask for anything — create a file, fix a bug, refactor, explain..." autocomplete="off" />
+  </div>
+</div>
 </div>
 
 <script src="https://unpkg.com/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
 <script src="https://unpkg.com/three@0.150.0/build/three.min.js"></script>
+<!-- Code panel's editor — CodeMirror 5 (not 6): plain UMD script tags, no
+     build step or ESM import map needed, matching this whole project's
+     zero-bundler approach. Modes loaded cover the languages codeFiles.js's
+     guessLanguage() can actually produce. -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link id="code-editor-theme-link" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/jsx/jsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/php/php.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/ruby/ruby.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/go/go.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/rust/rust.min.js"></script>
 <script>
 // Drops the real mark (same one as the favicon/app icons) into every brand
 // spot in the page — login screen, mobile gate, sidebar — instead of just
@@ -1428,6 +1584,7 @@ function startApp() {
       initConnections();
       initPendingNotes();
       initTalkDrawer();
+      initCodePanel();
       setInterval(renderSidebarStats, 5000); // live tick — vitals cool down in real time, no reload needed
 
       if (allNodes.length === 0) {
@@ -2761,6 +2918,230 @@ function initTalkDrawer() {
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
+}
+
+// ---------- Code — a virtual per-user file workspace (codeFiles.js on the
+// server) shown as a VSCode-style file tree + CodeMirror editor, wrapped in
+// a Claude-Code-style terminal prompt bar. The AI edits files through
+// codeAgentPrompt's own tool loop server-side (list_files/read_file/
+// write_file/delete_file) — this panel just displays whatever's actually
+// in the workspace and lets the user edit directly too, autosaving on
+// change the same way the AI's own writes land immediately.
+function initCodePanel() {
+  const toggle = document.getElementById('code-toggle');
+  const backdrop = document.getElementById('code-backdrop');
+  const panel = document.getElementById('code-panel');
+  const closeBtn = document.getElementById('code-panel-close');
+  const fileListEl = document.getElementById('code-file-list');
+  const newFileBtn = document.getElementById('code-new-file-btn');
+  const editorMount = document.getElementById('code-editor-mount');
+  const emptyState = document.getElementById('code-empty-state');
+  const themeSelect = document.getElementById('code-editor-theme-select');
+  const themeLink = document.getElementById('code-editor-theme-link');
+  const terminalLog = document.getElementById('code-terminal-log');
+  const promptInput = document.getElementById('code-prompt-input');
+
+  let cm = null; // lazily created on first open — no point loading it before it's needed
+  let files = []; // current listing (metadata only, matches /api/code/files)
+  let activeFileId = null;
+  let activeFileName = null;
+  let saveTimer = null;
+  let codeHistory = []; // simplified {role, content} turns for the prompt bar, session-only
+
+  function ensureEditor() {
+    if (cm) return cm;
+    cm = CodeMirror(editorMount, {
+      value: '', mode: 'javascript', theme: themeSelect.value,
+      lineNumbers: true, indentUnit: 2, tabSize: 2, viewportMargin: Infinity,
+    });
+    cm.on('change', () => {
+      if (!activeFileId) return;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveActiveFile, 700); // debounced autosave, not on every keystroke
+    });
+    return cm;
+  }
+
+  async function saveActiveFile() {
+    if (!activeFileId) return;
+    try {
+      await fetch('/api/code/files/save', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: activeFileId, content: cm.getValue() }),
+      });
+    } catch (e) {}
+  }
+
+  async function refreshFileList() {
+    try {
+      const res = await fetch('/api/code/files', { credentials: 'same-origin' });
+      const data = await res.json();
+      files = data.files || [];
+    } catch (e) {
+      files = [];
+    }
+    renderFileList();
+  }
+
+  function renderFileList() {
+    if (!files.length) {
+      fileListEl.innerHTML = '<div id="code-file-tree-empty">No files yet — create one, or ask below.</div>';
+      return;
+    }
+    fileListEl.innerHTML = files.map((f) => `
+      <div class="code-file-row${f.id === activeFileId ? ' active' : ''}" data-id="${f.id}" data-name="${escapeHtml(f.name)}">
+        <span class="code-file-row-name">${escapeHtml(f.name)}</span>
+        <span class="code-file-row-delete" data-delete-id="${f.id}" title="Delete">✕</span>
+      </div>`).join('');
+    fileListEl.querySelectorAll('.code-file-row').forEach((row) => {
+      row.addEventListener('click', (e) => {
+        if (e.target.dataset.deleteId) return;
+        openFile(row.dataset.id, row.dataset.name);
+      });
+    });
+    fileListEl.querySelectorAll('.code-file-row-delete').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.deleteId;
+        await fetch('/api/code/files/remove', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        });
+        if (id === activeFileId) closeActiveFile();
+        refreshFileList();
+      });
+    });
+  }
+
+  async function openFile(id, name) {
+    try {
+      const res = await fetch('/api/code/files/get', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      activeFileId = id;
+      activeFileName = name;
+      const editor = ensureEditor();
+      editor.setOption('mode', data.file.language);
+      editor.setValue(data.file.content || '');
+      editorMount.style.display = 'block';
+      emptyState.style.display = 'none';
+      renderFileList();
+      setTimeout(() => editor.refresh(), 30); // CodeMirror mismeasures if refreshed while display:none
+    } catch (e) {}
+  }
+
+  function closeActiveFile() {
+    activeFileId = null;
+    activeFileName = null;
+    if (cm) cm.setValue('');
+    editorMount.style.display = 'none';
+    emptyState.style.display = 'flex';
+  }
+
+  newFileBtn.addEventListener('click', async () => {
+    const name = prompt('File name (e.g. script.js):');
+    if (!name || !name.trim()) return;
+    try {
+      const res = await fetch('/api/code/files', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      await refreshFileList();
+      openFile(data.file.id, data.file.name);
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+
+  function addLogEntry(html) {
+    const el = document.createElement('div');
+    el.className = 'code-log-entry';
+    el.innerHTML = html;
+    terminalLog.appendChild(el);
+    terminalLog.scrollTop = terminalLog.scrollHeight;
+  }
+
+  async function submitPrompt() {
+    const text = promptInput.value.trim();
+    if (!text) return;
+    promptInput.value = '';
+    promptInput.disabled = true;
+    addLogEntry(`<div class="code-log-prompt">${escapeHtml(text)}</div>`);
+    try {
+      const res = await fetch('/api/code/prompt', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text, activeFileName, history: codeHistory }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      addLogEntry(`<div class="code-log-reply">${escapeHtml(data.reply)}</div>`);
+      if (data.changedFiles && data.changedFiles.length) {
+        addLogEntry(`<div class="code-log-files">Changed: ${data.changedFiles.map(escapeHtml).join(', ')}</div>`);
+      }
+      codeHistory.push({ role: 'user', content: text });
+      codeHistory.push({ role: 'assistant', content: data.reply });
+      codeHistory = codeHistory.slice(-12);
+      await refreshFileList();
+      // The file open in the editor may be exactly what the AI just wrote —
+      // reload it so the editor doesn't silently drift out of sync with
+      // what's actually saved server-side.
+      if (activeFileId && data.changedFiles && data.changedFiles.includes(activeFileName)) {
+        openFile(activeFileId, activeFileName);
+      } else if (!activeFileId && data.changedFiles && data.changedFiles.length) {
+        const touched = files.find((f) => f.name === data.changedFiles[0]);
+        if (touched) openFile(touched.id, touched.name);
+      }
+    } catch (e) {
+      addLogEntry(`<div class="code-log-error">${escapeHtml(e.message)}</div>`);
+    } finally {
+      promptInput.disabled = false;
+      promptInput.focus();
+    }
+  }
+  promptInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitPrompt(); }
+  });
+
+  // Editor color — CodeMirror's own theme ecosystem, unrelated to chat's
+  // "Code color" (highlight.js themes) despite the similar name, so its
+  // own localStorage key rather than reusing CODE_THEME_KEY.
+  const EDITOR_THEME_KEY = 'neurovance_editor_theme';
+  const storedEditorTheme = localStorage.getItem(EDITOR_THEME_KEY);
+  if (storedEditorTheme) themeSelect.value = storedEditorTheme;
+  function applyEditorTheme(theme) {
+    themeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/${theme}.min.css`;
+    if (cm) cm.setOption('theme', theme);
+  }
+  applyEditorTheme(themeSelect.value);
+  themeSelect.addEventListener('change', () => {
+    applyEditorTheme(themeSelect.value);
+    localStorage.setItem(EDITOR_THEME_KEY, themeSelect.value);
+  });
+
+  function openPanel() {
+    backdrop.classList.add('open');
+    ensureEditor();
+    refreshFileList();
+    setTimeout(() => { if (cm) cm.refresh(); promptInput.focus(); }, 30);
+  }
+  function closePanel() {
+    backdrop.classList.remove('open');
+    toggle.focus();
+  }
+  toggle.addEventListener('click', openPanel);
+  closeBtn.addEventListener('click', closePanel);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closePanel(); });
+  panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanel(); });
 }
 
 // Pairs two independent kinds of client, either or both at once: the local

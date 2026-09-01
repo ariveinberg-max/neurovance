@@ -9,18 +9,40 @@ function codeFilesPath(userId) {
   return `users/${userId}/codeFiles`;
 }
 
+// Values are real CodeMirror 5 mode names/MIME types, matched to exactly
+// the mode files index.html loads for the code editor — not display
+// labels. Kept in this same file (rather than duplicated in index.html)
+// since the AI's write_file tool and the editor both need to agree on
+// what language a given extension means. swift/kt have no real CM5 mode
+// loaded, so they fall back to plain text rather than referencing a mode
+// that isn't there.
 const EXT_LANGUAGE_MAP = {
   js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'jsx',
-  ts: 'typescript', tsx: 'tsx',
-  py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java',
-  c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp', cs: 'csharp',
+  ts: 'text/typescript', tsx: 'text/jsx',
+  py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
+  java: 'text/x-java', c: 'text/x-csrc', h: 'text/x-csrc',
+  cpp: 'text/x-c++src', hpp: 'text/x-c++src', cs: 'text/x-csharp',
   html: 'htmlmixed', htm: 'htmlmixed', css: 'css', json: 'application/json',
-  md: 'markdown', sh: 'shell', bash: 'shell', sql: 'sql', yaml: 'yaml', yml: 'yaml',
-  php: 'php', swift: 'swift', kt: 'kotlin',
+  md: 'markdown', sh: 'shell', bash: 'shell', sql: 'text/x-sql', yaml: 'yaml', yml: 'yaml',
+  php: 'php',
 };
 export function guessLanguage(filename) {
   const ext = (filename.split('.').pop() || '').toLowerCase();
   return EXT_LANGUAGE_MAP[ext] || 'text/plain';
+}
+
+// Display label for the language a file's stored as — the raw CM5
+// mode/MIME values above are correct for the editor but not something a
+// human should see in the file tree or the AI's file listing.
+const LANGUAGE_DISPLAY_NAMES = {
+  javascript: 'JavaScript', jsx: 'JSX', 'text/typescript': 'TypeScript', 'text/jsx': 'TSX',
+  python: 'Python', ruby: 'Ruby', go: 'Go', rust: 'Rust',
+  'text/x-java': 'Java', 'text/x-csrc': 'C', 'text/x-c++src': 'C++', 'text/x-csharp': 'C#',
+  htmlmixed: 'HTML', css: 'CSS', 'application/json': 'JSON', markdown: 'Markdown',
+  shell: 'Shell', 'text/x-sql': 'SQL', yaml: 'YAML', php: 'PHP', 'text/plain': 'Plain text',
+};
+export function languageDisplayName(mode) {
+  return LANGUAGE_DISPLAY_NAMES[mode] || mode;
 }
 
 export async function listCodeFiles(userId) {

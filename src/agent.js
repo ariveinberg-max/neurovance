@@ -5,7 +5,7 @@ import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
 import { findUserById, listSkills } from './auth.js';
 import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
-import { listCodeFiles, findCodeFileByName, writeCodeFile, deleteCodeFileByName } from './codeFiles.js';
+import { listCodeFiles, findCodeFileByName, writeCodeFile, deleteCodeFileByName, languageDisplayName } from './codeFiles.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
@@ -997,7 +997,7 @@ const CODE_TOOLS = [
 async function buildCodeSystemPrompt(userId, activeFileName) {
   const files = await listCodeFiles(userId);
   const fileList = files.length
-    ? files.map((f) => `- ${f.name} (${f.language}, ${f.content.length} chars)`).join('\n')
+    ? files.map((f) => `- ${f.name} (${languageDisplayName(f.language)}, ${f.content.length} chars)`).join('\n')
     : '(workspace is empty — no files yet)';
   return [
     'You are the coding assistant embedded in Neurovance\'s code editor — a real pair-programmer with actual read/write access to the user\'s workspace, not a chat that talks about code in the abstract.',
@@ -1041,7 +1041,7 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
       try {
         if (toolUse.name === 'list_files') {
           const files = await listCodeFiles(userId);
-          const listing = files.map((f) => `${f.name} (${f.language})`).join('\n') || '(empty)';
+          const listing = files.map((f) => `${f.name} (${languageDisplayName(f.language)})`).join('\n') || '(empty)';
           return { type: 'tool_result', tool_use_id: toolUse.id, content: listing };
         }
         if (toolUse.name === 'read_file') {
