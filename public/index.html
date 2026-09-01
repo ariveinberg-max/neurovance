@@ -509,6 +509,63 @@
   #code-prompt-input:disabled { opacity: 0.5; }
   @media (max-width: 1024px) { #code-toggle { display: none; } }
 
+  /* ---------- Artifacts — a long code block in a chat reply collapses to
+     this card instead of dumping the whole thing inline; opening it slides
+     in the panel below. Chat-only (talk-drawer/mobile); the Code panel
+     already IS a full editor, so this is deliberately lightweight —
+     read-only, no versioning, just "don't clutter the chat." ---------- */
+  .artifact-card {
+    display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 10px 12px;
+    background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.14);
+    border-radius: 8px; cursor: pointer; transition: background 0.15s ease;
+  }
+  .artifact-card:hover { background: rgba(var(--overlay-rgb),0.09); }
+  .artifact-card-icon {
+    flex-shrink: 0; width: 30px; height: 30px; border-radius: 6px; background: rgba(127,217,154,0.12);
+    color: var(--accent-green); display: flex; align-items: center; justify-content: center;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px;
+  }
+  .artifact-card-info { flex: 1; min-width: 0; }
+  .artifact-card-title { font-size: 12.5px; color: var(--text-bright); text-transform: capitalize; }
+  .artifact-card-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; }
+  .artifact-card-open {
+    flex-shrink: 0; background: rgba(var(--overlay-rgb),0.08); border: none; color: var(--text-primary);
+    font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+  }
+  .artifact-card-open:hover { background: rgba(var(--overlay-rgb),0.14); }
+
+  #artifact-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 43;
+    background: rgba(0,0,0,0.5); align-items: center; justify-content: center; padding: 24px;
+  }
+  #artifact-backdrop.open { display: flex; }
+  #artifact-panel {
+    width: 780px; max-width: 100%; height: 80vh; max-height: 780px;
+    background: #0b0c0e; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
+    display: flex; flex-direction: column; box-shadow: 0 60px 140px rgba(0,0,0,0.6); overflow: hidden;
+  }
+  #artifact-panel-header {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08); background: #0e0f12;
+  }
+  #artifact-panel-title {
+    font-family: 'Share Tech Mono', monospace; font-size: 11.5px; letter-spacing: 0.5px;
+    text-transform: capitalize; color: #c8c8ce;
+  }
+  .artifact-panel-btn {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    color: #c8c8ce; font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px 11px;
+    border-radius: 6px; cursor: pointer;
+  }
+  .artifact-panel-btn:first-of-type { margin-left: auto; }
+  .artifact-panel-btn:hover { background: rgba(255,255,255,0.1); }
+  #artifact-panel-close { color: #8a8a92; cursor: pointer; padding: 2px 6px; font-size: 14px; margin-left: 8px; }
+  #artifact-panel-close:hover { color: #e8e8ec; }
+  #artifact-panel-body { flex: 1; overflow: auto; padding: 16px; margin: 0; }
+  #artifact-panel-body code {
+    font-family: 'Share Tech Mono', monospace; font-size: 12.5px; line-height: 1.6; background: none !important;
+  }
+
   /* ---------- Companion — pairs a local app on the user's own computer ---------- */
   #companion-panel { margin-top: 24px; }
   #companion-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
@@ -1462,6 +1519,22 @@
 </div>
 </div>
 
+<!-- A long code block in a chat/task reply collapses to an .artifact-card
+     (built by enhanceCodeBlocks) instead of dumping the whole thing inline
+     — opening it shows the full content here. Read-only viewer, not an
+     editor; "Send to Code editor" hands it to the real workspace above. -->
+<div id="artifact-backdrop">
+  <div id="artifact-panel" role="dialog" aria-modal="true" aria-label="Artifact viewer" tabindex="-1">
+    <div id="artifact-panel-header">
+      <div id="artifact-panel-title"></div>
+      <button class="artifact-panel-btn" id="artifact-copy-btn">Copy</button>
+      <button class="artifact-panel-btn" id="artifact-send-to-code-btn">Send to Code editor</button>
+      <div id="artifact-panel-close">✕</div>
+    </div>
+    <div id="artifact-panel-body"><pre><code id="artifact-panel-code"></code></pre></div>
+  </div>
+</div>
+
 <!-- ============================================================
      CODE — a VSCode/Claude-Code hybrid: file tree + editor + a
      terminal-style prompt bar at the bottom, same idea as the Claude
@@ -1585,6 +1658,7 @@ function startApp() {
       initPendingNotes();
       initTalkDrawer();
       initCodePanel();
+      initArtifactPanel();
       setInterval(renderSidebarStats, 5000); // live tick — vitals cool down in real time, no reload needed
 
       if (allNodes.length === 0) {
@@ -2752,10 +2826,47 @@ const MARKDOWN_ROLES = new Set(['assistant', 'task-result']);
 
 // marked emits plain <pre><code class="language-x">; wraps each in a
 // positioned div for the copy button and runs it through highlight.js.
+// A code block over this many lines collapses to an .artifact-card instead
+// of dumping the whole thing inline in the chat bubble — the actual Claude
+// "artifacts" behavior this was modeled on. Short blocks (an example, a
+// one-liner) stay inline as before; nothing about that path changed.
+const ARTIFACT_LINE_THRESHOLD = 12;
+let artifactCounter = 0;
+const artifactStore = new Map(); // id -> { code, language }
+
+const LANGUAGE_EXTENSIONS = {
+  javascript: 'js', jsx: 'jsx', typescript: 'ts', tsx: 'tsx', python: 'py',
+  ruby: 'rb', go: 'go', rust: 'rs', java: 'java', c: 'c', cpp: 'cpp',
+  csharp: 'cs', html: 'html', xml: 'html', css: 'css', json: 'json',
+  markdown: 'md', bash: 'sh', shell: 'sh', sql: 'sql', yaml: 'yml', php: 'php',
+};
+
 function enhanceCodeBlocks(container) {
   container.querySelectorAll('pre').forEach((pre) => {
     const codeEl = pre.querySelector('code');
     if (codeEl) hljs.highlightElement(codeEl);
+    const rawText = codeEl ? codeEl.textContent : pre.textContent;
+    const langMatch = codeEl ? codeEl.className.match(/language-(\S+)/) : null;
+    const language = langMatch ? langMatch[1] : 'text';
+    const lineCount = rawText.replace(/\n$/, '').split('\n').length;
+
+    if (lineCount > ARTIFACT_LINE_THRESHOLD) {
+      const id = 'artifact-' + (++artifactCounter);
+      artifactStore.set(id, { code: rawText, language });
+      const card = document.createElement('div');
+      card.className = 'artifact-card';
+      card.innerHTML = `
+        <div class="artifact-card-icon">&lt;/&gt;</div>
+        <div class="artifact-card-info">
+          <div class="artifact-card-title">${escapeHtml(language)}</div>
+          <div class="artifact-card-meta">${lineCount} lines</div>
+        </div>
+        <button type="button" class="artifact-card-open">Open</button>`;
+      pre.replaceWith(card);
+      card.addEventListener('click', () => openArtifactPanel(id));
+      return;
+    }
+
     const wrap = document.createElement('div');
     wrap.className = 'code-block-wrap';
     pre.replaceWith(wrap);
@@ -2772,6 +2883,79 @@ function enhanceCodeBlocks(container) {
       } catch (e) {}
     });
     wrap.appendChild(copyBtn);
+  });
+}
+
+function initArtifactPanel() {
+  const backdrop = document.getElementById('artifact-backdrop');
+  const panel = document.getElementById('artifact-panel');
+  const title = document.getElementById('artifact-panel-title');
+  const codeEl = document.getElementById('artifact-panel-code');
+  const closeBtn = document.getElementById('artifact-panel-close');
+  const copyBtn = document.getElementById('artifact-copy-btn');
+  const sendBtn = document.getElementById('artifact-send-to-code-btn');
+  let currentId = null;
+
+  window.openArtifactPanel = (id) => {
+    const artifact = artifactStore.get(id);
+    if (!artifact) return;
+    currentId = id;
+    title.textContent = artifact.language;
+    codeEl.className = 'language-' + artifact.language;
+    codeEl.textContent = artifact.code;
+    delete codeEl.dataset.highlighted;
+    hljs.highlightElement(codeEl);
+    backdrop.classList.add('open');
+    panel.focus();
+  };
+  function closePanel() {
+    backdrop.classList.remove('open');
+    currentId = null;
+  }
+  closeBtn.addEventListener('click', closePanel);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closePanel(); });
+  panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanel(); });
+
+  copyBtn.addEventListener('click', async () => {
+    const artifact = artifactStore.get(currentId);
+    if (!artifact) return;
+    try {
+      await navigator.clipboard.writeText(artifact.code);
+      copyBtn.textContent = 'Copied';
+      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+    } catch (e) {}
+  });
+
+  // Hands the artifact to the real Code workspace as a new file — the
+  // panel here is a read-only viewer, this is the bridge into something
+  // you can actually keep editing.
+  sendBtn.addEventListener('click', async () => {
+    const artifact = artifactStore.get(currentId);
+    if (!artifact) return;
+    const ext = LANGUAGE_EXTENSIONS[artifact.language] || 'txt';
+    const name = `snippet-${Date.now()}.${ext}`;
+    sendBtn.disabled = true;
+    try {
+      const res = await fetch('/api/code/files', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      await fetch('/api/code/files/save', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: data.file.id, content: artifact.code }),
+      });
+      sendBtn.textContent = 'Sent ✓';
+      setTimeout(() => { sendBtn.textContent = 'Send to Code editor'; }, 1500);
+    } catch (e) {
+      sendBtn.textContent = 'Failed';
+      setTimeout(() => { sendBtn.textContent = 'Send to Code editor'; }, 1500);
+    } finally {
+      sendBtn.disabled = false;
+    }
   });
 }
 
