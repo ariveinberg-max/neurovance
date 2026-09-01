@@ -2629,7 +2629,7 @@ function initTalkDrawer() {
         const res = await fetch('/api/chat', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, history }),
+          body: JSON.stringify({ message: text, history, mode: 'text' }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);

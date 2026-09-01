@@ -1234,11 +1234,11 @@ async function handleRequest(req, res) {
         if (!usage.allowed) {
           return sendJson(res, 429, { error: `Daily limit reached (${usage.limit} messages) — resets at midnight UTC.` });
         }
-        const { message, history } = await readJsonBody(req);
+        const { message, history, mode } = await readJsonBody(req);
         if (typeof message !== 'string' || !message.trim()) {
           return sendJson(res, 400, { error: 'message must be a non-empty string' });
         }
-        const reply = await chatReply(user.id, user, message.trim(), sanitizeHistory(history));
+        const reply = await chatReply(user.id, user, message.trim(), sanitizeHistory(history), mode === 'text' ? 'text' : 'voice');
         return sendJson(res, 200, { reply });
       } catch (e) {
         console.error('Chat error:', e);

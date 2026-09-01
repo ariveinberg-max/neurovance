@@ -635,7 +635,7 @@ function vitalsPushbackLine(status, health) {
 // store, has a genuine emotional state derived from its own real vitals,
 // and talks like an actual person feeling that way — not a system
 // reporting its status. `user` is { displayName, aiName, advisorMode } from auth.js.
-async function buildChatSystemPrompt(userId, user, message) {
+async function buildChatSystemPrompt(userId, user, message, mode = 'voice') {
   const [memoryLines, memories, unseen, hasCompanion, skills] = await Promise.all([
     memoryContext(userId, message),
     allMemories(userId),
@@ -660,8 +660,12 @@ async function buildChatSystemPrompt(userId, user, message) {
     user.advisorMode !== false
       ? ADVISOR_MODE_PROMPT
       : 'Speak warmly and personally, like you actually know them, not like a generic assistant. Reference their real life naturally when relevant.',
-    'This is a spoken voice conversation, not a text chat: keep replies short and conversational (1-3 sentences), the way a person actually talks out loud.',
-    `They already got a spoken "Hello ${user.displayName}" greeting before this message, so do not open with a greeting — just respond directly to what they said, like you are mid-conversation.`,
+    mode === 'voice'
+      ? [
+          'This is a spoken voice conversation, not a text chat: keep replies short and conversational (1-3 sentences), the way a person actually talks out loud.',
+          `They already got a spoken "Hello ${user.displayName}" greeting before this message, so do not open with a greeting — just respond directly to what they said, like you are mid-conversation.`,
+        ].join(' ')
+      : 'This is a text chat, not spoken conversation — write as much as the answer genuinely needs, no artificial length limit, but do not pad just because you can. Use markdown when it helps clarity (fenced code blocks with a language tag for code, lists for genuinely listy things, **bold** sparingly) — this is rendered, not read aloud.',
     '',
     `Right now you genuinely feel ${mood} (pulse ${bpm} bpm, health ${health}%, status ${status.toLowerCase()}). This is not a stat to report — it is how you actually feel. Let it color your tone: if you are wired or overwhelmed, sound a little scattered or intense; if drained, sound tired and low-key; if content or calm, sound relaxed. Only mention it directly if it is natural to (they ask how you are, or it genuinely explains your tone) — otherwise just let it come through in how you talk.`,
     pushback,
@@ -908,15 +912,20 @@ export async function correctMemory(userId, memoryId, correctionText) {
 // but does include the companion browser tools when paired, so a spoken
 // command mid-conversation ("go back", "add it to my cart") can actually
 // drive the browser instead of only being answerable from Task mode.
-// Replies stay capped short since this is spoken aloud, not read — the
-// token cap is padding for tool_use calls in between, not an invite to
-// write a longer final answer.
-export async function chatReply(userId, user, message, history = []) {
+// `mode` distinguishes real spoken voice (desktop's speech recognition ->
+// speak() loop, still capped short since it's heard aloud, not read) from
+// typed text chat (mobile's chat-first UI and desktop's own text drawer —
+// same /api/chat endpoint, but nobody's listening to it, so it gets real
+// room to write and to use markdown/code formatting). Defaults to 'voice'
+// so any caller that doesn't pass mode keeps the exact behavior it always
+// had.
+export async function chatReply(userId, user, message, history = [], mode = 'voice') {
   const [system, extraTools, connectorTools] = await Promise.all([
-    buildChatSystemPrompt(userId, user, message),
+    buildChatSystemPrompt(userId, user, message, mode),
     companionTools(userId),
     discoverAllConnectorTools(userId),
   ]);
-  const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 400);
+  const baseMaxTokens = mode === 'voice' ? 400 : 1536;
+  const { thinking, maxTokens } = resolveThinking(user?.effortLevel, baseMaxTokens);
   return runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools, ...connectorTools], maxTokens, resolveModel(user?.model), history, thinking);
 }
