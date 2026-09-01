@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Neurovance">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Michroma&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Michroma&family=Sora:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <!-- Assistant replies are now markdown (agent.js tells text-mode chat to use
      it) — marked parses it, DOMPurify sanitizes the resulting HTML before it
      ever touches innerHTML, highlight.js colors code blocks. hljs-theme-link
@@ -59,7 +59,7 @@
   #auth-lockup .brand-mark { width: 34px; height: 34px; }
   #auth-lockup span { font-family: 'Michroma', sans-serif; font-size: 17px; letter-spacing: 3px; color: var(--text-bright); }
   #auth-card { width: 100%; max-width: 360px; }
-  .auth-title { font-family: 'Michroma', sans-serif; font-size: 15px; letter-spacing: 1px; color: var(--text-bright); margin-bottom: 4px; }
+  .auth-title { font-family: 'Sora', sans-serif; font-weight: 600; font-size: 15px; letter-spacing: 0.2px; color: var(--text-bright); margin-bottom: 4px; }
   .auth-subtitle { font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 26px; }
   .auth-screen { display: flex; flex-direction: column; gap: 12px; }
   .auth-field {
@@ -107,7 +107,7 @@
     padding: calc(14px + env(safe-area-inset-top)) 16px 14px; border-bottom: 1px solid var(--border);
   }
   #chat-header-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  #chat-ai-name { font-family: 'Michroma', sans-serif; font-size: 13.5px; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #chat-ai-name { font-family: 'Sora', sans-serif; font-weight: 600; font-size: 14px; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #chat-header-btns { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
   .icon-btn {
     width: 36px; height: 36px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border);
@@ -137,7 +137,7 @@
   }
   .msg.assistant blockquote:last-child { margin-bottom: 0; }
   .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 {
-    font-family: 'Michroma', sans-serif; font-size: 13px; letter-spacing: 0.5px; color: var(--text-bright);
+    font-family: 'Sora', sans-serif; font-weight: 600; font-size: 13.5px; letter-spacing: 0.1px; color: var(--text-bright);
     margin: 4px 0 10px; line-height: 1.4;
   }
   .msg.assistant code {
@@ -216,7 +216,7 @@
   #settings-close-btn:focus-visible { outline: 1px solid var(--green-bright); outline-offset: 2px; border-radius: 4px; }
   #settings-backdrop.open #settings-sheet { transform: translateY(0); }
   #settings-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 18px; }
-  #settings-sheet h2 { font-family: 'Michroma', sans-serif; font-size: 14px; color: var(--text-bright); margin: 0 0 18px; }
+  #settings-sheet h2 { font-family: 'Sora', sans-serif; font-weight: 600; font-size: 15px; color: var(--text-bright); margin: 0 0 18px; }
   .settings-row {
     display: flex; align-items: center; justify-content: space-between; padding: 15px 0;
     border-top: 1px solid var(--border); font-size: 14.5px;
