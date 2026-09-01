@@ -5,6 +5,7 @@ import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
 import { findUserById, listSkills } from './auth.js';
 import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
+import { listCodeFiles, findCodeFileByName, writeCodeFile, deleteCodeFileByName } from './codeFiles.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
@@ -942,4 +943,128 @@ export async function chatReply(userId, user, message, history = [], mode = 'voi
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, baseMaxTokens);
   const { text, thinking: thinkingText } = await runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools, ...connectorTools], maxTokens, resolveModel(user?.model), history, thinking);
   return { reply: text, thinking: thinkingText };
+}
+
+// ---------- Code editor assistant ----------
+// A separate, self-contained tool loop rather than reusing runLoop — the
+// tool set (read/write/delete a virtual file by name) and the "which files
+// changed" bookkeeping are specific enough to this that folding it into
+// runLoop's generic loop would mean threading file-tracking state through
+// code every other caller (chat, task) doesn't need. Full-file overwrite
+// (write_file replaces the whole content) rather than a find/replace edit
+// tool — less surgical than real Claude Code's edit tool, but there's
+// nothing to get subtly wrong matching whitespace/context in a str_replace
+// against content the model may be misremembering; simpler and more
+// reliable for a first version.
+const CODE_TOOLS = [
+  {
+    name: 'list_files',
+    description: 'List every file in the workspace by name and language (not their contents — use read_file for that).',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'read_file',
+    description: 'Read a file\'s full current content. Always do this before editing a file you have not already read in this conversation — never guess at existing content.',
+    input_schema: {
+      type: 'object',
+      properties: { name: { type: 'string', description: 'Exact file name, e.g. "index.js".' } },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'write_file',
+    description: 'Create a new file, or overwrite an existing one with new full content. content replaces the entire file — include everything that should remain, not just the changed part.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Exact file name, e.g. "index.js". Creates the file if it does not exist yet.' },
+        content: { type: 'string', description: 'The complete new content of the file.' },
+      },
+      required: ['name', 'content'],
+    },
+  },
+  {
+    name: 'delete_file',
+    description: 'Delete a file. Only call this if they explicitly asked to remove it.',
+    input_schema: {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
+    },
+  },
+];
+
+async function buildCodeSystemPrompt(userId, activeFileName) {
+  const files = await listCodeFiles(userId);
+  const fileList = files.length
+    ? files.map((f) => `- ${f.name} (${f.language}, ${f.content.length} chars)`).join('\n')
+    : '(workspace is empty — no files yet)';
+  return [
+    'You are the coding assistant embedded in Neurovance\'s code editor — a real pair-programmer with actual read/write access to the user\'s workspace, not a chat that talks about code in the abstract.',
+    'This is a virtual workspace: named text files with no execution environment, no git, no real filesystem or network access. You cannot run code or install anything — only read, write, and delete files.',
+    `Current files:\n${fileList}`,
+    activeFileName ? `They are currently looking at "${activeFileName}" in the editor.` : '',
+    'Always read_file before editing a file you have not already read in this conversation — never guess at content that already exists. write_file replaces a file\'s entire content, so when editing, include the full file back, not just the part that changed.',
+    'After you are done, respond with a short summary of what you did (1-3 sentences, like a commit message or a CLI session log) — not a chat reply, and never repeat the file content back to them since they can already see it in the editor.',
+  ].filter(Boolean).join('\n\n');
+}
+
+// Returns { reply, changedFiles } — changedFiles (names only) lets the
+// frontend know which files to re-fetch/refresh without re-sending every
+// file's full content back over the wire on every turn.
+export async function codeAgentPrompt(userId, user, prompt, activeFileName, history = []) {
+  const system = await buildCodeSystemPrompt(userId, activeFileName);
+  const messages = [...history, { role: 'user', content: prompt }];
+  const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 2048);
+  const changedFiles = new Set();
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const response = await client.messages.create({
+      model: resolveModel(user?.model),
+      max_tokens: maxTokens,
+      system,
+      tools: CODE_TOOLS,
+      messages,
+      ...(thinking ? { thinking } : {}),
+    });
+
+    messages.push({ role: 'assistant', content: response.content });
+
+    const toolUses = response.content.filter((b) => b.type === 'tool_use');
+    if (toolUses.length === 0) {
+      const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+      return { reply: text, changedFiles: [...changedFiles] };
+    }
+
+    const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
+      try {
+        if (toolUse.name === 'list_files') {
+          const files = await listCodeFiles(userId);
+          const listing = files.map((f) => `${f.name} (${f.language})`).join('\n') || '(empty)';
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: listing };
+        }
+        if (toolUse.name === 'read_file') {
+          const file = await findCodeFileByName(userId, toolUse.input.name);
+          if (!file) return { type: 'tool_result', tool_use_id: toolUse.id, content: `No file named "${toolUse.input.name}".`, is_error: true };
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: file.content || '(empty file)' };
+        }
+        if (toolUse.name === 'write_file') {
+          const { created } = await writeCodeFile(userId, toolUse.input.name, toolUse.input.content);
+          changedFiles.add(toolUse.input.name);
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: created ? `Created ${toolUse.input.name}.` : `Updated ${toolUse.input.name}.` };
+        }
+        if (toolUse.name === 'delete_file') {
+          const existed = await deleteCodeFileByName(userId, toolUse.input.name);
+          if (existed) changedFiles.add(toolUse.input.name);
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: existed ? `Deleted ${toolUse.input.name}.` : `No file named "${toolUse.input.name}".` };
+        }
+        return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Unknown tool.', is_error: true };
+      } catch (e) {
+        return { type: 'tool_result', tool_use_id: toolUse.id, content: e.message, is_error: true };
+      }
+    }));
+
+    messages.push({ role: 'user', content: toolResults });
+  }
 }

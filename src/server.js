@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join, extname } from 'path';
 import { randomBytes } from 'crypto';
 import { allMemories, remember } from './memory.js';
-import { chatReply, getLastRecall, extractMemories, correctMemory, runTask } from './agent.js';
+import { chatReply, getLastRecall, extractMemories, correctMemory, runTask, codeAgentPrompt } from './agent.js';
+import * as codeFiles from './codeFiles.js';
 import * as pendingNotes from './pending-notes.js';
 import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
@@ -921,6 +922,94 @@ async function handleRequest(req, res) {
         return sendJson(res, 200, { ok: true, tasks });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // ---------- Code editor — a virtual per-user file workspace (no
+    // execution, no git, no real filesystem) the codeAgentPrompt tool loop
+    // reads and writes, plus manual CRUD for when the user edits directly
+    // in the browser instead of prompting the AI. ----------
+
+    if (req.url === '/api/code/files' && req.method === 'GET') {
+      try {
+        const files = await codeFiles.listCodeFiles(user.id);
+        // Listing is metadata-only — full content only over the wire when a
+        // specific file is actually opened, not on every workspace refresh.
+        const listing = files.map(({ id, name, language, updatedAt }) => ({ id, name, language, updatedAt }));
+        return sendJson(res, 200, { ok: true, files: listing });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/code/files' && req.method === 'POST') {
+      try {
+        const { name } = await readJsonBody(req);
+        if (typeof name !== 'string' || !name.trim()) return sendJson(res, 400, { error: 'name must be a non-empty string' });
+        const file = await codeFiles.createCodeFile(user.id, { name: name.trim() });
+        return sendJson(res, 200, { ok: true, file });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/code/files/get' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        const file = await codeFiles.getCodeFile(user.id, id);
+        if (!file) return sendJson(res, 404, { error: 'File not found.' });
+        return sendJson(res, 200, { ok: true, file });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/code/files/save' && req.method === 'POST') {
+      try {
+        const { id, content } = await readJsonBody(req);
+        const existing = await codeFiles.getCodeFile(user.id, id);
+        if (!existing) return sendJson(res, 404, { error: 'File not found.' });
+        const { file } = await codeFiles.writeCodeFile(user.id, existing.name, content ?? '');
+        return sendJson(res, 200, { ok: true, file });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/code/files/rename' && req.method === 'POST') {
+      try {
+        const { id, name } = await readJsonBody(req);
+        if (typeof name !== 'string' || !name.trim()) return sendJson(res, 400, { error: 'name must be a non-empty string' });
+        const file = await codeFiles.renameCodeFile(user.id, id, name.trim());
+        return sendJson(res, 200, { ok: true, file });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/code/files/remove' && req.method === 'POST') {
+      try {
+        const { id } = await readJsonBody(req);
+        await codeFiles.deleteCodeFile(user.id, id);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/code/prompt' && req.method === 'POST') {
+      try {
+        const usage = await auth.checkAndIncrementUsage(user.id);
+        if (!usage.allowed) {
+          return sendJson(res, 429, { error: `Daily limit reached (${usage.limit} messages) — resets at midnight UTC.` });
+        }
+        const { prompt, activeFileName, history } = await readJsonBody(req);
+        if (typeof prompt !== 'string' || !prompt.trim()) return sendJson(res, 400, { error: 'prompt must be a non-empty string' });
+        const result = await codeAgentPrompt(user.id, user, prompt.trim(), activeFileName, sanitizeHistory(history));
+        return sendJson(res, 200, { ok: true, ...result });
+      } catch (e) {
+        console.error('Code prompt error:', e);
+        return sendJson(res, 500, { error: 'Prompt failed: ' + e.message });
       }
     }
 
