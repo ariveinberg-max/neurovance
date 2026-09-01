@@ -43,6 +43,7 @@
     --accent-red: #e8432c;
     --overlay-rgb: 255, 255, 255;
     --surface-rgb: 10, 10, 11;
+    --talk-msg-gap: 12px;
   }
   :root[data-theme="light"] {
     --bg: #f2f1ee;
@@ -60,6 +61,7 @@
     --overlay-rgb: 0, 0, 0;
     --surface-rgb: 255, 255, 255;
   }
+  :root[data-density="compact"] { --talk-msg-gap: 5px; }
 
   html, body {
     margin: 0; height: 100%; background: var(--bg); overflow: hidden;
@@ -339,7 +341,7 @@
   #model-select:focus { border-color: rgba(210,230,255,0.5); }
   #model-select option:disabled { color: var(--text-faint); }
   #model-tier-note { font-size: 10px; color: var(--text-muted); margin-top: 6px; min-height: 12px; }
-  #talk-transcript { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  #talk-transcript { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: var(--talk-msg-gap); }
   .talk-msg { font-size: 12.5px; line-height: 1.55; max-width: 88%; }
   .talk-msg .talk-role {
     font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
@@ -1239,6 +1241,9 @@
             <button class="theme-mode" data-mode="dark">Dark</button>
             <button class="theme-mode" data-mode="light">Light</button>
           </div>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-primary); cursor:pointer; margin-top:16px;">
+            <input type="checkbox" id="compact-density-toggle" /> Compact message spacing
+          </label>
           <h3 class="settings-subtitle">Code color</h3>
           <p class="settings-panel-desc">Syntax highlight theme for code blocks in chat.</p>
           <select id="code-theme-select" class="settings-input" style="max-width:220px;">
@@ -3581,6 +3586,19 @@ function initSettings() {
   expandThinkingToggle.checked = shouldExpandThinking();
   expandThinkingToggle.addEventListener('change', () => {
     localStorage.setItem('neurovance_expand_thinking', expandThinkingToggle.checked ? '1' : '0');
+  });
+
+  // Compact message spacing — a CSS custom-property switch on the root
+  // element (same pattern as data-theme above) rather than a class toggled
+  // per-message, so it applies uniformly with zero re-rendering.
+  const DENSITY_KEY = 'neurovance_compact_density';
+  const compactDensityToggle = document.getElementById('compact-density-toggle');
+  const storedDensity = localStorage.getItem(DENSITY_KEY);
+  if (storedDensity === '1') document.documentElement.dataset.density = 'compact';
+  compactDensityToggle.checked = storedDensity === '1';
+  compactDensityToggle.addEventListener('change', () => {
+    document.documentElement.dataset.density = compactDensityToggle.checked ? 'compact' : '';
+    localStorage.setItem(DENSITY_KEY, compactDensityToggle.checked ? '1' : '0');
   });
 
   const tabs = document.querySelectorAll('.personality-mode');
