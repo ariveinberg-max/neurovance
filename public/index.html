@@ -10,6 +10,14 @@
 <meta name="theme-color" content="#050505">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Michroma&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<!-- Assistant replies are markdown in text-chat mode — marked parses it,
+     DOMPurify sanitizes before innerHTML, highlight.js colors code blocks.
+     Same setup as mobile.html; see that file's comment for why cdnjs
+     specifically (jsdelivr's highlight.js build is CommonJS-only). -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<link id="hljs-theme-link" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 <style>
   * { box-sizing: border-box; }
 
@@ -342,6 +350,40 @@
   .talk-task-result { align-self: stretch; color: var(--text-primary); background: rgba(var(--overlay-rgb),0.04); border-radius: 6px; padding: 10px 12px; max-width: 100%; }
   .talk-status { align-self: center; color: var(--text-muted); font-size: 11px; font-style: italic; }
   .talk-error { align-self: flex-start; color: var(--accent-red); }
+
+  /* ---------- Rendered markdown inside an assistant/task-result bubble ---------- */
+  .talk-assistant p, .talk-task-result p { margin: 0 0 8px; }
+  .talk-assistant p:last-child, .talk-task-result p:last-child { margin-bottom: 0; }
+  .talk-assistant ul, .talk-assistant ol, .talk-task-result ul, .talk-task-result ol { margin: 0 0 8px; padding-left: 20px; }
+  .talk-assistant li, .talk-task-result li { margin-bottom: 3px; }
+  .talk-assistant strong, .talk-task-result strong { color: var(--text-bright); font-weight: 600; }
+  .talk-assistant a, .talk-task-result a { color: var(--accent-green); text-decoration: underline; text-underline-offset: 2px; }
+  .talk-assistant blockquote, .talk-task-result blockquote {
+    margin: 0 0 8px; padding-left: 10px; border-left: 2px solid rgba(var(--overlay-rgb),0.14); color: var(--text-secondary);
+  }
+  .talk-assistant code, .talk-task-result code {
+    font-family: 'Share Tech Mono', monospace; font-size: 0.88em; background: rgba(var(--overlay-rgb),0.08);
+    padding: 1px 5px; border-radius: 4px; word-break: break-word;
+  }
+  .talk-assistant table, .talk-task-result table { border-collapse: collapse; margin: 0 0 8px; font-size: 0.9em; display: block; overflow-x: auto; }
+  .talk-assistant th, .talk-assistant td, .talk-task-result th, .talk-task-result td {
+    border: 1px solid rgba(var(--overlay-rgb),0.14); padding: 5px 9px; text-align: left;
+  }
+  .talk-assistant hr, .talk-task-result hr { border: none; border-top: 1px solid rgba(var(--overlay-rgb),0.14); margin: 10px 0; }
+
+  .code-block-wrap { position: relative; margin: 0 0 8px; }
+  .code-block-wrap:last-child { margin-bottom: 0; }
+  .code-block-wrap pre {
+    margin: 0; padding: 12px 12px; border-radius: 8px; overflow-x: auto;
+    background: rgba(var(--overlay-rgb),0.06) !important; border: 1px solid rgba(var(--overlay-rgb),0.12);
+  }
+  .code-block-wrap pre code { font-family: 'Share Tech Mono', monospace; font-size: 11.5px; line-height: 1.5; background: none !important; padding: 0 !important; }
+  .code-copy-btn {
+    position: absolute; top: 6px; right: 6px; background: rgba(var(--surface-rgb),0.7);
+    border: 1px solid rgba(var(--overlay-rgb),0.14); color: var(--text-secondary); font-size: 9.5px;
+    letter-spacing: 0.4px; text-transform: uppercase; padding: 3px 8px; border-radius: 5px; cursor: pointer;
+  }
+  .code-copy-btn:hover { color: var(--text-bright); }
   #talk-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid rgba(var(--overlay-rgb),0.08); flex-shrink: 0; }
   #talk-input {
     flex: 1; background: none; border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 6px;
@@ -464,6 +506,7 @@
   .settings-panel.active { display: block; }
   .settings-panel-title { font-size: 20px; font-weight: 600; color: var(--text-bright); margin: 0 0 6px; }
   .settings-panel-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; margin: 0 0 24px; }
+  .settings-subtitle { font-size: 14px; font-weight: 600; color: var(--text-bright); margin: 20px 0 6px; }
   .settings-subsection { margin-bottom: 20px; }
   .settings-subsection:last-child { margin-bottom: 0; }
   #referral-stats { display: flex; gap: 24px; margin-top: 18px; }
@@ -1029,6 +1072,16 @@
             <button class="theme-mode" data-mode="dark">Dark</button>
             <button class="theme-mode" data-mode="light">Light</button>
           </div>
+          <h3 class="settings-subtitle">Code color</h3>
+          <p class="settings-panel-desc">Syntax highlight theme for code blocks in chat.</p>
+          <select id="code-theme-select" class="settings-input" style="max-width:220px;">
+            <option value="github-dark">GitHub Dark</option>
+            <option value="monokai">Monokai</option>
+            <option value="atom-one-dark">Atom One Dark</option>
+            <option value="nord">Nord</option>
+            <option value="night-owl">Night Owl</option>
+            <option value="tokyo-night-dark">Tokyo Night</option>
+          </select>
         </div>
 
         <div class="settings-panel" data-panel="personality">
@@ -2514,13 +2567,50 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+// Text-mode chat is told (agent.js) it can write markdown since nobody's
+// listening to it — assistant/task-result turns render it; user/status/
+// error stay plain escaped text (no reason to markdown-render your own
+// typed input, and voice replies rarely contain real markdown anyway).
+marked.setOptions({ breaks: true, gfm: true });
+function renderMarkdown(text) {
+  return DOMPurify.sanitize(marked.parse(text));
+}
+const MARKDOWN_ROLES = new Set(['assistant', 'task-result']);
+
+// marked emits plain <pre><code class="language-x">; wraps each in a
+// positioned div for the copy button and runs it through highlight.js.
+function enhanceCodeBlocks(container) {
+  container.querySelectorAll('pre').forEach((pre) => {
+    const codeEl = pre.querySelector('code');
+    if (codeEl) hljs.highlightElement(codeEl);
+    const wrap = document.createElement('div');
+    wrap.className = 'code-block-wrap';
+    pre.replaceWith(wrap);
+    wrap.appendChild(pre);
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'code-copy-btn';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(codeEl ? codeEl.textContent : pre.textContent);
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      } catch (e) {}
+    });
+    wrap.appendChild(copyBtn);
+  });
+}
+
 function renderTranscript() {
   const el = document.getElementById('talk-transcript');
   const ROLE_LABELS = { user: 'You', assistant: currentIdentity.aiName, 'task-result': 'Task result', status: '', error: 'Error' };
   el.innerHTML = talkTranscript.map((m) => {
     const label = ROLE_LABELS[m.role];
-    return `<div class="talk-msg talk-${m.role}">${label ? `<span class="talk-role">${escapeHtml(label)}</span>` : ''}${escapeHtml(m.text)}</div>`;
+    const body = MARKDOWN_ROLES.has(m.role) ? renderMarkdown(m.text) : escapeHtml(m.text);
+    return `<div class="talk-msg talk-${m.role}">${label ? `<span class="talk-role">${escapeHtml(label)}</span>` : ''}${body}</div>`;
   }).join('');
+  enhanceCodeBlocks(el);
   el.scrollTop = el.scrollHeight;
 }
 
@@ -2841,6 +2931,25 @@ function initSettings() {
       if (shellMaterial) shellMaterial.color.setHex(shellColorFor(mode));
       if (refreshLinkTheme) refreshLinkTheme(mode);
     });
+  });
+
+  // Code color — purely a display preference (like theme mode above), so
+  // it lives in localStorage rather than the account.
+  const CODE_THEME_KEY = 'neurovance_code_theme';
+  const codeThemeSelect = document.getElementById('code-theme-select');
+  const hljsThemeLink = document.getElementById('hljs-theme-link');
+  function applyCodeTheme(theme) {
+    hljsThemeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${theme}.min.css`;
+  }
+  const storedCodeTheme = localStorage.getItem(CODE_THEME_KEY);
+  if (storedCodeTheme) {
+    codeThemeSelect.value = storedCodeTheme;
+    applyCodeTheme(storedCodeTheme);
+  }
+  codeThemeSelect.addEventListener('change', () => {
+    const theme = codeThemeSelect.value;
+    applyCodeTheme(theme);
+    localStorage.setItem(CODE_THEME_KEY, theme);
   });
 
   const tabs = document.querySelectorAll('.personality-mode');
