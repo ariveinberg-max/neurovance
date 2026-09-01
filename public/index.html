@@ -1311,6 +1311,10 @@
             <button class="effort-tab" data-level="extreme">Extreme</button>
           </div>
           <div id="effort-note"></div>
+          <h3 class="settings-subtitle">Show its reasoning</h3>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-primary); cursor:pointer;">
+            <input type="checkbox" id="expand-thinking-toggle" /> Expand thinking by default (above Low only)
+          </label>
         </div>
 
         <div class="settings-panel" data-panel="voice">
@@ -2959,6 +2963,14 @@ function initArtifactPanel() {
   });
 }
 
+// Settings -> Effort -> "Expand thinking by default" — purely a display
+// preference (like theme mode / code color), so localStorage rather than
+// the account. Read fresh on every render rather than cached, so toggling
+// it in Settings affects the very next reply without needing a reload.
+function shouldExpandThinking() {
+  return localStorage.getItem('neurovance_expand_thinking') === '1';
+}
+
 function renderTranscript() {
   const el = document.getElementById('talk-transcript');
   const ROLE_LABELS = { user: 'You', assistant: currentIdentity.aiName, 'task-result': 'Task result', status: '', error: 'Error' };
@@ -2967,7 +2979,8 @@ function renderTranscript() {
     // behind the next bubble, not the answer itself — collapsed by default,
     // plain text (raw model reasoning, not a formatted reply).
     if (m.role === 'thinking') {
-      return `<details class="thinking-block"><summary>Thinking</summary><div class="thinking-block-content">${escapeHtml(m.text)}</div></details>`;
+      const openAttr = shouldExpandThinking() ? ' open' : '';
+      return `<details class="thinking-block"${openAttr}><summary>Thinking</summary><div class="thinking-block-content">${escapeHtml(m.text)}</div></details>`;
     }
     const label = ROLE_LABELS[m.role];
     const body = MARKDOWN_ROLES.has(m.role) ? renderMarkdown(m.text) : escapeHtml(m.text);
@@ -3538,6 +3551,12 @@ function initSettings() {
     const theme = codeThemeSelect.value;
     applyCodeTheme(theme);
     localStorage.setItem(CODE_THEME_KEY, theme);
+  });
+
+  const expandThinkingToggle = document.getElementById('expand-thinking-toggle');
+  expandThinkingToggle.checked = shouldExpandThinking();
+  expandThinkingToggle.addEventListener('change', () => {
+    localStorage.setItem('neurovance_expand_thinking', expandThinkingToggle.checked ? '1' : '0');
   });
 
   const tabs = document.querySelectorAll('.personality-mode');

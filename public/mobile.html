@@ -424,6 +424,11 @@
       </select>
     </div>
 
+    <div class="settings-row">
+      <label class="settings-row-label" for="expand-thinking-toggle">Expand thinking by default</label>
+      <input type="checkbox" id="expand-thinking-toggle" />
+    </div>
+
     <div class="settings-row"><div class="settings-row-label">Open the full app</div><a href="/" id="desktop-link" style="color:var(--green-bright); font-size:13.5px;">neurovance.dev →</a></div>
     <button id="logout-btn">Log out</button>
   </div>
@@ -903,6 +908,7 @@ function addThinkingBlock(text) {
   messagesEmpty.style.display = 'none';
   const details = document.createElement('details');
   details.className = 'thinking-block';
+  details.open = shouldExpandThinking();
   const summary = document.createElement('summary');
   summary.textContent = 'Thinking';
   const content = document.createElement('div');
@@ -1074,6 +1080,18 @@ codeThemeSelect.addEventListener('change', () => {
   const theme = codeThemeSelect.value;
   applyCodeTheme(theme);
   try { localStorage.setItem(CODE_THEME_KEY, theme); } catch (e) {}
+});
+
+// ---------- Expand thinking by default — same reasoning as code theme:
+// purely a display preference, not something that needs to sync anywhere. ----------
+const EXPAND_THINKING_KEY = 'neurovance_expand_thinking';
+const expandThinkingToggle = document.getElementById('expand-thinking-toggle');
+function shouldExpandThinking() {
+  try { return localStorage.getItem(EXPAND_THINKING_KEY) === '1'; } catch (e) { return false; }
+}
+expandThinkingToggle.checked = shouldExpandThinking();
+expandThinkingToggle.addEventListener('change', () => {
+  try { localStorage.setItem(EXPAND_THINKING_KEY, expandThinkingToggle.checked ? '1' : '0'); } catch (e) {}
 });
 
 // ---------- Referral capture (mirrors index.html) ----------
