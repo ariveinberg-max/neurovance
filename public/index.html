@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="theme-color" content="#050505">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Michroma&family=Sora:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Michroma&family=Sora:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <!-- Assistant replies are markdown in text-chat mode — marked parses it,
      DOMPurify sanitizes before innerHTML, highlight.js colors code blocks.
      Same setup as mobile.html; see that file's comment for why cdnjs
@@ -29,20 +29,20 @@
      these CSS variables can't reach, so their own background/text colors are
      set directly in JS to track the theme (search "graphBgFor"). ---------- */
   :root {
-    --bg: #050505;
-    --surface: #0a0a0b;
-    --surface-alt: #0d0d0f;
-    --surface-modal: #0e0e10;
-    --text-bright: #eaeaec;
+    --bg: #0a0a0c;
+    --surface: #121216;
+    --surface-alt: #18181e;
+    --surface-modal: #1c1c24;
+    --text-bright: #fefefe;
     --text-primary: #d6d6d9;
-    --text-secondary: #9a9aa2;
-    --text-muted: #63636a;
-    --text-faint: #4a4a50;
-    --accent-green: #7fd99a;
-    --accent-green-bright: #b8ffcf;
-    --accent-red: #e8432c;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --text-faint: #52525b;
+    --accent-green: #a3e6b5;
+    --accent-green-bright: #c2ffda;
+    --accent-red: #ff5f45;
     --overlay-rgb: 255, 255, 255;
-    --surface-rgb: 10, 10, 11;
+    --surface-rgb: 18, 18, 22;
     --talk-msg-gap: 12px;
   }
   :root[data-theme="light"] {
@@ -65,7 +65,8 @@
 
   html, body {
     margin: 0; height: 100%; background: var(--bg); overflow: hidden;
-    font-family: 'Inter', -apple-system, sans-serif; color: var(--text-primary);
+    font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--text-primary);
+    transition: background 0.3s ease, color 0.3s ease;
   }
   body { display: flex; }
   #app-shell { display: flex; width: 100%; height: 100vh; }
@@ -73,12 +74,15 @@
   /* ---------- Auth gate ---------- */
   #auth-gate {
     width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
   }
   #auth-card {
-    width: 320px; display: flex; flex-direction: column; gap: 16px;
+    width: 340px; display: flex; flex-direction: column; gap: 20px;
+    padding: 32px; background: var(--surface); border: 1px solid rgba(var(--overlay-rgb), 0.08);
+    border-radius: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
   }
   #brand-lockup {
-    align-self: center; margin-bottom: 8px; font-family: 'Michroma', sans-serif;
+    align-self: center; margin-bottom: 12px; font-family: 'Michroma', sans-serif;
     font-size: 20px; letter-spacing: 4px; color: var(--text-bright);
     display: flex; align-items: center; gap: 10px;
   }
@@ -91,60 +95,60 @@
   }
   #brand-tag .brand-mark { width: 13px; height: 13px; }
   #auth-card h1 {
-    font-size: 14px; font-weight: 600; letter-spacing: 4px; margin: 0;
-    background: linear-gradient(180deg, var(--text-bright), var(--text-secondary));
-    -webkit-background-clip: text; background-clip: text; color: transparent;
+    font-family: 'Sora', sans-serif;
+    font-size: 16px; font-weight: 700; letter-spacing: 1px; margin: 0; text-align: center;
+    color: var(--text-bright); text-transform: uppercase;
   }
-  #auth-card .subtitle { font-size: 9px; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; margin-top: 6px; margin-bottom: 8px; }
+  #auth-card .subtitle { font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; margin-top: 6px; margin-bottom: 16px; text-align: center; }
   .auth-screen { display: flex; flex-direction: column; gap: 16px; }
   .auth-field {
-    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
-    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 13px; padding: 0 0 8px 0;
-    outline: none; transition: border-color 0.25s ease;
+    width: 100%; background: rgba(var(--overlay-rgb), 0.04); border: 1px solid rgba(var(--overlay-rgb), 0.1);
+    border-radius: 8px; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; padding: 12px;
+    outline: none; transition: all 0.2s ease;
   }
   .auth-field::placeholder { color: var(--text-faint); }
-  .auth-field:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  .auth-field:focus { border-color: rgba(163,230,181,0.4); background: rgba(var(--overlay-rgb), 0.07); }
   .password-field { position: relative; }
-  .password-field .auth-field { padding-right: 42px; }
+  .password-field .auth-field { padding-right: 60px; }
   .toggle-password {
-    position: absolute; right: 0; bottom: 8px; background: none; border: none;
-    color: var(--text-muted); font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 0.5px;
+    position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none;
+    color: var(--text-muted); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; letter-spacing: 0.5px;
     text-transform: uppercase; cursor: pointer; padding: 0; transition: color 0.2s ease;
   }
   .toggle-password:hover { color: var(--text-secondary); }
   .remember-me {
-    display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary);
     cursor: pointer; user-select: none; margin-top: -4px;
   }
   .remember-me input { accent-color: var(--text-muted); cursor: pointer; }
   .oauth-divider {
     display: flex; align-items: center; gap: 10px; color: var(--text-faint); font-size: 10px;
-    letter-spacing: 1px; text-transform: uppercase; margin: 2px 0;
+    letter-spacing: 1px; text-transform: uppercase; margin: 4px 0;
   }
   .oauth-divider::before, .oauth-divider::after { content: ''; flex: 1; height: 1px; background: rgba(var(--overlay-rgb),0.1); }
   .oauth-btn {
-    display: block; text-align: center; background: none; border: 1px solid rgba(var(--overlay-rgb),0.14);
-    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; letter-spacing: 0.3px;
-    padding: 10px; border-radius: 3px; text-decoration: none; transition: border-color 0.2s ease, background 0.2s ease;
+    display: block; text-align: center; background: rgba(var(--overlay-rgb), 0.04); border: 1px solid rgba(var(--overlay-rgb), 0.1);
+    color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; letter-spacing: 0.3px;
+    padding: 12px; border-radius: 8px; text-decoration: none; transition: all 0.2s ease;
   }
-  .oauth-btn:hover { border-color: rgba(var(--overlay-rgb),0.3); background: rgba(var(--overlay-rgb),0.04); }
+  .oauth-btn:hover { border-color: rgba(var(--overlay-rgb),0.3); background: rgba(var(--overlay-rgb),0.08); }
   .auth-submit {
-    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
-    font-size: 12px; letter-spacing: 0.5px; padding: 10px; border-radius: 3px; cursor: pointer;
-    transition: background 0.2s ease; margin-top: 4px;
+    background: var(--text-bright); border: none; color: var(--bg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px; font-weight: 600; letter-spacing: 0.5px; padding: 12px; border-radius: 8px; cursor: pointer;
+    transition: all 0.2s ease; margin-top: 4px;
   }
-  .auth-submit:hover { background: rgba(var(--overlay-rgb),0.1); }
-  .auth-toggle { font-size: 11px; color: var(--text-muted); cursor: pointer; text-align: center; }
+  .auth-submit:hover { opacity: 0.9; transform: translateY(-1px); }
+  .auth-toggle { font-size: 12px; color: var(--text-muted); cursor: pointer; text-align: center; }
   .auth-toggle span { color: var(--text-secondary); text-decoration: underline; }
-  .auth-error { font-size: 11px; color: var(--accent-red); min-height: 14px; }
+  .auth-error { font-size: 12px; color: var(--accent-red); min-height: 14px; text-align: center; }
   .password-reqs { display: flex; flex-direction: column; gap: 5px; margin-top: -6px; }
-  .password-reqs .req { font-size: 10.5px; color: var(--text-muted); letter-spacing: 0.3px; transition: color 0.2s ease; }
+  .password-reqs .req { font-size: 11px; color: var(--text-muted); letter-spacing: 0.3px; transition: color 0.2s ease; }
   .password-reqs .req::before { content: '✕  '; }
   .password-reqs .req.met { color: var(--accent-green); }
   .password-reqs .req.met::before { content: '✓  '; }
   .remember-row { display: flex; align-items: center; justify-content: space-between; margin-top: -4px; }
   .remember-row .remember-me { margin-top: 0; }
-  .remember-row .auth-toggle { font-size: 10.5px; }
+  .remember-row .auth-toggle { font-size: 11px; }
   #logout-link {
     font-size: 9px; letter-spacing: 1px; color: var(--text-faint); cursor: pointer; text-transform: uppercase;
     margin-top: 10px; transition: color 0.2s ease;
@@ -153,20 +157,22 @@
 
   /* ---------- Sidebar ---------- */
   #sidebar {
-    width: 260px; min-width: 260px; height: 100vh; z-index: 10;
-    padding: 32px 26px; display: flex; flex-direction: column;
-    border-right: 1px solid rgba(var(--overlay-rgb),0.07);
+    width: 280px; min-width: 280px; height: 100vh; z-index: 10;
+    padding: 32px 24px; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
+    border-right: 1px solid rgba(var(--overlay-rgb), 0.05);
   }
   h1 {
-    font-size: 14px; font-weight: 600; letter-spacing: 4px; margin: 0;
-    background: linear-gradient(180deg, var(--text-bright), var(--text-secondary));
-    -webkit-background-clip: text; background-clip: text; color: transparent;
+    font-family: 'Sora', sans-serif;
+    font-size: 14px; font-weight: 700; letter-spacing: 4px; margin: 0;
+    color: var(--text-bright);
   }
-  .subtitle { font-size: 9px; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; margin-top: 6px; }
+  .subtitle { font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; margin-top: 6px; }
 
-  .hero { margin-top: 56px; }
+  .hero { margin-top: 56px; margin-bottom: 32px; }
   .hero-mood {
-    font-size: 24px; font-weight: 500; color: var(--text-bright); line-height: 1.3;
+    font-size: 26px; font-weight: 500; color: var(--text-bright); line-height: 1.2;
+    letter-spacing: -0.5px;
   }
   .hero-label { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--text-muted); margin-top: 10px; }
 
@@ -175,85 +181,95 @@
     margin-top: 18px; letter-spacing: 0.5px;
   }
 
-  /* ---------- Add-memory bar — an underline, not a boxed input ---------- */
+  /* ---------- Add-memory bar — polished boxed input ---------- */
   #add-memory { margin-top: 26px; }
   #memory-input {
-    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
-    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
-    outline: none; transition: border-color 0.25s ease;
-    resize: none; min-height: 34px; max-height: 140px; line-height: 1.5;
+    width: 100%; background: rgba(var(--overlay-rgb), 0.04); border: 1px solid rgba(var(--overlay-rgb), 0.1);
+    border-radius: 8px; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; padding: 12px;
+    outline: none; transition: all 0.2s ease;
+    resize: none; min-height: 60px; max-height: 140px; line-height: 1.5;
   }
   #memory-input::placeholder { color: var(--text-faint); }
-  #memory-input:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  #memory-input:focus {
+    background: rgba(var(--overlay-rgb), 0.07);
+    border-color: rgba(163,230,181,0.3);
+    box-shadow: 0 0 0 3px rgba(163,230,181,0.05);
+  }
   #add-memory-hint {
-    font-size: 9px; color: var(--text-faint); margin-top: 6px; letter-spacing: 0.3px;
+    font-size: 9px; color: var(--text-faint); margin-top: 8px; letter-spacing: 0.3px;
   }
   #add-memory-status {
-    font-size: 10px; letter-spacing: 0.5px; color: var(--accent-green); margin-top: 7px; height: 12px;
+    font-size: 10px; letter-spacing: 0.5px; color: var(--accent-green); margin-top: 8px; height: 12px;
     opacity: 0; transition: opacity 0.4s ease;
   }
   #add-memory-status.show { opacity: 1; }
+  #add-memory-status.err { color: var(--accent-red); }
 
   /* ---------- Memory search ---------- */
   #memory-search {
-    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
-    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
-    outline: none; transition: border-color 0.25s ease; margin-top: 18px;
+    width: 100%; background: rgba(var(--overlay-rgb), 0.04); border: 1px solid rgba(var(--overlay-rgb), 0.1);
+    border-radius: 8px; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; padding: 10px 12px;
+    outline: none; transition: all 0.2s ease; margin-top: 18px;
   }
   #memory-search::placeholder { color: var(--text-faint); }
-  #memory-search:focus { border-bottom-color: rgba(210,230,255,0.6); }
-  #search-count { font-size: 10px; color: var(--text-muted); margin-top: 6px; height: 12px; }
+  #memory-search:focus {
+    background: rgba(var(--overlay-rgb), 0.07);
+    border-color: rgba(163,230,181,0.3);
+    box-shadow: 0 0 0 3px rgba(163,230,181,0.05);
+  }
+  #search-count { font-size: 10px; color: var(--text-muted); margin-top: 8px; height: 12px; }
 
   /* ---------- Selected memory readout — click a node in the sphere ---------- */
   #selected-memory {
-    margin-top: 22px; font-size: 12px; line-height: 1.5; color: var(--text-primary);
-    max-height: 220px; overflow-y: auto; padding-right: 4px; position: relative;
-    opacity: 0; transform: translateY(-4px);
+    margin-top: 22px; font-size: 13px; line-height: 1.6; color: var(--text-primary);
+    max-height: 240px; overflow-y: auto; padding: 16px; position: relative;
+    background: rgba(var(--overlay-rgb), 0.04); border: 1px solid rgba(var(--overlay-rgb), 0.08);
+    border-radius: 12px; opacity: 0; transform: translateY(-4px);
     transition: opacity 0.35s ease, transform 0.35s ease;
   }
   #selected-memory.show { opacity: 1; transform: translateY(0); }
   #selected-memory .sm-label {
-    font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px;
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;
   }
   #selected-memory-close {
-    position: absolute; top: -2px; right: 0; cursor: pointer; color: var(--text-muted);
-    font-size: 13px; line-height: 1; padding: 4px; transition: color 0.2s ease;
+    position: absolute; top: 8px; right: 8px; cursor: pointer; color: var(--text-muted);
+    font-size: 14px; line-height: 1; padding: 4px; transition: color 0.2s ease;
   }
   #selected-memory-close:hover { color: var(--text-primary); }
   #selected-memory-meta {
-    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px;
   }
   .sm-tag {
-    font-size: 9px; letter-spacing: 0.5px; color: var(--text-secondary); background: rgba(var(--overlay-rgb),0.06);
-    border-radius: 3px; padding: 3px 7px;
+    font-size: 9px; letter-spacing: 0.5px; color: var(--text-secondary); background: rgba(var(--overlay-rgb), 0.08);
+    border: 1px solid rgba(var(--overlay-rgb), 0.1); border-radius: 4px; padding: 3px 7px;
   }
-  .sm-tag-clickable { cursor: pointer; transition: color 0.15s ease, background 0.15s ease; }
-  .sm-tag-clickable:hover { color: var(--text-bright); background: rgba(var(--overlay-rgb),0.12); }
+  .sm-tag-clickable { cursor: pointer; transition: all 0.15s ease; }
+  .sm-tag-clickable:hover { color: var(--text-bright); background: rgba(var(--overlay-rgb), 0.15); border-color: rgba(var(--overlay-rgb), 0.2); }
   #selected-memory-date {
-    font-size: 10px; color: var(--text-muted); margin-top: 8px;
+    font-size: 10px; color: var(--text-muted); margin-top: 12px; opacity: 0.8;
   }
   #correct-memory-trigger {
-    font-size: 10px; letter-spacing: 0.3px; color: var(--text-muted); text-decoration: underline;
-    cursor: pointer; margin-top: 10px; display: inline-block; transition: color 0.2s ease;
+    font-size: 11px; letter-spacing: 0.3px; color: var(--text-muted); text-decoration: underline;
+    cursor: pointer; margin-top: 14px; display: inline-block; transition: color 0.2s ease;
   }
   #correct-memory-trigger:hover { color: var(--text-secondary); }
-  #correct-memory-form { display: none; margin-top: 10px; }
+  #correct-memory-form { display: none; margin-top: 12px; }
   #correct-memory-form.show { display: block; }
   #correct-memory-input {
-    width: 100%; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
-    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; padding: 0 0 8px 0;
-    outline: none; resize: none; transition: border-color 0.25s ease;
+    width: 100%; background: rgba(var(--overlay-rgb), 0.06); border: 1px solid rgba(var(--overlay-rgb), 0.14);
+    border-radius: 6px; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; padding: 10px;
+    outline: none; resize: none; transition: all 0.2s ease;
   }
   #correct-memory-input::placeholder { color: var(--text-faint); }
-  #correct-memory-input:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  #correct-memory-input:focus { border-color: rgba(163,230,181,0.5); background: rgba(var(--overlay-rgb), 0.08); }
   #correct-memory-submit {
-    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
-    font-size: 10px; letter-spacing: 0.5px; padding: 6px 10px; border-radius: 3px; cursor: pointer;
-    margin-top: 8px; transition: background 0.2s ease;
+    background: rgba(var(--overlay-rgb), 0.08); border: 1px solid rgba(var(--overlay-rgb), 0.14); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 10px; letter-spacing: 0.5px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    margin-top: 10px; transition: all 0.2s ease;
   }
-  #correct-memory-submit:hover { background: rgba(var(--overlay-rgb),0.1); }
+  #correct-memory-submit:hover { background: rgba(var(--overlay-rgb), 0.14); border-color: rgba(var(--overlay-rgb), 0.2); }
   #correct-memory-submit:disabled { opacity: 0.5; cursor: default; }
-  #correct-memory-status { font-size: 10px; color: var(--accent-green); margin-top: 7px; min-height: 12px; }
+  #correct-memory-status { font-size: 10px; color: var(--accent-green); margin-top: 8px; min-height: 12px; }
   #correct-memory-status.err { color: var(--accent-red); }
 
   /* ---------- Pending notes — things it noticed on its own ---------- */
@@ -271,7 +287,7 @@
   #pending-note-text { font-size: 13px; line-height: 1.5; color: var(--text-primary); }
   #pending-note-actions { margin-top: 12px; }
   #pending-note-dismiss {
-    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
+    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 11px; padding: 6px 12px; border-radius: 3px; cursor: pointer; transition: background 0.2s ease;
   }
   #pending-note-dismiss:hover { background: rgba(var(--overlay-rgb),0.1); }
@@ -288,7 +304,7 @@
   }
   #talk-toggle, #code-toggle {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; font-weight: 500;
     letter-spacing: 0.2px; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
   }
   #talk-toggle {
@@ -296,56 +312,66 @@
     background: rgba(var(--surface-rgb),0.72); border: 1px solid rgba(var(--overlay-rgb),0.13); color: var(--text-secondary);
   }
   #talk-toggle:hover { background: var(--surface); border-color: rgba(var(--overlay-rgb),0.28); color: var(--text-primary); }
+  #talk-toggle.active {
+    background: rgba(var(--overlay-rgb),0.1); border-color: rgba(var(--overlay-rgb),0.28); color: var(--text-bright);
+  }
+  #talk-toggle.active .workspace-action-icon { color: var(--accent-green); }
+  #code-toggle.active {
+    background: var(--accent-green-bright); border-color: var(--accent-green-bright);
+    box-shadow: 0 8px 24px rgba(127,217,154,0.28);
+  }
   .workspace-action-icon { width: 15px; height: 15px; flex: 0 0 auto; }
   /* A real centered modal, not a corner drawer — big enough to actually
      live in, translucent enough that the sphere and vitals stay visible
      behind it rather than being fully hidden by a solid panel. */
   #talk-backdrop {
     display: none; position: fixed; inset: 0; z-index: 41;
-    background: rgba(0,0,0,0.25); align-items: center; justify-content: center; padding: 24px;
+    background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(12px); align-items: center; justify-content: center; padding: 24px;
   }
   #talk-backdrop.open { display: flex; }
   #talk-drawer {
-    width: 720px; max-width: 100%; height: 82vh; max-height: 820px;
-    background: rgba(var(--surface-rgb), 0.32);
-    backdrop-filter: blur(22px) saturate(150%); -webkit-backdrop-filter: blur(22px) saturate(150%);
-    border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 16px;
-    display: flex; flex-direction: column; box-shadow: 0 50px 120px rgba(0,0,0,0.5);
-    opacity: 0; transform: scale(0.96); transition: opacity 0.25s ease, transform 0.25s ease;
+    width: 760px; max-width: 100%; height: 82vh; max-height: 820px;
+    background: var(--surface-modal);
+    border: 1px solid rgba(var(--overlay-rgb), 0.12); border-radius: 24px;
+    display: flex; flex-direction: column; box-shadow: 0 60px 140px rgba(0,0,0,0.7);
+    opacity: 0; transform: scale(0.97); transition: opacity 0.25s ease, transform 0.25s ease;
   }
   #talk-backdrop.open #talk-drawer { opacity: 1; transform: scale(1); }
   #talk-header {
-    padding: 18px 20px 14px; border-bottom: 1px solid rgba(var(--overlay-rgb),0.08); flex-shrink: 0;
+    padding: 20px 24px 16px; border-bottom: 1px solid rgba(var(--overlay-rgb), 0.08); flex-shrink: 0;
   }
   #talk-header-top { display: flex; align-items: center; justify-content: space-between; }
   #talk-mode-tabs { display: flex; gap: 6px; }
   .talk-mode {
-    background: none; border: none; color: var(--text-muted); font-family: 'Inter', sans-serif;
-    font-size: 12.5px; letter-spacing: 0.3px; padding: 6px 12px; border-radius: 4px; cursor: pointer;
-    transition: color 0.2s ease, background 0.2s ease;
+    background: none; border: none; color: var(--text-muted); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 12.5px; letter-spacing: 0.3px; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    transition: all 0.2s ease;
   }
-  .talk-mode.active { color: var(--text-primary); background: rgba(var(--overlay-rgb),0.07); }
-  #talk-close { color: var(--text-muted); cursor: pointer; font-size: 15px; padding: 4px; transition: color 0.2s ease; }
-  #talk-close:hover { color: var(--text-primary); }
+  .talk-mode.active { color: var(--text-primary); background: rgba(var(--overlay-rgb), 0.08); }
+  #talk-close {
+    color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; font-size: 15px; padding: 0; border-radius: 8px; transition: color 0.2s ease, background 0.2s ease;
+  }
+  #talk-close:hover { color: var(--text-primary); background: rgba(var(--overlay-rgb), 0.07); }
   #model-select {
     margin-top: 10px; width: 100%; max-width: 260px;
     background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.14);
-    border-radius: 6px; color: var(--text-primary); font-family: 'Share Tech Mono', monospace;
-    font-size: 11px; letter-spacing: 0.5px; padding: 7px 9px; outline: none; cursor: pointer;
-    transition: border-color 0.2s ease;
+    border-radius: 8px; color: var(--text-primary); font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; letter-spacing: 0.5px; padding: 8px 10px; outline: none; cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
   }
-  #model-select:focus { border-color: rgba(210,230,255,0.5); }
+  #model-select:focus { border-color: rgba(127,217,154,0.45); background: rgba(var(--overlay-rgb),0.07); }
   #model-select option:disabled { color: var(--text-faint); }
   #model-tier-note { font-size: 10px; color: var(--text-muted); margin-top: 6px; min-height: 12px; }
-  #talk-transcript { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: var(--talk-msg-gap); }
-  .talk-msg { font-size: 12.5px; line-height: 1.55; max-width: 88%; }
+  #talk-transcript { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: var(--talk-msg-gap); }
+  .talk-msg { font-size: 13px; line-height: 1.6; max-width: 88%; padding: 12px 16px; border-radius: 14px; }
   .talk-msg .talk-role {
     font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
-    color: var(--text-muted); margin-bottom: 3px; display: block;
+    color: var(--text-muted); margin-bottom: 4px; display: block;
   }
-  .talk-user { align-self: flex-end; text-align: right; color: var(--text-primary); }
-  .talk-assistant { align-self: flex-start; color: var(--text-primary); }
-  .talk-task-result { align-self: stretch; color: var(--text-primary); background: rgba(var(--overlay-rgb),0.04); border-radius: 6px; padding: 10px 12px; max-width: 100%; }
+  .talk-user { align-self: flex-end; text-align: right; color: var(--text-primary); background: rgba(var(--overlay-rgb), 0.06); border-bottom-right-radius: 4px; border: 1px solid rgba(var(--overlay-rgb), 0.08); }
+  .talk-assistant { align-self: flex-start; color: var(--text-primary); background: rgba(var(--overlay-rgb), 0.04); border-bottom-left-radius: 4px; border: 1px solid rgba(var(--overlay-rgb), 0.08); }
+  .talk-task-result { align-self: stretch; color: var(--text-primary); background: rgba(var(--overlay-rgb), 0.06); border-radius: 12px; padding: 14px 18px; max-width: 100%; border: 1px solid rgba(var(--overlay-rgb), 0.1); }
   .talk-status { align-self: center; color: var(--text-muted); font-size: 11px; font-style: italic; }
   .talk-error { align-self: flex-start; color: var(--accent-red); }
 
@@ -401,117 +427,270 @@
   #talk-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid rgba(var(--overlay-rgb),0.08); flex-shrink: 0; }
   #talk-input {
     flex: 1; background: none; border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 6px;
-    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12.5px; padding: 8px 10px;
+    color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12.5px; padding: 8px 10px;
     outline: none; resize: none; max-height: 90px; transition: border-color 0.25s ease;
   }
   #talk-input::placeholder { color: var(--text-faint); }
-  #talk-input:focus { border-color: rgba(210,230,255,0.5); }
+  #talk-input:focus { border-color: rgba(163,230,181,0.5); }
   #talk-send {
-    background: rgba(var(--overlay-rgb),0.08); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
+    background: rgba(var(--overlay-rgb),0.08); border: none; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 11px; padding: 0 14px; border-radius: 6px; cursor: pointer; transition: background 0.2s ease;
   }
   #talk-send:hover { background: rgba(var(--overlay-rgb),0.14); }
   #talk-send:disabled { opacity: 0.5; cursor: default; }
 
-  /* ---------- Code — VSCode explorer/editor layout wrapped in a Claude-
-     Code-style terminal prompt bar. Desktop only: hidden below the same
-     1024px breakpoint the mobile gate uses, since a phone is not a place
-     to run a code editor. ---------- */
+  /* ---------- Code — a clean, modern editor workspace: file tree + real
+     execution + live preview, wrapped around a Claude-Code-style prompt bar
+     at the bottom. UI chrome uses the app's own Sora/Inter type system
+     (matching every other panel) — monospace is reserved for what's
+     actually code: the editor, file names, terminal output. Desktop only:
+     hidden below the same 1024px breakpoint the mobile gate uses, since a
+     phone is not a place to run a code editor. ---------- */
   #code-toggle {
-    height: 38px; padding: 0 14px; border-radius: 8px;
-    background: var(--text-bright); border: 1px solid var(--text-bright); color: var(--bg);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    height: 38px; padding: 0 16px; border-radius: 10px; font-family: 'Inter', sans-serif;
+    background: var(--accent-green); border: 1px solid var(--accent-green); color: #08150d;
+    box-shadow: 0 8px 24px rgba(127,217,154,0.22); transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    font-weight: 600;
   }
-  #code-toggle:hover { background: var(--accent-green-bright); border-color: var(--accent-green-bright); transform: translateY(-1px); }
+  #code-toggle:hover { background: var(--accent-green-bright); border-color: var(--accent-green-bright); transform: translateY(-1px); box-shadow: 0 10px 28px rgba(127,217,154,0.3); }
   #code-backdrop {
     display: none; position: fixed; inset: 0; z-index: 42;
-    background: rgba(0,0,0,0.45); align-items: center; justify-content: center; padding: 20px;
+    background: rgba(5,5,6,0.6); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    align-items: center; justify-content: center; padding: 20px;
   }
   #code-backdrop.open { display: flex; }
   #code-panel {
-    width: 94vw; max-width: 1400px; height: 90vh; max-height: 960px;
-    background: #0b0c0e; border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 12px;
-    display: flex; flex-direction: column; box-shadow: 0 60px 140px rgba(0,0,0,0.6);
-    opacity: 0; transform: scale(0.97); transition: opacity 0.2s ease, transform 0.2s ease;
-    font-family: 'Share Tech Mono', monospace; overflow: hidden;
+    width: 95vw; max-width: 1560px; height: 92vh; max-height: 1000px;
+    background: var(--surface-modal); border: 1px solid rgba(var(--overlay-rgb), 0.1); border-radius: 20px;
+    display: flex; flex-direction: column;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.5), 0 0 0 1px rgba(var(--overlay-rgb), 0.04) inset;
+    opacity: 0; transform: scale(0.98) translateY(8px); transition: opacity 0.2s ease, transform 0.2s ease;
+    font-family: 'Inter', sans-serif; overflow: hidden;
   }
   #code-panel.is-fullscreen {
     width: 100vw; max-width: none; height: 100vh; max-height: none; border: none; border-radius: 0;
   }
-  #code-backdrop.open #code-panel { opacity: 1; transform: scale(1); }
+  #code-backdrop.open #code-panel { opacity: 1; transform: scale(1) translateY(0); }
   #code-panel-header {
-    flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 12px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.08); background: #0e0f12;
+    flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 13px 20px;
+    border-bottom: 1px solid rgba(var(--overlay-rgb),0.07);
+    background: linear-gradient(180deg, rgba(var(--overlay-rgb),0.035), rgba(var(--overlay-rgb),0));
   }
-  #code-panel-title { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: #8a8a92; }
+  #code-panel-title-group { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  #code-panel-icon {
+    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--accent-green), #68d391);
+    color: #07150b; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 12px rgba(127,217,154,0.28);
+  }
+  #code-panel-icon svg { width: 15px; height: 15px; }
+  #code-panel-titles { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  #code-panel-title { font-family: 'Sora', sans-serif; font-weight: 600; font-size: 14px; color: var(--text-bright); }
+  #code-panel-subtitle { font-family: 'Share Tech Mono', monospace; font-size: 9.5px; color: var(--text-faint); letter-spacing: 0.5px; white-space: nowrap; }
+
+  /* Every element in this panel toggled via the `hidden` attribute (Stop
+     button, preview panel) also has its own `display: flex` rule for when
+     it's shown — same specificity as the browser's default [hidden] rule,
+     author styles win ties, so without this override "hidden" elements
+     stayed visible the whole time. Caught this live: Stop showed next to
+     Run before any run had started, and the preview panel was visibly
+     white before anything was running. */
+  #code-panel [hidden] { display: none !important; }
+  #code-run-controls { display: flex; align-items: center; gap: 8px; margin-left: 4px; }
+  #code-run-status {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-muted);
+    background: rgba(var(--overlay-rgb),0.04); border: 1px solid rgba(var(--overlay-rgb),0.07); border-radius: 999px;
+    padding: 5px 12px; font-family: 'Share Tech Mono', monospace; letter-spacing: 0.3px;
+  }
+  .code-run-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; }
+  #code-run-status.installing .code-run-dot { background: #e0b84a; animation: codeRunPulse 1s infinite ease-in-out; }
+  #code-run-status.running .code-run-dot { background: var(--accent-green); box-shadow: 0 0 0 3px rgba(127,217,154,0.18); }
+  #code-run-status.error .code-run-dot { background: var(--accent-red); }
+  @keyframes codeRunPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .code-run-action-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-family: 'Inter', sans-serif; font-weight: 600; font-size: 12px;
+    padding: 7px 16px; border-radius: 9px; cursor: pointer; border: 1px solid transparent; transition: filter 0.15s ease, background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+    letter-spacing: 0.1px; white-space: nowrap;
+  }
+  .code-run-action-btn:active { transform: scale(0.97); }
+  #code-run-btn { background: var(--accent-green); color: #08150d; box-shadow: 0 4px 14px rgba(127,217,154,0.25); }
+  #code-run-btn:hover { filter: brightness(1.08); box-shadow: 0 6px 20px rgba(127,217,154,0.32); }
+  #code-run-btn:disabled { opacity: 0.5; cursor: default; filter: none; box-shadow: none; }
+  #code-stop-btn { background: rgba(var(--overlay-rgb),0.06); border-color: rgba(var(--overlay-rgb),0.1); color: var(--text-primary); }
+  #code-stop-btn:hover { background: rgba(255,95,69,0.12); border-color: rgba(255,95,69,0.3); color: var(--accent-red); }
+
   #code-editor-theme-select {
-    margin-left: auto; background: #16171b; border: 1px solid rgba(255,255,255,0.1); color: #c8c8ce;
-    font-family: 'Share Tech Mono', monospace; font-size: 11px; padding: 5px 8px; border-radius: 5px; outline: none;
+    margin-left: auto; background: rgba(var(--overlay-rgb),0.04); border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-secondary);
+    font-family: 'Inter', sans-serif; font-size: 11.5px; padding: 6px 12px; border-radius: 8px; outline: none; cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
   }
-  #code-panel-close { color: #8a8a92; cursor: pointer; padding: 2px 6px; font-size: 14px; }
-  #code-panel-close:hover { color: #e8e8ec; }
+  #code-editor-theme-select:hover { background: rgba(var(--overlay-rgb),0.07); border-color: rgba(var(--overlay-rgb),0.18); }
   #code-panel-fullscreen {
-    background: none; border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; color: #a8a8b0;
-    font-family: 'Share Tech Mono', monospace; font-size: 10px; padding: 5px 8px; cursor: pointer;
+    background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); border-radius: 8px; color: var(--text-secondary);
+    font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px 12px; cursor: pointer; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
-  #code-panel-fullscreen:hover { color: #f0f0f4; background: rgba(255,255,255,0.06); }
+  #code-panel-fullscreen:hover { color: var(--text-bright); background: rgba(var(--overlay-rgb),0.06); border-color: rgba(var(--overlay-rgb),0.18); }
+  #code-panel-close {
+    color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; font-size: 15px; border-radius: 8px; line-height: 1;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  #code-panel-close:hover { color: var(--text-bright); background: rgba(var(--overlay-rgb),0.07); }
+
   #code-panel-body { flex: 1 1 auto; display: flex; min-height: 0; }
   #code-file-tree {
-    flex: 0 0 200px; border-right: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column;
-    background: #0e0f12; overflow-y: auto;
+    flex: 0 0 220px; border-right: 1px solid rgba(var(--overlay-rgb),0.07); display: flex; flex-direction: column;
+    background: rgba(var(--overlay-rgb),0.015); overflow-y: auto;
   }
   #code-file-tree-header {
-    display: flex; align-items: center; justify-content: space-between; padding: 10px 12px;
-    font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #6e6e76; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 8px 18px;
+    font-size: 10px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-faint); flex-shrink: 0;
   }
   #code-new-file-btn {
-    background: none; border: 1px solid rgba(255,255,255,0.14); color: #c8c8ce; width: 20px; height: 20px;
-    border-radius: 4px; cursor: pointer; font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+    background: none; border: 1px solid rgba(var(--overlay-rgb),0.12); color: var(--text-secondary); min-width: 24px; height: 24px;
+    border-radius: 7px; cursor: pointer; font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
-  #code-new-file-btn:hover { background: rgba(255,255,255,0.06); }
-  #code-file-list { flex: 1; padding: 0 6px 8px; }
+  #code-new-file-btn:hover { background: rgba(var(--overlay-rgb),0.08); color: var(--text-bright); border-color: rgba(var(--overlay-rgb),0.2); }
+  #code-file-list { flex: 1; padding: 4px 10px 12px; }
   .code-file-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px;
-    border-radius: 5px; cursor: pointer; font-size: 12px; color: #a8a8b0;
+    position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+    border-radius: 8px; cursor: pointer; font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--text-secondary);
+    transition: background 0.12s ease;
   }
-  .code-file-row:hover { background: rgba(255,255,255,0.05); }
-  .code-file-row.active { background: rgba(127,217,154,0.12); color: #eafff0; }
-  .code-file-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .code-file-row:hover { background: rgba(var(--overlay-rgb),0.05); }
+  .code-file-row.active { background: rgba(127,217,154,0.12); color: var(--text-bright); }
+  .code-file-row.active::before {
+    content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2.5px; border-radius: 0 2px 2px 0;
+    background: var(--accent-green); box-shadow: 0 0 8px rgba(127,217,154,0.5);
+  }
+  .code-file-lang-dot {
+    width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; background: var(--text-faint);
+  }
+  .code-file-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .code-file-row-delete {
-    flex-shrink: 0; opacity: 0; color: #8a8a92; font-size: 13px; line-height: 1; padding: 0 2px;
+    flex-shrink: 0; opacity: 0; color: var(--text-muted); font-size: 13px; line-height: 1; padding: 2px; background: none; border: none; cursor: pointer; border-radius: 4px;
   }
   .code-file-row:hover .code-file-row-delete { opacity: 1; }
-  .code-file-row-delete:hover { color: #e87a7a; }
-  #code-file-tree-empty { padding: 14px 12px; font-size: 11px; color: #6e6e76; line-height: 1.6; }
+  .code-file-row-delete:hover { color: var(--accent-red); background: rgba(255,95,69,0.1); }
+  #code-file-tree-empty {
+    padding: 14px 18px; font-size: 11px; color: var(--text-faint); line-height: 1.7;
+  }
+
   #code-editor-area { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; position: relative; }
   #code-editor-mount { flex: 1 1 auto; min-height: 0; display: none; }
   #code-editor-mount .CodeMirror { height: 100%; font-family: 'Share Tech Mono', monospace; font-size: 12.5px; }
+  #code-editor-mount .CodeMirror-gutters { border-right: 1px solid rgba(var(--overlay-rgb),0.05); }
+  #code-editor-mount .CodeMirror-lines { padding: 12px 0; }
+  #code-editor-mount .CodeMirror-vscrollbar, #code-editor-mount .CodeMirror-hscrollbar { outline: none; }
   #code-empty-state {
-    flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
-    color: #6e6e76; font-size: 12.5px; padding: 40px; line-height: 1.7;
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    color: var(--text-faint); font-size: 12.5px; padding: 40px; line-height: 1.7; font-family: 'Inter', sans-serif;
   }
+  #code-empty-state-icon {
+    width: 52px; height: 52px; border-radius: 14px; margin-bottom: 18px;
+    background: linear-gradient(135deg, rgba(127,217,154,0.14), rgba(127,217,154,0.05)); border: 1px solid rgba(127,217,154,0.24);
+    color: var(--accent-green); display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 30px rgba(127,217,154,0.08);
+  }
+  #code-empty-state-icon svg { width: 24px; height: 24px; }
+  #code-empty-state-title { font-family: 'Sora', sans-serif; font-weight: 600; font-size: 15px; color: var(--text-secondary); margin-bottom: 6px; }
+  #code-empty-state-hint { font-size: 11.5px; max-width: 360px; color: var(--text-faint); }
+  #code-empty-state-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .code-empty-action {
+    font-family: 'Inter', sans-serif; font-size: 11.5px; font-weight: 600; color: var(--text-bright);
+    background: rgba(var(--overlay-rgb),0.06); border: 1px solid rgba(var(--overlay-rgb),0.12);
+    padding: 9px 16px; border-radius: 9px; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+  }
+  .code-empty-action:hover { background: rgba(var(--overlay-rgb),0.1); border-color: rgba(var(--overlay-rgb),0.2); }
+  .code-empty-action:active { transform: scale(0.97); }
+  .code-empty-action.primary { background: var(--accent-green); border-color: var(--accent-green); color: #08150d; box-shadow: 0 4px 14px rgba(127,217,154,0.2); }
+  .code-empty-action.primary:hover { filter: brightness(1.06); background: var(--accent-green); border-color: var(--accent-green); }
+
+  /* A thin status strip beneath the editor: active file + language + cursor
+     position, the kind of affordance modern editors use to ground you in
+     what you're looking at. */
+  #code-editor-statusbar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 14px; padding: 7px 16px;
+    border-top: 1px solid rgba(var(--overlay-rgb),0.06);
+    font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--text-faint); background: rgba(var(--overlay-rgb),0.02);
+    height: 32px;
+  }
+  #code-editor-status-lang {
+    text-transform: uppercase; letter-spacing: 0.5px;
+    background: rgba(127,217,154,0.12); border: 1px solid rgba(127,217,154,0.2); color: var(--accent-green);
+    padding: 2px 8px; border-radius: 999px; font-size: 9.5px;
+  }
+  #code-editor-status-cursor { margin-left: auto; }
+
+  /* Preview slides in beside the editor only once a run is actually
+     reachable — no permanently-reserved dead space when nothing's running. */
+  #code-preview-panel {
+    flex: 0 0 42%; min-width: 320px; display: flex; flex-direction: column;
+    border-left: 1px solid rgba(var(--overlay-rgb),0.08); background: #fff;
+  }
+  #code-preview-header {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: var(--surface-alt); border-bottom: 1px solid rgba(var(--overlay-rgb),0.08);
+  }
+  #code-preview-url {
+    flex: 1; font-family: 'Share Tech Mono', monospace; font-size: 10.5px; color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .code-preview-btn {
+    background: none; border: 1px solid transparent; color: var(--text-muted); cursor: pointer; padding: 4px 7px; font-size: 12px; border-radius: 6px;
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  }
+  .code-preview-btn:hover { background: rgba(var(--overlay-rgb),0.08); color: var(--text-bright); border-color: rgba(var(--overlay-rgb),0.12); }
+  #code-preview-frame { flex: 1; border: none; background: #fff; }
+
   #code-terminal-log {
-    flex: 0 1 auto; max-height: 160px; overflow-y: auto; border-top: 1px solid rgba(255,255,255,0.08);
-    padding: 10px 16px; font-size: 11.5px; line-height: 1.7; background: #0e0f12;
+    flex: 0 1 auto; max-height: 170px; overflow-y: auto; border-top: 1px solid rgba(var(--overlay-rgb),0.07);
+    padding: 14px 20px; font-family: 'Share Tech Mono', monospace; font-size: 11.5px; line-height: 1.7;
+    background: rgba(var(--overlay-rgb),0.02);
   }
-  .code-log-entry { margin-bottom: 8px; }
+  .code-log-entry { margin-bottom: 10px; display: flex; flex-direction: column; gap: 5px; position: relative; }
   .code-log-entry:last-child { margin-bottom: 0; }
-  .code-log-prompt { color: #7fd99a; }
-  .code-log-prompt::before { content: '> '; color: #4a9d68; }
-  .code-log-reply { color: #b8b8c0; padding-left: 14px; }
-  .code-log-files { color: #6e6e76; padding-left: 14px; font-size: 10.5px; }
-  .code-log-error { color: #e8896f; padding-left: 14px; }
+  .code-log-prompt { display: flex; align-items: flex-start; gap: 8px; color: var(--text-bright); font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; }
+  .code-log-prompt .code-log-caret { color: var(--accent-green); font-family: 'Share Tech Mono', monospace; flex-shrink: 0; font-weight: 700; }
+  .code-log-reply { color: var(--text-primary); padding-left: 20px; font-family: 'Inter', sans-serif; font-size: 12.5px; }
+  .code-log-files {
+    display: inline-flex; align-self: flex-start; align-items: center; gap: 5px; color: var(--accent-green);
+    background: rgba(127,217,154,0.08); border: 1px solid rgba(127,217,154,0.15);
+    border-radius: 999px; padding: 2px 10px; font-size: 10px; margin-left: 20px;
+  }
+  .code-log-error { display: flex; align-items: center; gap: 7px; color: var(--accent-red); padding-left: 20px; font-family: 'Inter', sans-serif; font-size: 12px; }
+  .code-log-output { color: var(--text-muted); white-space: pre-wrap; word-break: break-word; padding-left: 20px; }
+
   #code-prompt-row {
-    flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 12px 16px;
-    border-top: 1px solid rgba(255,255,255,0.08); background: #0b0c0e;
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 12px 18px 16px;
+    background: var(--surface); border-top: 1px solid rgba(var(--overlay-rgb),0.07);
   }
-  #code-prompt-caret { color: #7fd99a; font-size: 14px; }
+  #code-prompt-box {
+    flex: 1; display: flex; align-items: center; gap: 10px;
+    background: rgba(var(--overlay-rgb),0.04); border: 1px solid rgba(var(--overlay-rgb),0.12);
+    border-radius: 12px; padding: 11px 14px; transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  }
+  #code-prompt-box:focus-within {
+    border-color: rgba(127,217,154,0.55); background: rgba(var(--overlay-rgb),0.06);
+    box-shadow: 0 0 0 3px rgba(127,217,154,0.1);
+  }
+  #code-prompt-caret { color: var(--accent-green); font-family: 'Share Tech Mono', monospace; font-size: 15px; flex-shrink: 0; font-weight: 700; }
   #code-prompt-input {
-    flex: 1; background: none; border: none; color: #e8e8ec; font-family: 'Share Tech Mono', monospace;
-    font-size: 13px; outline: none;
+    flex: 1; background: none; border: none; color: var(--text-bright); font-family: 'Inter', sans-serif;
+    font-size: 13.5px; outline: none;
   }
-  #code-prompt-input::placeholder { color: #57575f; }
+  #code-prompt-input::placeholder { color: var(--text-faint); }
   #code-prompt-input:disabled { opacity: 0.5; }
+  #code-prompt-send {
+    flex: 0 0 auto; width: 38px; height: 38px; border-radius: 11px; border: none; cursor: pointer;
+    background: var(--accent-green); color: #08150d; display: flex; align-items: center; justify-content: center;
+    transition: filter 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+    box-shadow: 0 4px 14px rgba(127,217,154,0.22);
+  }
+  #code-prompt-send svg { width: 17px; height: 17px; }
+  #code-prompt-send:hover { filter: brightness(1.08); box-shadow: 0 6px 18px rgba(127,217,154,0.3); }
+  #code-prompt-send:active { transform: scale(0.94); }
+  #code-prompt-send:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
   /* ---------- Artifacts — a long code block in a chat reply collapses to
      this card instead of dumping the whole thing inline; opening it slides
      in the panel below. Chat-only (talk-drawer/mobile); the Code panel
@@ -533,7 +712,7 @@
   .artifact-card-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; }
   .artifact-card-open {
     flex-shrink: 0; background: rgba(var(--overlay-rgb),0.08); border: none; color: var(--text-primary);
-    font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
   }
   .artifact-card-open:hover { background: rgba(var(--overlay-rgb),0.14); }
 
@@ -544,62 +723,60 @@
   #artifact-backdrop.open { display: flex; }
   #artifact-panel {
     width: 780px; max-width: 100%; height: 80vh; max-height: 780px;
-    background: #0b0c0e; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
+    background: var(--bg); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
     display: flex; flex-direction: column; box-shadow: 0 60px 140px rgba(0,0,0,0.6); overflow: hidden;
   }
   #artifact-panel-header {
     flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 12px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.08); background: #0e0f12;
+    border-bottom: 1px solid rgba(255,255,255,0.08); background: var(--surface);
   }
   #artifact-panel-title {
     font-family: 'Share Tech Mono', monospace; font-size: 11.5px; letter-spacing: 0.5px;
-    text-transform: capitalize; color: #c8c8ce;
+    text-transform: capitalize; color: var(--text-primary);
   }
   .artifact-panel-btn {
     background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-    color: #c8c8ce; font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px 11px;
+    color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; padding: 6px 11px;
     border-radius: 6px; cursor: pointer;
   }
   .artifact-panel-btn:first-of-type { margin-left: auto; }
   .artifact-panel-btn:hover { background: rgba(255,255,255,0.1); }
-  #artifact-panel-close { color: #8a8a92; cursor: pointer; padding: 2px 6px; font-size: 14px; margin-left: 8px; }
-  #artifact-panel-close:hover { color: #e8e8ec; }
+  #artifact-panel-close { color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 14px; margin-left: 8px; }
+  #artifact-panel-close:hover { color: var(--text-bright); }
   #artifact-panel-body { flex: 1; overflow: auto; padding: 16px; margin: 0; }
   #artifact-panel-body code {
     font-family: 'Share Tech Mono', monospace; font-size: 12.5px; line-height: 1.6; background: none !important;
   }
 
   /* ---------- Companion — pairs a local app on the user's own computer ---------- */
-  #companion-panel { margin-top: 24px; }
-  #companion-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  #companion-panel { margin-top: 24px; padding: 12px; background: rgba(var(--overlay-rgb), 0.04); border: 1px solid rgba(var(--overlay-rgb), 0.08); border-radius: 12px; }
+  #companion-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; display: block; }
   #companion-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); }
   #companion-status.online { color: var(--accent-green); }
   #companion-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 6px; max-width: 200px; }
   #companion-pair-code {
     font-family: 'Share Tech Mono', monospace; font-size: 20px; letter-spacing: 5px; color: var(--text-bright);
-    margin-top: 10px; display: none;
-  }
+    margin-top: 10px; display: none; text-align: center; }
   #companion-panel button, #companion-panel a.companion-btn {
-    display: inline-block; font-size: 10px; letter-spacing: 0.5px; color: var(--text-secondary);
-    background: rgba(var(--overlay-rgb),0.06); border: none; padding: 6px 10px; border-radius: 3px;
-    cursor: pointer; margin-top: 8px; margin-right: 6px; text-decoration: none; font-family: 'Inter', sans-serif;
-    transition: background 0.2s ease;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 10px; letter-spacing: 0.5px; color: var(--text-secondary);
+    background: rgba(var(--overlay-rgb), 0.06); border: 1px solid rgba(var(--overlay-rgb), 0.1); padding: 6px 10px; border-radius: 6px;
+    cursor: pointer; margin-top: 8px; margin-right: 6px; text-decoration: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    transition: all 0.2s ease;
   }
-  #companion-panel button:hover, #companion-panel a.companion-btn:hover { background: rgba(var(--overlay-rgb),0.1); }
+  #companion-panel button:hover, #companion-panel a.companion-btn:hover { background: rgba(var(--overlay-rgb), 0.12); color: var(--text-primary); border-color: rgba(var(--overlay-rgb), 0.2); }
 
   /* A second, independent connection (the Chrome extension) alongside the
      desktop Companion above — same visual language, its own sub-heading. */
   .companion-sub-label {
     font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-faint);
-    margin: 16px 0 6px;
+    margin: 16px 0 6px; display: block;
   }
   #browserext-status { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-secondary); }
   #browserext-status.online { color: var(--accent-green); }
   #browserext-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 6px; max-width: 200px; }
   #browserext-pair-code {
     font-family: 'Share Tech Mono', monospace; font-size: 20px; letter-spacing: 5px; color: var(--text-bright);
-    margin-top: 10px; display: none;
-  }
+    margin-top: 10px; display: none; text-align: center; }
 
   /* ---------- Settings — a real modal, not more stuff crammed into the
      sidebar. Personality tone + speech voice live here; more settings
@@ -626,8 +803,8 @@
   #settings-modal-backdrop.open { display: flex; }
   #settings-modal {
     width: 1040px; max-width: 94vw; height: 680px; max-height: 88vh;
-    background: var(--surface-modal); border: 1px solid rgba(var(--overlay-rgb),0.14); border-radius: 14px;
-    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    background: var(--surface-modal); border: 1px solid rgba(var(--overlay-rgb), 0.12); border-radius: 24px;
+    box-shadow: 0 60px 140px rgba(0,0,0,0.8);
     display: flex; flex-direction: column; overflow: hidden;
   }
   #settings-modal-header {
@@ -644,40 +821,40 @@
   #settings-modal-body { flex: 1 1 auto; display: flex; min-height: 0; }
 
   #settings-nav {
-    flex: 0 0 236px; border-right: 1px solid rgba(var(--overlay-rgb),0.08);
-    padding: 16px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px;
+    flex: 0 0 250px; border-right: 1px solid rgba(var(--overlay-rgb), 0.08);
+    padding: 24px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 24px;
   }
   #settings-nav-search {
-    width: 100%; background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.12);
-    border-radius: 7px; color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12.5px;
-    padding: 8px 10px; outline: none; transition: border-color 0.2s ease;
+    width: 100%; background: rgba(var(--overlay-rgb), 0.04); border: 1px solid rgba(var(--overlay-rgb), 0.1);
+    border-radius: 8px; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px;
+    padding: 10px 12px; outline: none; transition: all 0.2s ease;
   }
   #settings-nav-search::placeholder { color: var(--text-faint); }
-  #settings-nav-search:focus { border-color: rgba(210,230,255,0.5); }
-  .settings-nav-group { display: flex; flex-direction: column; gap: 1px; }
+  #settings-nav-search:focus { border-color: rgba(163,230,181,0.3); background: rgba(var(--overlay-rgb), 0.07); }
+  .settings-nav-group { display: flex; flex-direction: column; gap: 4px; }
   .settings-nav-group-label {
     font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-faint);
-    padding: 0 9px; margin-bottom: 6px;
+    padding: 0 12px; margin-bottom: 8px;
   }
   .settings-nav-item {
-    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-    background: none; border: none; color: var(--text-secondary); font-family: 'Inter', sans-serif;
-    font-size: 12.5px; padding: 8px 9px; border-radius: 7px; cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+    background: none; border: none; color: var(--text-secondary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px; padding: 10px 12px; border-radius: 8px; cursor: pointer;
+    transition: all 0.2s ease;
   }
-  .settings-nav-item svg { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.8; }
-  .settings-nav-item:hover { background: rgba(var(--overlay-rgb),0.06); color: var(--text-primary); }
-  .settings-nav-item.active { background: rgba(127,217,154,0.1); color: var(--accent-green); }
+  .settings-nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.7; }
+  .settings-nav-item:hover { background: rgba(var(--overlay-rgb), 0.06); color: var(--text-primary); }
+  .settings-nav-item.active { background: rgba(163,230,181,0.1); color: var(--accent-green); }
   .settings-nav-item.active svg { opacity: 1; }
   .settings-nav-item.nav-hidden, .settings-nav-group.nav-hidden { display: none; }
 
-  #settings-panels { flex: 1 1 auto; overflow-y: auto; padding: 30px 34px; }
-  .settings-panel { display: none; max-width: 560px; }
+  #settings-panels { flex: 1 1 auto; overflow-y: auto; padding: 32px 40px; }
+  .settings-panel { display: none; max-width: 600px; }
   .settings-panel.active { display: block; }
-  .settings-panel-title { font-family: 'Sora', sans-serif; font-size: 20px; font-weight: 600; color: var(--text-bright); margin: 0 0 6px; }
-  .settings-panel-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; margin: 0 0 24px; }
-  .settings-subtitle { font-family: 'Sora', sans-serif; font-size: 14px; font-weight: 600; color: var(--text-bright); margin: 20px 0 6px; }
-  .settings-subsection { margin-bottom: 20px; }
+  .settings-panel-title { font-family: 'Sora', sans-serif; font-size: 22px; font-weight: 600; color: var(--text-bright); margin: 0 0 8px; }
+  .settings-panel-desc { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin: 0 0 28px; }
+  .settings-subtitle { font-family: 'Sora', sans-serif; font-size: 15px; font-weight: 600; color: var(--text-bright); margin: 24px 0 8px; }
+  .settings-subsection { margin-bottom: 24px; }
   .settings-subsection:last-child { margin-bottom: 0; }
   #referral-stats { display: flex; gap: 24px; margin-top: 18px; }
   .referral-stat-value { font-size: 22px; font-weight: 600; color: var(--text-bright); font-variant-numeric: tabular-nums; }
@@ -726,7 +903,7 @@
   #scheduled-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
   .preset-chip {
     background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.12); color: var(--text-secondary);
-    font-family: 'Inter', sans-serif; font-size: 10.5px; padding: 5px 10px; border-radius: 12px; cursor: pointer;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 10.5px; padding: 5px 10px; border-radius: 12px; cursor: pointer;
     transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
   }
   .preset-chip:hover { color: var(--text-bright); background: rgba(var(--overlay-rgb),0.1); border-color: rgba(var(--overlay-rgb),0.2); }
@@ -735,9 +912,9 @@
   #settings-plan-status .plan-paid { color: var(--accent-green); }
   #voice-select, #language-select {
     width: 100%; background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.14);
-    border-radius: 4px; color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 11px; padding: 7px 8px; outline: none;
+    border-radius: 8px; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; padding: 8px 10px; outline: none;
   }
-  #voice-select:focus, #language-select:focus { border-color: rgba(210,230,255,0.5); }
+  #voice-select:focus, #language-select:focus { border-color: rgba(163,230,181,0.5); }
   #theme-tabs { display: flex; gap: 6px; }
   .theme-mode {
     background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
@@ -749,23 +926,27 @@
   .settings-field { display: flex; gap: 8px; }
   .settings-input {
     flex: 1; min-width: 0; background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.14);
-    border-radius: 4px; color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 12px; padding: 7px 9px;
-    outline: none; width: 100%; transition: border-color 0.2s ease;
+    border-radius: 8px; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; padding: 8px 11px;
+    outline: none; width: 100%; transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
   }
   .settings-input::placeholder { color: var(--text-faint); }
-  .settings-input:focus { border-color: rgba(210,230,255,0.5); }
+  .settings-input:focus { border-color: rgba(163,230,181,0.5); background: rgba(var(--overlay-rgb),0.07); box-shadow: 0 0 0 3px rgba(163,230,181,0.08); }
   .settings-save-btn {
-    flex-shrink: 0; background: rgba(var(--overlay-rgb),0.08); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
-    font-size: 11px; padding: 0 12px; border-radius: 4px; cursor: pointer; transition: background 0.2s ease;
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    background: var(--accent-green); border: 1px solid var(--accent-green); color: #08150d;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 11px; font-weight: 600; padding: 0 14px; border-radius: 8px; cursor: pointer; min-height: 32px;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease, opacity 0.15s ease;
   }
-  .settings-save-btn:hover { background: rgba(var(--overlay-rgb),0.14); }
+  .settings-save-btn:hover { background: var(--accent-green-bright); border-color: var(--accent-green-bright); }
+  .settings-save-btn:active { transform: scale(0.97); }
   .settings-save-btn:disabled { opacity: 0.5; cursor: default; }
   .settings-field-status { font-size: 10.5px; color: var(--text-muted); margin-top: 6px; min-height: 13px; }
   .settings-field-status.error { color: var(--accent-red); }
   .list-items { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
   .list-item-row {
     display: flex; align-items: center; gap: 8px; background: rgba(var(--overlay-rgb),0.04);
-    border: 1px solid rgba(var(--overlay-rgb),0.1); border-radius: 4px; padding: 6px 9px;
+    border: 1px solid rgba(var(--overlay-rgb),0.1); border-radius: 8px; padding: 7px 11px;
   }
   .list-item-name { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .list-item-remove {
@@ -775,7 +956,7 @@
   .list-item-remove:hover { color: var(--accent-red); }
   #new-key-reveal {
     background: rgba(127,217,154,0.06); border: 1px solid rgba(127,217,154,0.25);
-    border-radius: 4px; padding: 10px; margin-bottom: 10px;
+    border-radius: 8px; padding: 12px; margin-bottom: 10px;
   }
   #new-key-value {
     font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--accent-green);
@@ -800,38 +981,38 @@
   #settings-current-password-input { width: 100%; }
 
   /* ---------- Connections — private introductions between two Superselves ---------- */
-  #connections-panel { margin-top: 24px; }
-  #connections-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  #connections-panel { margin-top: 24px; padding: 12px; background: rgba(var(--overlay-rgb), 0.04); border: 1px solid rgba(var(--overlay-rgb), 0.08); border-radius: 12px; }
+  #connections-panel .sm-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; display: block; }
   #connections-list { display: flex; flex-direction: column; gap: 8px; }
   .conn-group-label {
     font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-faint);
-    margin: 10px 0 2px 0;
+    margin: 10px 0 4px;
   }
   .conn-group-label:first-child { margin-top: 0; }
-  .connection-row { font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
-  .connection-row .conn-name { color: var(--text-primary); }
+  .connection-row { font-size: 11px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 4px; }
+  .connection-row .conn-name { color: var(--text-primary); font-weight: 500; }
   .connection-row .conn-state { color: var(--text-muted); font-size: 10px; }
   .connection-row button {
-    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
-    font-size: 9px; letter-spacing: 0.3px; padding: 4px 8px; border-radius: 3px; cursor: pointer;
-    margin-top: 4px; margin-right: 5px; transition: background 0.2s ease;
+    background: rgba(var(--overlay-rgb), 0.06); border: 1px solid rgba(var(--overlay-rgb), 0.1); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 9px; letter-spacing: 0.3px; padding: 4px 8px; border-radius: 6px; cursor: pointer;
+    margin-top: 4px; width: fit-content; transition: all 0.2s ease;
   }
-  .connection-row button:hover { background: rgba(var(--overlay-rgb),0.1); }
+  .connection-row button:hover { background: rgba(var(--overlay-rgb), 0.12); border-color: rgba(var(--overlay-rgb), 0.2); }
   .connection-row .overlap-tags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 5px; }
-  #connections-request { display: flex; gap: 6px; margin-top: 12px; }
+  #connections-request { display: flex; gap: 8px; margin-top: 14px; }
   #connections-username-input {
-    flex: 1; min-width: 0; background: none; border: none; border-bottom: 1px solid rgba(var(--overlay-rgb),0.14);
-    color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 11px; padding: 0 0 6px 0; outline: none;
-    transition: border-color 0.25s ease;
+    flex: 1; min-width: 0; background: rgba(var(--overlay-rgb), 0.06); border: 1px solid rgba(var(--overlay-rgb), 0.1);
+    border-radius: 6px; color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; padding: 6px 10px; outline: none;
+    transition: all 0.2s ease;
   }
   #connections-username-input::placeholder { color: var(--text-faint); }
-  #connections-username-input:focus { border-bottom-color: rgba(210,230,255,0.6); }
+  #connections-username-input:focus { border-color: rgba(163,230,181,0.3); background: rgba(var(--overlay-rgb), 0.08); }
   #connections-request-btn {
-    background: rgba(var(--overlay-rgb),0.06); border: none; color: var(--text-primary); font-family: 'Inter', sans-serif;
-    font-size: 10px; padding: 6px 10px; border-radius: 3px; cursor: pointer; transition: background 0.2s ease;
+    background: rgba(var(--overlay-rgb), 0.08); border: 1px solid rgba(var(--overlay-rgb), 0.14); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 10px; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease;
   }
-  #connections-request-btn:hover { background: rgba(var(--overlay-rgb),0.1); }
-  #connections-status { font-size: 10px; color: var(--accent-green); margin-top: 7px; min-height: 12px; }
+  #connections-request-btn:hover { background: rgba(var(--overlay-rgb), 0.14); border-color: rgba(var(--overlay-rgb), 0.2); }
+  #connections-status { font-size: 10px; color: var(--accent-green); margin-top: 8px; min-height: 12px; }
   #connections-status.err { color: var(--accent-red); }
 
   .legend-inline { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 40px; }
@@ -909,7 +1090,7 @@
   #voice-status.error { color: var(--accent-red); }
   #mouth-indicator {
     position: absolute; left: 50%; top: 22%; transform: translate(-50%, -50%) scaleY(1);
-    width: 12px; height: 3px; border-radius: 3px; background: rgba(210,230,255,0.75);
+    width: 12px; height: 3px; border-radius: 3px; background: rgba(163,230,181,0.75);
     opacity: 0; pointer-events: none; z-index: 3; transition: opacity 0.2s ease, transform 0.09s ease-out;
   }
   #mouth-indicator.speaking { opacity: 0.85; }
@@ -1113,7 +1294,7 @@
   <div id="search-count"></div>
 
   <div id="add-memory">
-    <textarea id="memory-input" rows="2" placeholder="Tell it about you — a sentence or a whole paragraph…" maxlength="4000"></textarea>
+    <textarea id="memory-input" rows="2" placeholder="Tell it about you, a sentence or a whole paragraph…" maxlength="4000"></textarea>
     <div id="add-memory-hint">Enter to save · Shift+Enter for a new line</div>
     <div id="add-memory-status">Saved</div>
   </div>
@@ -1179,6 +1360,7 @@
 
         <div class="settings-nav-group" data-group="general">
           <div class="settings-nav-group-label">General</div>
+          <button class="settings-nav-item" data-section="usage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>Usage</button>
           <button class="settings-nav-item" data-section="plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 12.5 12.5 20.6a2 2 0 0 1-2.8 0l-6.3-6.3a2 2 0 0 1 0-2.8L11.5 3.4a2 2 0 0 1 1.4-.6H19a2 2 0 0 1 2 2v5.3a2 2 0 0 1-.6 1.4Z"/><circle cx="15.5" cy="7.5" r="1.2"/></svg>Plan</button>
           <button class="settings-nav-item" data-section="theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9c0-.3 0-.6-.05-.9a5.5 5.5 0 0 1-7.55-7.55C13.4 3.2 12.7 3 12 3Z"/></svg>Theme</button>
           <button class="settings-nav-item" data-section="personality"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H7l-3 3z"/></svg>Personality</button>
@@ -1187,6 +1369,14 @@
           <button class="settings-nav-item" data-section="permission"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>Permission Mode</button>
           <button class="settings-nav-item" data-section="effort"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-5"/><circle cx="12" cy="15" r="1"/></svg>Effort</button>
           <button class="settings-nav-item" data-section="voice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Voice</button>
+        </div>
+        <div class="settings-nav-group" data-group="ai">
+          <div class="settings-nav-group-label">AI & Model</div>
+          <button class="settings-nav-item" data-section="advanced-ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Advanced AI</button>
+        </div>
+        <div class="settings-nav-group" data-group="privacy">
+          <div class="settings-nav-group-label">Privacy</div>
+          <button class="settings-nav-item" data-section="privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Privacy & Data</button>
         </div>
 
         <div class="settings-nav-group" data-group="account">
@@ -1212,6 +1402,105 @@
       </div>
 
       <div id="settings-panels">
+        <div class="settings-panel" data-panel="usage" id="settings-usage-section">
+          <h2 class="settings-panel-title">Usage</h2>
+          <p class="settings-panel-desc">Track your token consumption and set budget limits.</p>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Token Consumption</div>
+            <div id="token-usage-container" style="margin-top:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
+                <span id="token-usage-text" style="font-family:'Share Tech Mono',monospace; font-size:14px; color:var(--text-bright);">0 / 1,000,000 tokens</span>
+                <span id="token-usage-percent" style="font-size:11px; color:var(--text-muted);">0%</span>
+              </div>
+              <div style="width:100%; height:8px; background:rgba(var(--overlay-rgb),0.1); border-radius:4px; overflow:hidden;">
+                <div id="token-usage-bar" style="width:0%; height:100%; background:var(--accent-green); transition:width 0.3s ease;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Budget Management</div>
+            <div class="settings-field">
+              <input class="settings-input" id="token-budget-input" type="number" placeholder="Set token budget..." />
+              <button class="settings-save-btn" id="token-budget-save">Save</button>
+            </div>
+            <div class="settings-field-status" id="token-budget-status"></div>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Enforcement</div>
+            <div style="display:flex; align-items:center; gap:12px; cursor:pointer; user-select:none;">
+              <input type="checkbox" id="strict-mode-toggle" style="width:16px; height:16px; accent-color:var(--accent-green); cursor:pointer;">
+              <label for="strict-mode-toggle" style="font-size:13px; color:var(--text-primary); cursor:pointer;">Enable Strict Mode (Hard-stop at budget)</label>
+            </div>
+            <div id="strict-mode-status" style="font-size:11px; color:var(--text-muted); margin-top:6px;">When enabled, requests will be blocked once the budget is exceeded.</div>
+          </div>
+
+          <div class="settings-subsection" style="margin-top:32px; padding-top:24px; border-top:1px solid rgba(var(--overlay-rgb),0.08);">
+            <div class="settings-subtitle">Session Control</div>
+            <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Clearing the session removes the AI's short-term memory of this conversation, drastically reducing token cost for future messages.</p>
+            <button class="settings-save-btn" id="clear-session-btn" style="background:rgba(var(--accent-red),0.1); color:var(--accent-red); border:1px solid rgba(var(--accent-red),0.2); padding:8px 16px;">Clear Current Session</button>
+          </div>
+        </div>
+        <div class="settings-panel" data-panel="advanced-ai" id="settings-advanced-ai-section">
+          <h2 class="settings-panel-title">Advanced AI</h2>
+          <p class="settings-panel-desc">Fine-tune the behavior and constraints of your Superself.</p>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Creativity (Temperature)</div>
+            <div style="display:flex; align-items:center; gap:16px; margin-top:12px;">
+              <input type="range" id="ai-temp-slider" min="0" max="1" step="0.1" style="flex:1; accent-color:var(--accent-green);" />
+              <span id="ai-temp-value" style="font-family:'Share Tech Mono',monospace; font-size:12px; color:var(--text-bright); width:30px;">0.7</span>
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Lower is precise and deterministic; higher is creative and varied.</p>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Nucleus Sampling (Top-P)</div>
+            <div style="display:flex; align-items:center; gap:16px; margin-top:12px;">
+              <input type="range" id="ai-topp-slider" min="0" max="1" step="0.05" style="flex:1; accent-color:var(--accent-green);" />
+              <span id="ai-topp-value" style="font-family:'Share Tech Mono',monospace; font-size:12px; color:var(--text-bright); width:30px;">0.9</span>
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Limits the pool of tokens the AI considers to the most likely P%.</p>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Output Constraints</div>
+            <div class="settings-field" style="margin-top:12px;">
+              <label style="font-size:12px; color:var(--text-muted); width:120px;">Max Tokens</label>
+              <input class="settings-input" id="ai-max-tokens" type="number" value="4096" />
+            </div>
+            <div class="settings-field" style="margin-top:8px;">
+              <label style="font-size:12px; color:var(--text-muted); width:120px;">Context Window</label>
+              <input class="settings-input" id="ai-context-turns" type="number" value="20" />
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Context window limits how many previous turns are sent to the AI.</p>
+          </div>
+          <div style="margin-top:24px; display:flex; justify-content:flex-end;">
+            <button class="settings-save-btn" id="ai-advanced-save" style="padding:8px 20px;">Save AI Settings</button>
+          </div>
+        </div>
+        <div class="settings-panel" data-panel="privacy" id="settings-privacy-section">
+          <h2 class="settings-panel-title">Privacy & Data</h2>
+          <p class="settings-panel-desc">Manage how your data is used and stored.</p>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Data Usage</div>
+            <div style="display:flex; align-items:center; gap:12px; cursor:pointer; user-select:none; margin-top:12px;">
+              <input type="checkbox" id="privacy-train-toggle" style="width:16px; height:16px; accent-color:var(--accent-green); cursor:pointer;">
+              <label for="privacy-train-toggle" style="font-size:13px; color:var(--text-primary); cursor:pointer;">Allow data to be used for training</label>
+            </div>
+          </div>
+
+          <div class="settings-subsection" style="margin-top:32px;">
+            <div class="settings-subtitle">Data Management</div>
+            <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
+              <button class="settings-save-btn" id="privacy-export-btn" style="text-align:left; padding:10px; border:1px solid rgba(var(--overlay-rgb),0.1);">Export all memories (JSON)</button>
+              <button class="settings-save-btn" id="privacy-delete-account" style="text-align:left; padding:10px; background:rgba(var(--accent-red),0.05); color:var(--accent-red); border:1px solid rgba(var(--accent-red),0.1);">Delete my account</button>
+            </div>
+          </div>
+        </div>
         <div class="settings-panel" data-panel="plan" id="settings-plan-section">
           <h2 class="settings-panel-title">Plan</h2>
           <p class="settings-panel-desc">See your current plan and manage billing.</p>
@@ -1293,7 +1582,7 @@
 
         <div class="settings-panel" data-panel="effort">
           <h2 class="settings-panel-title">Effort</h2>
-          <p class="settings-panel-desc">How much it thinks before responding — higher is slower but sharper.</p>
+          <p class="settings-panel-desc">How much it thinks before responding. Higher is slower but sharper.</p>
           <div id="effort-tabs">
             <button class="effort-tab" data-level="low">Low</button>
             <button class="effort-tab" data-level="medium">Med</button>
@@ -1357,7 +1646,7 @@
 
         <div class="settings-panel" data-panel="referrals">
           <h2 class="settings-panel-title">Referrals</h2>
-          <p class="settings-panel-desc">Everyone who signs up with your link raises your own daily message limit — no strings, no money involved.</p>
+          <p class="settings-panel-desc">Everyone who signs up with your link raises your own daily message limit. No strings, no money involved.</p>
           <div class="settings-field">
             <input id="referral-link-input" class="settings-input" type="text" readonly />
             <button class="settings-save-btn" id="referral-copy-btn">Copy</button>
@@ -1392,7 +1681,7 @@
           <p class="settings-panel-desc">Call Neurovance from your own apps.</p>
           <div id="new-key-reveal" style="display:none;">
             <div id="new-key-value"></div>
-            <div id="new-key-warning">Copy this now — it won't be shown again.</div>
+            <div id="new-key-warning">Copy this now. It won't be shown again.</div>
             <button class="settings-save-btn" id="new-key-copy-btn" style="margin-top:6px;">Copy</button>
             <button class="settings-save-btn" id="new-key-done-btn" style="margin-top:6px;">Done</button>
           </div>
@@ -1429,12 +1718,12 @@
           </div>
           <button class="settings-save-btn" id="task-add-btn" style="margin-top:8px;">Add task</button>
           <div class="settings-field-status" id="task-status"></div>
-          <div class="settings-field-status">Runs unattended — it can read, check, and draft, but never sends, buys, or deletes anything on its own. Output is saved as a memory.</div>
+          <div class="settings-field-status">Runs unattended. It can read, check, and draft, but never sends, buys, or deletes anything on its own. Output is saved as a memory.</div>
         </div>
 
         <div class="settings-panel" data-panel="feedback">
           <h2 class="settings-panel-title">Feedback</h2>
-          <p class="settings-panel-desc">Goes straight to Ari's inbox — bugs, feature requests, anything that's not working the way you'd want.</p>
+          <p class="settings-panel-desc">Goes straight to Ari's inbox: bugs, feature requests, anything that's not working the way you'd want.</p>
           <textarea id="feedback-input" class="settings-input" placeholder="What's on your mind?" rows="5" maxlength="4000" style="resize:vertical;"></textarea>
           <button class="settings-save-btn" id="feedback-send-btn" style="margin-top:8px;">Send feedback</button>
           <div class="settings-field-status" id="feedback-status"></div>
@@ -1548,7 +1837,21 @@
 <div id="code-backdrop">
 <div id="code-panel" role="dialog" aria-modal="true" aria-label="Code editor" tabindex="-1">
   <div id="code-panel-header">
-    <div id="code-panel-title">Code</div>
+    <div id="code-panel-title-group">
+      <div id="code-panel-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></svg></div>
+      <div id="code-panel-titles">
+        <div id="code-panel-title">Code workspace</div>
+        <div id="code-panel-subtitle">a sandbox just for you</div>
+      </div>
+    </div>
+    <div id="code-run-controls">
+      <div id="code-run-status" class="idle" role="status">
+        <span class="code-run-dot"></span>
+        <span id="code-run-status-text">Idle</span>
+      </div>
+      <button id="code-run-btn" class="code-run-action-btn" type="button">▶ Run</button>
+      <button id="code-stop-btn" class="code-run-action-btn" type="button" hidden>■ Stop</button>
+    </div>
     <select id="code-editor-theme-select" title="Editor color">
       <option value="monokai">Monokai</option>
       <option value="nord">Nord</option>
@@ -1557,25 +1860,49 @@
       <option value="idea">Idea Light</option>
     </select>
     <button id="code-panel-fullscreen" type="button" title="Toggle full screen" aria-pressed="false">Full screen</button>
-    <div id="code-panel-close">✕</div>
+    <div id="code-panel-close" role="button" tabindex="0" title="Close">✕</div>
   </div>
   <div id="code-panel-body">
     <div id="code-file-tree">
       <div id="code-file-tree-header">
-        <span>Files</span>
+        <span>Explorer</span>
         <button id="code-new-file-btn" title="New file">+</button>
       </div>
       <div id="code-file-list"></div>
     </div>
     <div id="code-editor-area">
       <div id="code-editor-mount"></div>
-      <div id="code-empty-state">No file open yet — create one, or just ask below and one will show up.</div>
+      <div id="code-empty-state">
+        <div id="code-empty-state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></svg></div>
+        <div id="code-empty-state-title">Nothing open yet</div>
+        <div id="code-empty-state-hint">Create a file and start writing, or just ask the agent below to build something for you.</div>
+        <div id="code-empty-state-actions">
+          <button class="code-empty-action primary" id="code-empty-new-btn" type="button">New file</button>
+          <button class="code-empty-action" id="code-empty-ask-btn" type="button">Ask the agent</button>
+        </div>
+      </div>
+      <div id="code-editor-statusbar" hidden>
+        <span id="code-editor-status-lang">—</span>
+        <span id="code-editor-status-name">no file</span>
+        <span id="code-editor-status-cursor">Ln 1, Col 1</span>
+      </div>
+    </div>
+    <div id="code-preview-panel" hidden>
+      <div id="code-preview-header">
+        <span id="code-preview-url"></span>
+        <button class="code-preview-btn" id="code-preview-refresh" type="button" title="Refresh preview">⟳</button>
+        <button class="code-preview-btn" id="code-preview-open" type="button" title="Open in new tab">⤢</button>
+      </div>
+      <iframe id="code-preview-frame" title="Live preview" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"></iframe>
     </div>
   </div>
   <div id="code-terminal-log"></div>
   <div id="code-prompt-row">
-    <span id="code-prompt-caret">&gt;</span>
-    <input id="code-prompt-input" type="text" placeholder="Ask for anything — create a file, fix a bug, refactor, explain..." autocomplete="off" />
+    <div id="code-prompt-box">
+      <span id="code-prompt-caret">&gt;</span>
+      <input id="code-prompt-input" type="text" placeholder="Ask for anything: create a file, fix a bug, refactor, explain..." autocomplete="off" />
+    </div>
+    <button id="code-prompt-send" type="button" title="Send (Enter)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z"/></svg></button>
   </div>
 </div>
 </div>
@@ -1596,6 +1923,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+<!-- shell.min.js calls CodeMirror.defineSimpleMode, which only exists once
+     this addon is loaded — without it every page load threw
+     "e.defineSimpleMode is not a function" in the console. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/mode/simple.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
@@ -2021,7 +2352,7 @@ if (oauthPendingFromUrl) {
   const unavailableProvider = oauthError === 'google_oauth_unavailable' ? 'Google' : oauthError === 'github_oauth_unavailable' ? 'GitHub' : null;
   document.getElementById('login-error').textContent = unavailableProvider
     ? `${unavailableProvider} sign-in is not configured on this app. Use your username and password, or create an account.`
-    : 'Sign-in with that provider failed — try again.';
+    : 'Sign-in with that provider failed. Try again.';
   goToScreen('screen-login');
 } else {
   fetch('/api/me', { credentials: 'same-origin' })
@@ -2474,9 +2805,9 @@ function initAddMemory() {
 
   function showStatus(text, isError) {
     status.textContent = text;
-    status.style.color = isError ? '#e8432c' : '';
+    status.classList.toggle('err', isError);
     status.classList.add('show');
-    setTimeout(() => { status.classList.remove('show'); status.style.color = ''; }, isError ? 2400 : 1800);
+    setTimeout(() => { status.classList.remove('show', 'err'); }, isError ? 2400 : 1800);
   }
 
   input.addEventListener('keydown', async (e) => {
@@ -2685,9 +3016,10 @@ function initConnections() {
     const row = document.createElement('div');
     row.className = 'connection-row';
     const name = c.other ? `${c.other.displayName} (@${c.other.username})` : 'Unknown';
+    const safeName = escapeHtml(name);
 
     if (c.status === 'pending' && c.direction === 'incoming') {
-      row.innerHTML = `<span class="conn-name">${name}</span> wants to be friends<br>`;
+      row.innerHTML = `<span class="conn-name">${safeName}</span> wants to be friends<br>`;
       const acceptBtn = document.createElement('button');
       acceptBtn.textContent = 'Accept';
       acceptBtn.addEventListener('click', () => respond(c.id, true));
@@ -2697,13 +3029,13 @@ function initConnections() {
       row.appendChild(acceptBtn);
       row.appendChild(declineBtn);
     } else if (c.status === 'pending') {
-      row.innerHTML = `<span class="conn-name">${name}</span><br><span class="conn-state">Waiting for them to accept</span><br>`;
+      row.innerHTML = `<span class="conn-name">${safeName}</span><br><span class="conn-state">Waiting for them to accept</span><br>`;
       const cancelBtn = document.createElement('button');
       cancelBtn.textContent = 'Cancel';
       cancelBtn.addEventListener('click', () => remove(c.id));
       row.appendChild(cancelBtn);
     } else {
-      row.innerHTML = `<span class="conn-name">${name}</span><br>`;
+      row.innerHTML = `<span class="conn-name">${safeName}</span><br>`;
       const overlapBtn = document.createElement('button');
       overlapBtn.textContent = 'See what you share';
       overlapBtn.addEventListener('click', () => showOverlap(c.id, row));
@@ -2779,7 +3111,7 @@ function initConnections() {
     const tagsEl = document.createElement('div');
     tagsEl.className = 'overlap-tags';
     tagsEl.innerHTML = data.shared.length
-      ? data.shared.map((t) => `<span class="sm-tag">${t}</span>`).join('')
+      ? data.shared.map((t) => `<span class="sm-tag">${escapeHtml(t)}</span>`).join('')
       : '<span class="conn-state">Nothing in common yet</span>';
     row.appendChild(tagsEl);
   }
@@ -2840,6 +3172,17 @@ function closeOtherOverlays(exceptBackdropId) {
   ['talk-backdrop', 'code-backdrop', 'settings-modal-backdrop', 'artifact-backdrop'].forEach((id) => {
     if (id !== exceptBackdropId) document.getElementById(id)?.classList.remove('open');
   });
+  syncWorkspaceToggles();
+}
+
+// Workspace toggles (Assistant / Code) get a persistent active highlight so
+// it's obvious which workspace is open — the panel itself is translucent and
+// the sphere stays visible behind it, so the toggle is the clearest cue.
+function syncWorkspaceToggles() {
+  const talkOn = document.getElementById('talk-backdrop')?.classList.contains('open') ?? false;
+  const codeOn = document.getElementById('code-backdrop')?.classList.contains('open') ?? false;
+  document.getElementById('talk-toggle')?.classList.toggle('active', talkOn);
+  document.getElementById('code-toggle')?.classList.toggle('active', codeOn);
 }
 
 // Text-mode chat is told (agent.js) it can write markdown since nobody's
@@ -3060,9 +3403,10 @@ function initTalkDrawer() {
     const opening = !backdrop.classList.contains('open');
     if (opening) closeOtherOverlays('talk-backdrop');
     backdrop.classList.toggle('open');
+    syncWorkspaceToggles();
   });
-  closeBtn.addEventListener('click', () => backdrop.classList.remove('open'));
-  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
+  closeBtn.addEventListener('click', () => { backdrop.classList.remove('open'); syncWorkspaceToggles(); });
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { backdrop.classList.remove('open'); syncWorkspaceToggles(); } });
 
   modeTabs.forEach((btn) => btn.addEventListener('click', () => {
     modeTabs.forEach((b) => b.classList.remove('active'));
@@ -3178,6 +3522,28 @@ function initCodePanel() {
   const themeLink = document.getElementById('code-editor-theme-link');
   const terminalLog = document.getElementById('code-terminal-log');
   const promptInput = document.getElementById('code-prompt-input');
+  const promptSend = document.getElementById('code-prompt-send');
+  const statusbar = document.getElementById('code-editor-statusbar');
+  const statusLang = document.getElementById('code-editor-status-lang');
+  const statusName = document.getElementById('code-editor-status-name');
+  const statusCursor = document.getElementById('code-editor-status-cursor');
+
+  // Map of CodeMirror mode/MIME values -> the same display names codeFiles.js
+  // uses server-side, so the status bar and file tree can show a human label
+  // instead of a raw mode string.
+  const CODE_LANG_DISPLAY = {
+    'javascript': 'JS', 'jsx': 'JSX', 'text/typescript': 'TS', 'text/jsx': 'TSX',
+    'python': 'Py', 'ruby': 'Rb', 'go': 'Go', 'rust': 'Rs',
+    'text/x-java': 'Java', 'text/x-csrc': 'C', 'text/x-c++src': 'C++', 'text/x-csharp': 'C#',
+    'htmlmixed': 'HTML', 'css': 'CSS', 'application/json': 'JSON', 'markdown': 'MD',
+    'shell': 'Shell', 'text/x-sql': 'SQL', 'yaml': 'YAML', 'php': 'PHP', 'text/plain': 'TXT',
+  };
+  const LANG_DOT_COLOR = {
+    'javascript': '#f5d90a', 'jsx': '#61dafb', 'text/typescript': '#3178c6', 'text/jsx': '#61dafb',
+    'python': '#3572A5', 'ruby': '#701516', 'go': '#00ADD8', 'rust': '#dea584',
+    'htmlmixed': '#e34c26', 'css': '#563d7c', 'application/json': '#292929', 'markdown': '#fff',
+    'shell': '#89e051', 'text/x-sql': '#e38c00', 'yaml': '#cb171e', 'php': '#777BB4', 'text/plain': '#8b949e',
+  };
 
   let cm = null; // lazily created on first open — no point loading it before it's needed
   let files = []; // current listing (metadata only, matches /api/code/files)
@@ -3197,7 +3563,14 @@ function initCodePanel() {
       clearTimeout(saveTimer);
       saveTimer = setTimeout(saveActiveFile, 700); // debounced autosave, not on every keystroke
     });
+    cm.on('cursorActivity', updateCursorStatus);
     return cm;
+  }
+
+  function updateCursorStatus() {
+    if (!cm || !activeFileId) return;
+    const pos = cm.getCursor();
+    statusCursor.textContent = `Ln ${pos.line + 1}, Col ${pos.ch + 1}`;
   }
 
   async function saveActiveFile() {
@@ -3227,11 +3600,14 @@ function initCodePanel() {
       fileListEl.innerHTML = '<div id="code-file-tree-empty">No files yet — create one, or ask below.</div>';
       return;
     }
-    fileListEl.innerHTML = files.map((f) => `
-      <div class="code-file-row${f.id === activeFileId ? ' active' : ''}" data-id="${f.id}" data-name="${escapeHtml(f.name)}">
+    fileListEl.innerHTML = files.map((f) => {
+      const dotColor = LANG_DOT_COLOR[f.language] || 'var(--text-faint)';
+      return `<div class="code-file-row${f.id === activeFileId ? ' active' : ''}" data-id="${f.id}" data-name="${escapeHtml(f.name)}">
+        <span class="code-file-lang-dot" style="background:${dotColor}"></span>
         <span class="code-file-row-name">${escapeHtml(f.name)}</span>
-        <span class="code-file-row-delete" data-delete-id="${f.id}" title="Delete">✕</span>
-      </div>`).join('');
+        <button class="code-file-row-delete" data-delete-id="${f.id}" title="Delete">✕</button>
+      </div>`;
+    }).join('');
     fileListEl.querySelectorAll('.code-file-row').forEach((row) => {
       row.addEventListener('click', (e) => {
         if (e.target.dataset.deleteId) return;
@@ -3282,6 +3658,11 @@ function initCodePanel() {
       editor.setValue(data.file.content || '');
       editorMount.style.display = 'block';
       emptyState.style.display = 'none';
+      statusbar.hidden = false;
+      statusLang.textContent = CODE_LANG_DISPLAY[data.file.language] || (data.file.language || '—').replace('text/','');
+      statusName.textContent = data.file.name || '';
+      if (cm) cm.setCursor({ line: 0, ch: 0 });
+      updateCursorStatus();
       renderFileList();
       setTimeout(() => editor.refresh(), 30); // CodeMirror mismeasures if refreshed while display:none
     } catch (e) {}
@@ -3293,6 +3674,7 @@ function initCodePanel() {
     if (cm) cm.setValue('');
     editorMount.style.display = 'none';
     emptyState.style.display = 'flex';
+    statusbar.hidden = true;
   }
 
   newFileBtn.addEventListener('click', async () => {
@@ -3326,7 +3708,7 @@ function initCodePanel() {
     if (!text) return;
     promptInput.value = '';
     promptInput.disabled = true;
-    addLogEntry(`<div class="code-log-prompt">${escapeHtml(text)}</div>`);
+    addLogEntry(`<div class="code-log-prompt"><span class="code-log-caret">&gt;</span><span>${escapeHtml(text)}</span></div>`);
     try {
       const res = await fetch('/api/code/prompt', {
         method: 'POST', credentials: 'same-origin',
@@ -3362,6 +3744,126 @@ function initCodePanel() {
   promptInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); submitPrompt(); }
   });
+  promptSend.addEventListener('click', submitPrompt);
+
+  // Empty-state shortcuts: "New file" and "Ask the agent" hand you right to
+  // the controlling affordance instead of making you hunt for it.
+  document.getElementById('code-empty-new-btn').addEventListener('click', () => newFileBtn.click());
+  document.getElementById('code-empty-ask-btn').addEventListener('click', () => { promptInput.focus(); promptInput.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
+
+  // ---------- Run / Stop / live preview — real process execution via
+  // /api/code/run*. Those routes 403 outright unless the server has
+  // ENABLE_LOCAL_CODE_EXECUTION=1 (local dev only, never set on the live
+  // deployment — see codeExecution.js), so this whole block just quietly
+  // does nothing on production; nobody signed up on the live app ever sees
+  // a working Run button. ----------
+  const runBtn = document.getElementById('code-run-btn');
+  const stopBtn = document.getElementById('code-stop-btn');
+  const runStatusEl = document.getElementById('code-run-status');
+  const runStatusText = document.getElementById('code-run-status-text');
+  const previewPanel = document.getElementById('code-preview-panel');
+  const previewFrame = document.getElementById('code-preview-frame');
+  const previewUrlEl = document.getElementById('code-preview-url');
+  const previewRefreshBtn = document.getElementById('code-preview-refresh');
+  const previewOpenBtn = document.getElementById('code-preview-open');
+
+  let statusPollTimer = null;
+  let lastOutputLength = 0;
+
+  function setRunStatus(status, text) {
+    runStatusEl.className = status;
+    runStatusText.textContent = text;
+  }
+  function showPreview(url) {
+    previewPanel.hidden = false;
+    previewUrlEl.textContent = url;
+    if (previewFrame.src !== url) previewFrame.src = url;
+  }
+  function hidePreview() {
+    previewPanel.hidden = true;
+    previewFrame.src = 'about:blank';
+  }
+  // The status endpoint returns the *entire* accumulated output every poll,
+  // not just what's new — this renders only the slice appended since the
+  // last poll, so the terminal log doesn't re-print everything on repeat.
+  function renderNewOutput(fullOutput) {
+    if (!fullOutput || fullOutput.length <= lastOutputLength) return;
+    const newText = fullOutput.slice(lastOutputLength);
+    lastOutputLength = fullOutput.length;
+    addLogEntry(`<div class="code-log-output">${escapeHtml(newText)}</div>`);
+  }
+  function stopPolling() {
+    if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+  }
+
+  async function pollRunStatus() {
+    try {
+      const res = await fetch('/api/code/run/status', { credentials: 'same-origin' });
+      if (res.status === 403) { stopPolling(); return; }
+      const data = await res.json();
+      renderNewOutput(data.output);
+      if (data.status === 'installing') {
+        setRunStatus('installing', 'Installing…');
+      } else if (data.status === 'running') {
+        setRunStatus('running', 'Running');
+        if (data.previewUrl) showPreview(data.previewUrl);
+      } else if (data.status === 'error' || data.status === 'exited') {
+        setRunStatus(data.status === 'error' ? 'error' : 'idle', data.status === 'error' ? 'Error' : 'Exited');
+        stopPolling();
+        runBtn.hidden = false;
+        stopBtn.hidden = true;
+        hidePreview();
+      } else {
+        setRunStatus('idle', 'Idle');
+        stopPolling();
+      }
+    } catch (e) {}
+  }
+
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled = true;
+    lastOutputLength = 0;
+    setRunStatus('installing', 'Starting…');
+    addLogEntry('<div class="code-log-prompt">Run</div>');
+    try {
+      const res = await fetch('/api/code/run', { method: 'POST', credentials: 'same-origin' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      runBtn.hidden = true;
+      stopBtn.hidden = false;
+      if (data.previewUrl) showPreview(data.previewUrl);
+      stopPolling();
+      statusPollTimer = setInterval(pollRunStatus, 1200);
+    } catch (e) {
+      setRunStatus('error', 'Error');
+      addLogEntry(`<div class="code-log-error">${escapeHtml(e.message)}</div>`);
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+
+  stopBtn.addEventListener('click', async () => {
+    stopBtn.disabled = true;
+    try {
+      await fetch('/api/code/run/stop', { method: 'POST', credentials: 'same-origin' });
+    } catch (e) {}
+    stopPolling();
+    setRunStatus('idle', 'Idle');
+    runBtn.hidden = false;
+    stopBtn.hidden = true;
+    stopBtn.disabled = false;
+    hidePreview();
+  });
+
+  previewRefreshBtn.addEventListener('click', () => {
+    if (!previewFrame.src || previewFrame.src === 'about:blank') return;
+    const url = previewFrame.src;
+    previewFrame.src = 'about:blank';
+    requestAnimationFrame(() => { previewFrame.src = url; });
+  });
+  previewOpenBtn.addEventListener('click', () => {
+    if (previewFrame.src && previewFrame.src !== 'about:blank') window.open(previewFrame.src, '_blank');
+  });
 
   // Editor color — CodeMirror's own theme ecosystem, unrelated to chat's
   // "Code color" (highlight.js themes) despite the similar name, so its
@@ -3385,11 +3887,31 @@ function initCodePanel() {
     ensureEditor();
     refreshFileList();
     setTimeout(() => { if (cm) cm.refresh(); promptInput.focus(); }, 30);
+    // The run itself is a real background process on the server — it keeps
+    // going whether or not the panel is open to watch it. Re-check on open
+    // so reopening after closing mid-run (or after a page reload) shows
+    // what's actually happening instead of a stale "Idle".
+    if (!statusPollTimer) {
+      fetch('/api/code/run/status', { credentials: 'same-origin' })
+        .then((res) => (res.status === 403 ? null : res.json()))
+        .then((data) => {
+          if (!data || data.status === 'stopped') return;
+          if (data.status === 'running' || data.status === 'installing') {
+            runBtn.hidden = true;
+            stopBtn.hidden = false;
+            statusPollTimer = setInterval(pollRunStatus, 1200);
+          }
+          pollRunStatus();
+        })
+        .catch(() => {});
+    }
+    syncWorkspaceToggles();
   }
   function closePanel() {
     setFullscreen(false);
     backdrop.classList.remove('open');
     toggle.focus();
+    syncWorkspaceToggles();
   }
   function setFullscreen(fullscreen) {
     panel.classList.toggle('is-fullscreen', fullscreen);
@@ -3585,6 +4107,123 @@ function initSettings() {
       planStatusEl.innerHTML += ' — upgrading isn\'t available yet';
     }
   }
+
+  // ---------- Usage Panel ----------
+  async function updateUsageBar() {
+    const res = await fetch('/api/usage', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const { used, budget } = await res.json();
+    const percent = Math.min(100, (used / budget) * 100).toFixed(1);
+    document.getElementById('token-usage-text').textContent = `${used.toLocaleString()} / ${budget.toLocaleString()} tokens`;
+    document.getElementById('token-usage-percent').textContent = `${percent}%`;
+    document.getElementById('token-usage-bar').style.width = `${percent}%`;
+    document.getElementById('token-budget-input').value = budget;
+  }
+  updateUsageBar();
+  setInterval(updateUsageBar, 60000); // Update every minute
+
+  document.getElementById('token-budget-save').addEventListener('click', async () => {
+    const budget = parseInt(document.getElementById('token-budget-input').value, 10);
+    const status = document.getElementById('token-budget-status');
+    if (isNaN(budget) || budget < 0) return setFieldStatus(status, 'Invalid budget.', true);
+    const res = await fetch('/api/token-budget', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ budget }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setFieldStatus(status, data.error, true);
+    setFieldStatus(status, 'Budget updated.', false);
+    updateUsageBar();
+  });
+
+  document.getElementById('strict-mode-toggle').addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    const res = await fetch('/api/strict-mode', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) {
+      e.target.checked = !enabled;
+      alert('Failed to update strict mode.');
+    }
+  });
+
+  document.getElementById('clear-session-btn').addEventListener('click', async () => {
+    if (!confirm('Clear current conversation memory? This will reduce token costs for future messages but the AI will forget the current context.')) return;
+    const res = await fetch('/api/session/clear', { method: 'POST', credentials: 'same-origin' });
+    if (res.ok) {
+      alert('Session cleared.');
+      // We assume the client clears the history array in the chat loop
+      window.location.reload(); // Simplest way to reset local state
+    }
+  });
+
+  // ---------- Advanced AI Panel ----------
+  const tempSlider = document.getElementById('ai-temp-slider');
+  const tempVal = document.getElementById('ai-temp-value');
+  const toppSlider = document.getElementById('ai-topp-slider');
+  const toppVal = document.getElementById('ai-topp-value');
+  const maxTokensInput = document.getElementById('ai-max-tokens');
+  const contextTurnsInput = document.getElementById('ai-context-turns');
+
+  function updateSliderLabels() {
+    tempVal.textContent = tempSlider.value;
+    toppVal.textContent = toppSlider.value;
+  }
+  tempSlider.addEventListener('input', updateSliderLabels);
+  toppSlider.addEventListener('input', updateSliderLabels);
+
+  document.getElementById('ai-advanced-save').addEventListener('click', async () => {
+    const settings = {
+      temperature: parseFloat(tempSlider.value),
+      topP: parseFloat(toppSlider.value),
+      maxTokens: parseInt(maxTokensInput.value, 10),
+      contextTurns: parseInt(contextTurnsInput.value, 10),
+    };
+    const res = await fetch('/api/ai-settings', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+    if (!res.ok) return alert('Failed to save AI settings.');
+    alert('AI settings updated.');
+  });
+
+  // ---------- Privacy Panel ----------
+  document.getElementById('privacy-train-toggle').addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    const res = await fetch('/api/privacy/train', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) {
+      e.target.checked = !enabled;
+      alert('Failed to update privacy settings.');
+    }
+  });
+
+  document.getElementById('privacy-export-btn').addEventListener('click', async () => {
+    const res = await fetch('/api/memories/export', { credentials: 'same-origin' });
+    if (!res.ok) return alert('Export failed.');
+    const { memories } = await res.json();
+    const blob = new Blob([JSON.stringify(memories, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `neurovance_memories_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById('privacy-delete-account').addEventListener('click', async () => {
+    if (!confirm('DANGER: This will permanently delete your account and all memories. This cannot be undone. Are you absolutely sure?')) return;
+    const res = await fetch('/api/account/delete', { method: 'POST', credentials: 'same-origin' });
+    if (res.ok) window.location.href = '/';
+    else alert('Delete failed.');
+  });
 
   // Theme — client-side only (like voice), applied via a tiny inline script
   // at the top of <head> too so a saved preference is set before the page
@@ -3791,7 +4430,7 @@ function initSettings() {
     const voices = speechSynthesis.getVoices();
     if (!voices.length) return;
     const savedName = localStorage.getItem(VOICE_STORAGE_KEY);
-    voiceSelect.innerHTML = voices.map((v) => `<option value="${v.name}">${v.name} (${v.lang})</option>`).join('');
+    voiceSelect.innerHTML = voices.map((v) => `<option value="${escapeHtml(v.name)}">${escapeHtml(v.name)} (${escapeHtml(v.lang)})</option>`).join('');
     const match = voices.find((v) => v.name === savedName) || voices.find((v) => v.default) || voices[0];
     voiceSelect.value = match.name;
     selectedVoiceName = match.name;
