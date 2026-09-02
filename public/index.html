@@ -3249,6 +3249,19 @@ function initCodePanel() {
   }
 
   async function openFile(id, name) {
+    // Switching files replaces the editor's buffer — if there's a pending
+    // debounced autosave for whatever was open before, it must land BEFORE
+    // that swap. Otherwise the debounced write fires later against the
+    // *new* file's buffer (activeFileId/cm already point elsewhere by
+    // then), silently discarding the edit just made to the file being
+    // left. Confirmed this was really happening: edit a file, switch
+    // within the 700ms debounce window, and the edit never reached the
+    // server at all — not saved to the old file, not saved anywhere.
+    if (activeFileId && activeFileId !== id && saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      await saveActiveFile();
+    }
     try {
       const res = await fetch('/api/code/files/get', {
         method: 'POST', credentials: 'same-origin',
