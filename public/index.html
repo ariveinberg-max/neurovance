@@ -2993,6 +2993,18 @@ function shouldExpandThinking() {
 
 function renderTranscript() {
   const el = document.getElementById('talk-transcript');
+  // renderTranscript rebuilds the entire transcript's HTML from raw text on
+  // every single new message (not just the new one) — always has, but
+  // enhanceCodeBlocks re-detecting the same long code block on every one of
+  // those rebuilds means every rebuild handed out a fresh artifact id for
+  // the same underlying block, and the old id's entry was never removed:
+  // artifactStore grew by one on every message sent, forever, regardless of
+  // whether that message even contained code. Clearing right before the
+  // rebuild keeps it capped at exactly what's on screen after
+  // enhanceCodeBlocks repopulates it a few lines down — nothing reads the
+  // store in between, so this is safe.
+  artifactStore.clear();
+  artifactCounter = 0;
   const ROLE_LABELS = { user: 'You', assistant: currentIdentity.aiName, 'task-result': 'Task result', status: '', error: 'Error' };
   el.innerHTML = talkTranscript.map((m) => {
     // Extended thinking (Settings -> Effort, above "low") is the reasoning
