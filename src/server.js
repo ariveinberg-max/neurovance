@@ -193,13 +193,21 @@ async function getSessionAndUser(req) {
   return { session, user: await auth.findUserById(session.userId), token };
 }
 
+// Session cookie carries a login token. SameSite=Lax + HttpOnly are
+// always on; the Secure flag (HTTPS-only) is on everywhere except an
+// explicitly-declared local dev server, since Secure would make the cookie
+// invisible over plaintext http://localhost. Set COOKIE_SECURE=false in
+// local .env only if you're developing over non-HTTPS localhost.
+const COOKIE_SECURE = process.env.COOKIE_SECURE !== 'false';
+const SECURE_ATTR = COOKIE_SECURE ? '; Secure' : '';
+
 function setSessionCookie(res, token, remember = true) {
   const maxAge = remember ? `; Max-Age=${60 * 60 * 24 * 30}` : ''; // omitted = session cookie, gone when the browser closes
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax${maxAge}`);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax${SECURE_ATTR}${maxAge}`);
 }
 
 function clearSessionCookie(res) {
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax${SECURE_ATTR}; Max-Age=0`);
 }
 
 function sendJson(res, status, body) {
@@ -280,7 +288,7 @@ function isOAuthConfigured(provider) {
 function startOAuthRedirect(res, provider, authUrl, params, from) {
   const state = randomBytes(16).toString('hex');
   const safeFrom = from === 'mobile' ? 'mobile' : 'desktop';
-  res.setHeader('Set-Cookie', `${OAUTH_STATE_COOKIE}=${provider}:${state}:${safeFrom}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`);
+  res.setHeader('Set-Cookie', `${OAUTH_STATE_COOKIE}=${provider}:${state}:${safeFrom}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax${SECURE_ATTR}`);
   const query = new URLSearchParams({ ...params, state }).toString();
   res.writeHead(302, { Location: `${authUrl}?${query}` });
   res.end();
