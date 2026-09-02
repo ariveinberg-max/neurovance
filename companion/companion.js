@@ -68,14 +68,15 @@ const USE_COLOR = process.stdout.isTTY && !process.env.NO_COLOR;
 function paint(code, s) {
   return USE_COLOR ? `\x1b[${code}m${s}\x1b[0m` : s;
 }
-const green = (s) => paint('38;2;127;217;154', s);
+const green = (s) => paint('38;2;163,230,181', s);
 const dim = (s) => paint('2', s);
 const bold = (s) => paint('1', s);
 
 function printBanner() {
   console.log('');
   console.log(`  ${green('◎◎')}  ${bold('NEUROVANCE')} ${dim('COMPANION')}  ${dim('v' + PKG_VERSION)}`);
-  console.log(`      ${dim('Runs on this computer only — never in the cloud.')}`);
+  console.log(`  ${dim(' liasons between your Superself and your local machine')}`);
+  console.log(`  ${dim(' Runs on this computer only — never in the cloud.')}`);
   console.log('');
 }
 

@@ -2995,7 +2995,9 @@ function initPendingNotes() {
   });
 
   poll();
-  setInterval(poll, 20000);
+  // 2 minutes, not 20 seconds. These notes are produced by the once-a-day grow
+  // pass, so polling 4,300 times a day for them just burnt Firestore reads.
+  setInterval(poll, 120000);
 }
 
 // Private, invite-only introductions between two people's Superselves — no

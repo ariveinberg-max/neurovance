@@ -15,7 +15,7 @@ import * as companion from './companion.js';
 import * as connections from './connections.js';
 import * as connectors from './connectors.js';
 import * as scheduler from './scheduler.js';
-import { getAllDocs, setDoc } from './db.js';
+import { getAllDocs, getDoc, setDoc } from './db.js';
 import { sendVerificationCode, sendWaitlistNotification, sendBroadcast, sendFeedbackNotification } from './mailer.js';
 import * as billing from './stripe.js';
 
@@ -407,8 +407,10 @@ async function handleRequest(req, res) {
       if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
         return sendJson(res, 400, { error: 'Enter a valid email.' });
       }
-      const list = await loadWaitlist();
-      if (!list.find((w) => w.email === normalized)) {
+      // Waitlist docs are keyed by email, so an existence check is one read —
+      // loading the whole list to scan it was billing a read per signup per
+      // person already on it.
+      if (!(await getDoc('waitlist', normalized))) {
         await addToWaitlist(normalized);
         sendWaitlistNotification(normalized).catch((e) => console.error('Waitlist notify failed:', e));
       }
@@ -1520,13 +1522,14 @@ async function handleRequest(req, res) {
         if (!usage.allowed) {
           return sendJson(res, 429, { error: `Token budget exceeded (${usage.used}/${usage.budget}) — resets at midnight UTC.` });
         }
-        const { task, history } = await readJsonBody(req);
+        const { task, history, mode } = await readJsonBody(req);
         if (typeof task !== 'string' || !task.trim()) {
           return sendJson(res, 400, { error: 'task must be a non-empty string' });
         }
         const effectiveUser = { ...user };
         if (usage.suggestDownscale) effectiveUser.model = 'pulse';
-        const { result, usage: tokensUsed } = await runTask(user.id, effectiveUser, task.trim(), sanitizeHistory(history, usage.suggestDownscale ? 6 : 12));
+        const opts = mode === 'deep' ? { mode: 'deep' } : {};
+        const { result, usage: tokensUsed } = await runTask(user.id, effectiveUser, task.trim(), sanitizeHistory(history, usage.suggestDownscale ? 6 : 12), opts);
         await auth.incrementTokenUsage(user.id, tokensUsed.input_tokens + tokensUsed.output_tokens);
         return sendJson(res, 200, { result });
       } catch (e) {

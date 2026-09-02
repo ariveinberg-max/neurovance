@@ -6,13 +6,25 @@ const REST_BPM = 58;
 const REDLINE_BPM = 130;
 
 function countLinks(memories) {
-  let count = 0;
-  for (let i = 0; i < memories.length; i++) {
-    for (let j = i + 1; j < memories.length; j++) {
-      if (memories[i].tags.some((t) => memories[j].tags.includes(t))) count++;
+  const tagMap = {};
+  for (const m of memories) {
+    for (const tag of m.tags || []) {
+      if (!tagMap[tag]) tagMap[tag] = [];
+      tagMap[tag].push(m.id);
     }
   }
-  return count;
+
+  const pairs = new Set();
+  for (const ids of Object.values(tagMap)) {
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const id1 = ids[i];
+        const id2 = ids[j];
+        pairs.add(id1 < id2 ? `${id1}\0${id2}` : `${id2}\0${id1}`);
+      }
+    }
+  }
+  return pairs.size;
 }
 
 export function computeVitals(memories) {

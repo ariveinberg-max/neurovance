@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { remember, recall, recentMemories, coreMemories, allMemories, findMemory, updateMemory, getProjectMap } from './memory.js';
+import { remember, recall, recentMemories, coreMemories, allMemories, vitalsWindow, findMemory, updateMemory, getProjectMap } from './memory.js';
 import { computeVitals } from './vitals.js';
 import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
@@ -849,7 +849,7 @@ function vitalsPushbackLine(status, health) {
 async function buildChatSystemPrompt(userId, user, message, mode = 'voice') {
   const [memoryLines, memories, unseen, hasCompanion, skills] = await Promise.all([
     memoryContext(userId, message),
-    allMemories(userId),
+    vitalsWindow(userId),
     pendingNotes.unseenNotes(userId),
     companion.isPaired(userId),
     listSkills(userId),
@@ -964,7 +964,7 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
     }
 
     // Meta-Cognitive Pivot Check
-    const memories = await allMemories(userId);
+    const memories = await vitalsWindow(userId);
     const { status, health } = computeVitals(memories);
     if (status === 'OVERWORKED') {
       reasoningState = 'RESEARCHING';
@@ -1163,10 +1163,10 @@ export async function extractMemories(userId, rawText) {
 // genuinely non-obvious link — not something already stated directly. Meant
 // to run in the background (grow.js), not on-demand from the UI.
 export async function runDreamCycle(userId) {
-  const memories = await allMemories(userId);
+  const memories = (await recentMemories(userId, 40)).reverse();
   if (memories.length < 5) return null; // not enough yet for a real connection to exist
 
-  const summary = memories.slice(-40).map((m) => `#${m.id} [${m.tags.join(',')}] ${m.content}`).join('\n');
+  const summary = memories.map((m) => `#${m.id} [${m.tags.join(',')}] ${m.content}`).join('\n');
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 300,
@@ -1186,8 +1186,8 @@ export async function runDreamCycle(userId) {
 // question worth asking next time — queued as a pending note the chat flow
 // can bring up when there's a natural opening.
 export async function runCuriosityCycle(userId) {
-  const memories = await allMemories(userId);
-  const summary = memories.slice(-40).map((m) => `[${m.tags.join(',')}] ${m.content}`).join('\n');
+  const memories = (await recentMemories(userId, 40)).reverse();
+  const summary = memories.map((m) => `[${m.tags.join(',')}] ${m.content}`).join('\n');
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',

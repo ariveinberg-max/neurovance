@@ -16,27 +16,40 @@ async function loadAll(userId) {
   return notes.sort((a, b) => a.id - b.id);
 }
 
-export async function addNote(userId, kind, text) {
-  const notes = await loadAll(userId);
-  const entry = {
-    id: notes.length ? notes[notes.length - 1].id + 1 : 1,
-    kind, // 'insight' | 'curiosity' | 'companion'
-    text,
-    createdAt: new Date().toISOString(),
-    seen: false,
-  };
-  await setDoc(notesPath(userId), String(entry.id), entry);
+// Same read→max+1→write id allocation as memory.js: concurrent addNote calls
+// (e.g. a Companion file event landing alongside a dream insight) could both
+// compute the same id and one would silently overwrite the other. Serialize
+// per user.
+const noteQueues = new Map();
+function enqueueNote(userId, task) {
+  const prev = noteQueues.get(userId) || Promise.resolve();
+  const next = prev.then(task, task);
+  noteQueues.set(userId, next.catch(() => {}));
+  return next;
+}
 
-  // Keep this small and current — an unbounded backlog of stale "I noticed
-  // X" notes from weeks ago is noise, not presence. Firestore has no
-  // built-in "keep only the last N", so trim explicitly here.
-  const all = await loadAll(userId);
-  if (all.length > 20) {
-    const excess = all.slice(0, all.length - 20);
-    await Promise.all(excess.map((n) => deleteDoc(notesPath(userId), String(n.id))));
-  }
+export function addNote(userId, kind, text) {
+  return enqueueNote(userId, async () => {
+    const notes = await loadAll(userId);
+    const entry = {
+      id: notes.length ? notes[notes.length - 1].id + 1 : 1,
+      kind, // 'insight' | 'curiosity' | 'companion'
+      text,
+      createdAt: new Date().toISOString(),
+      seen: false,
+    };
+    await setDoc(notesPath(userId), String(entry.id), entry);
 
-  return entry;
+    // Keep this small and current — an unbounded backlog of stale "I noticed
+    // X" notes from weeks ago is noise, not presence.
+    const all = [...notes, entry];
+    if (all.length > 20) {
+      const excess = all.slice(0, all.length - 20);
+      await Promise.all(excess.map((n) => deleteDoc(notesPath(userId), String(n.id))));
+    }
+
+    return entry;
+  });
 }
 
 export async function unseenNotes(userId) {

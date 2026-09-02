@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { getAllDocs, setDoc, deleteDoc } from './db.js';
+import { getAllDocs, setDoc, deleteDoc, queryDocsByField } from './db.js';
 import { findUserByUsername, findUserById } from './auth.js';
 import { allMemories } from './memory.js';
 
@@ -16,6 +16,19 @@ async function loadAll() {
   return getAllDocs('connections');
 }
 
+async function loadForUser(userId) {
+  const [asSender, asRecipient] = await Promise.all([
+    queryDocsByField('connections', 'fromUserId', userId),
+    queryDocsByField('connections', 'toUserId', userId),
+  ]);
+  const seen = new Set();
+  return [...asSender, ...asRecipient].filter((c) => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
+}
+
 async function saveOne(entry) {
   await setDoc('connections', entry.id, entry);
 }
@@ -30,7 +43,7 @@ export async function requestConnection(fromUserId, toUsername) {
   if (!toUser) throw new Error('No account with that username.');
   if (toUser.id === fromUserId) throw new Error('You cannot connect with yourself.');
 
-  const connections = await loadAll();
+  const connections = await loadForUser(fromUserId);
   const existing = connections.find((c) =>
     (c.fromUserId === fromUserId && c.toUserId === toUser.id) ||
     (c.fromUserId === toUser.id && c.toUserId === fromUserId)
@@ -50,7 +63,7 @@ export async function requestConnection(fromUserId, toUsername) {
 }
 
 export async function listConnectionsFor(userId) {
-  const connections = (await loadAll()).filter((c) => c.fromUserId === userId || c.toUserId === userId);
+  const connections = await loadForUser(userId);
   return Promise.all(connections.map(async (c) => {
     const otherId = c.fromUserId === userId ? c.toUserId : c.fromUserId;
     return {
@@ -64,7 +77,7 @@ export async function listConnectionsFor(userId) {
 }
 
 export async function respondToConnection(userId, connectionId, accept) {
-  const connections = await loadAll();
+  const connections = await loadForUser(userId);
   const entry = connections.find((c) => c.id === connectionId);
   if (!entry) throw new Error('No such connection request.');
   if (entry.toUserId !== userId) throw new Error('Only the invited person can respond to this.');
@@ -80,7 +93,7 @@ export async function respondToConnection(userId, connectionId, accept) {
 // the same action from either side, since a removed connection just frees
 // both usernames to request each other again later.
 export async function removeConnection(userId, connectionId) {
-  const connections = await loadAll();
+  const connections = await loadForUser(userId);
   const entry = connections.find((c) => c.id === connectionId);
   if (!entry) throw new Error('No such connection.');
   if (entry.fromUserId !== userId && entry.toUserId !== userId) throw new Error('Not your connection.');
@@ -99,7 +112,7 @@ async function recurringTags(userId) {
 }
 
 export async function getOverlap(userId, connectionId) {
-  const connections = await loadAll();
+  const connections = await loadForUser(userId);
   const entry = connections.find((c) => c.id === connectionId);
   if (!entry) throw new Error('No such connection.');
   if (entry.fromUserId !== userId && entry.toUserId !== userId) throw new Error('Not your connection.');

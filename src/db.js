@@ -107,3 +107,27 @@ export async function runTransaction(collectionPath, docId, updateFn) {
   cache.delete(collCacheKey(collectionPath));
   return result;
 }
+
+// Bounded reads. getAllDocs pulls (and is billed for) every document in the
+// collection, which is what put the free-tier read quota on the floor — a
+// user with 4k memories paid 4k reads just to find the 5 most recent. These
+// push the filtering into Firestore so the bill matches what's actually used.
+
+export async function queryOrdered(collectionPath, field, direction, limit) {
+  const snap = await db.collection(collectionPath).orderBy(field, direction).limit(limit).get();
+  return snap.docs.map((d) => d.data());
+}
+
+export async function queryWhereOrdered(collectionPath, field, op, value, orderField, direction, limit) {
+  const snap = await db.collection(collectionPath)
+    .where(field, op, value)
+    .orderBy(orderField, direction)
+    .limit(limit)
+    .get();
+  return snap.docs.map((d) => d.data());
+}
+
+export async function queryArrayContains(collectionPath, field, value) {
+  const snap = await db.collection(collectionPath).where(field, 'array-contains', value).get();
+  return snap.docs.map((d) => d.data());
+}

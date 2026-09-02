@@ -31,6 +31,21 @@ export function guessLanguage(filename) {
   return EXT_LANGUAGE_MAP[ext] || 'text/plain';
 }
 
+// Files live in a per-user virtual workspace that can be materialized onto
+// real disk (codeExecution.js joins workDir + name) and fed to an interpreter,
+// so a name must be a plain filename — no path separators, no traversal, no
+// hidden-dot tricks. The write_file/rename_file agent tools take arbitrary
+// model-controlled names, and a prompt-injected instruction could otherwise
+// write outside the workspace. Throws on a bad name.
+export function assertValidFilename(name) {
+  if (typeof name !== 'string' || !name.trim()) throw new Error('Filename cannot be empty.');
+  if (name.includes('/') || name.includes('\\') || name.includes('\0')) {
+    throw new Error('Filename cannot contain path separators.');
+  }
+  if (name === '.' || name === '..') throw new Error('Invalid filename.');
+  if (name.length > 200) throw new Error('Filename is too long.');
+}
+
 // Display label for the language a file's stored as — the raw CM5
 // mode/MIME values above are correct for the editor but not something a
 // human should see in the file tree or the AI's file listing.
@@ -60,6 +75,7 @@ export async function findCodeFileByName(userId, name) {
 }
 
 export async function createCodeFile(userId, { name, content = '' }) {
+  assertValidFilename(name);
   if (await findCodeFileByName(userId, name)) {
     throw new Error(`A file named "${name}" already exists.`);
   }
@@ -73,6 +89,7 @@ export async function createCodeFile(userId, { name, content = '' }) {
 // Upsert by name — the AI tool is write_file(name, content), not
 // write_file(id, content), since the model only ever knows files by name.
 export async function writeCodeFile(userId, name, content) {
+  assertValidFilename(name);
   const existing = await findCodeFileByName(userId, name);
   const now = new Date().toISOString();
   if (existing) {
@@ -87,8 +104,12 @@ export async function writeCodeFile(userId, name, content) {
 }
 
 export async function renameCodeFile(userId, fileId, newName) {
+  assertValidFilename(newName);
   const existing = await getCodeFile(userId, fileId);
   if (!existing) throw new Error('File not found.');
+  if (await findCodeFileByName(userId, newName)) {
+    throw new Error(`A file named "${newName}" already exists.`);
+  }
   const updated = { ...existing, name: newName, language: guessLanguage(newName), updatedAt: new Date().toISOString() };
   await setDoc(codeFilesPath(userId), fileId, updated);
   return updated;

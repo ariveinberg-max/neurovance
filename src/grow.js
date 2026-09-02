@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { pathToFileURL } from 'url';
 import { runTask, runDreamCycle, runCuriosityCycle } from './agent.js';
-import { allMemories, consolidateMemories } from './memory.js';
+import { allMemories, consolidateMemories, thinTopics } from './memory.js';
 import * as pendingNotes from './pending-notes.js';
 import { listUsers, checkTokenUsage, incrementTokenUsage } from './auth.js';
 import { sendBroadcast } from './mailer.js';
@@ -27,7 +27,7 @@ function buildPrompt(memories) {
 // knows and what it has on its mind — instead of always doing the same
 // canned "search one topic" task. The result of that work is what lands in
 // the digest, so growth is driven by judgement, not a template.
-function buildSelfDirectedPrompt(memories, pending) {
+function buildSelfDirectedPrompt(memories, pending, thin = []) {
   const topics = [...new Set(memories.flatMap((m) => m.tags))].slice(0, 16).join(', ');
   const recent = memories.slice(-12).map((m) => `- [${m.timestamp.slice(0, 10)}] ${m.content}`).join('\n');
   const minds = pending.length ? pending.map((n) => `- ${n.text}`).join('\n') : '(nothing queued)';
@@ -35,12 +35,16 @@ function buildSelfDirectedPrompt(memories, pending) {
     'You are working alone, unattended, for the person these memories belong to.',
     'Decide for yourself the SINGLE most valuable thing you can do right now for them, given what you know.',
     `Topics you know matter to them: ${topics || 'none yet'}.`,
+    thin.length ? `Topics you know very little about yet (thin coverage — real gaps worth enriching, not re-treading): ${thin.join(', ')}.` : '',
     `Worth doing today — pick ONE of these, whichever would help them most:\n` +
       '1. Research one topic they care about and save the most useful new thing you find (use search_web to find it, then fetch_webpage to actually READ the best source rather than just its one-line summary).\n' +
       '2. Prepare (draft only) something useful they could use — a plan, a message, a to-do, a piece of writing.\n' +
-      '3. Notice a pattern or connection in their memories and articulate a genuinely useful insight (something they could actually act on).\n' +
-      '4. Ask yourself one sharp follow-up question about their goals and save it for them.\n' +
-      'Prefer real action (research or a prepared draft) over just another question, unless the honest best move is a question.',
+      '3. Notice a pattern or connection across their memories and articulate a genuinely useful insight (something they could actually act on).\n' +
+      '4. Flag a risk or gap worth their attention — a goal that has gone quiet, a plan that may be stale, a contradiction or overlooked problem you can see from what you know (name it, don\'t fix it).\n' +
+      '5. Connect something you already know to a specific external resource that would help them (search_web for it by name, verify it with fetch_webpage, and save it as a usable next step).\n' +
+      '6. Improve the store itself — sharpen one vague memory or pending note into a clearer, better-tagged version of itself.\n' +
+      '7. Ask yourself one sharp follow-up question about their goals and save it for them.\n' +
+      'Prefer real action (research, a prepared draft, or surfacing a real risk) over just another question, unless the honest best move is a question.',
     `What you already know (most recent):\n${recent || '(nothing yet)'}`,
     `Things on your mind to resolve or grow:\n${minds}`,
     'Actually DO the one thing you choose using your tools (search_web, remember, and the read-only Companion tools you have). This is an unattended run: do NOT send any message/email, complete any purchase, or delete/cancel anything — prepare drafts and save what you learn instead.',
@@ -108,8 +112,9 @@ export async function runDailyGrow() {
       // Real autonomy: decide the task, run it deep, unattended. If the store
       // is basically empty there's nothing to self-direct on, so fall back to
       // the lightweight routine prompt to seed the store.
+      const thin = memories.length >= 4 ? await thinTopics(user.id) : [];
       const prompt = memories.length >= 4
-        ? buildSelfDirectedPrompt(memories, pending)
+        ? buildSelfDirectedPrompt(memories, pending, thin)
         : buildPrompt(memories);
       const { result, usage: tokensUsed } = await runTask(user.id, user, prompt, [], { unattended: true, mode: 'deep' });
       if (tokensUsed) await incrementTokenUsage(user.id, tokensUsed.input_tokens + tokensUsed.output_tokens);
