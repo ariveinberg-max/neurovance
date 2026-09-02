@@ -213,6 +213,15 @@ function oauthRedirectUri(provider) {
   return process.env[`${provider.toUpperCase()}_REDIRECT_URI`];
 }
 
+function isOAuthConfigured(provider) {
+  const prefix = provider.toUpperCase();
+  return Boolean(
+    process.env[`${prefix}_CLIENT_ID`]
+    && process.env[`${prefix}_CLIENT_SECRET`]
+    && oauthRedirectUri(provider),
+  );
+}
+
 // `from` records which page sent the user into the OAuth detour (desktop
 // index.html vs mobile.html) so the round trip lands them back where they
 // started instead of always dropping a phone user onto the desktop layout.
@@ -585,6 +594,10 @@ async function handleRequest(req, res) {
 
   if (req.url.startsWith('/api/oauth/google/start')) {
     const from = new URL(req.url, `http://${req.headers.host}`).searchParams.get('from');
+    if (!isOAuthConfigured('google')) {
+      res.writeHead(302, { Location: '/?error=google_oauth_unavailable' });
+      return res.end();
+    }
     return startOAuthRedirect(res, 'google', 'https://accounts.google.com/o/oauth2/v2/auth', {
       client_id: process.env.GOOGLE_CLIENT_ID,
       redirect_uri: oauthRedirectUri('google'),
@@ -600,6 +613,10 @@ async function handleRequest(req, res) {
 
   if (req.url.startsWith('/api/oauth/github/start')) {
     const from = new URL(req.url, `http://${req.headers.host}`).searchParams.get('from');
+    if (!isOAuthConfigured('github')) {
+      res.writeHead(302, { Location: '/?error=github_oauth_unavailable' });
+      return res.end();
+    }
     return startOAuthRedirect(res, 'github', 'https://github.com/login/oauth/authorize', {
       client_id: process.env.GITHUB_CLIENT_ID,
       redirect_uri: oauthRedirectUri('github'),

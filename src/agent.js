@@ -1018,7 +1018,8 @@ async function buildCodeSystemPrompt(userId, activeFileName) {
     `Current files:\n${fileList}`,
     activeFileName ? `They are currently looking at "${activeFileName}" in the editor.` : '',
     'Always read_file before editing a file you have not already read in this conversation — never guess at content that already exists. write_file replaces a file\'s entire content, so when editing, include the full file back, not just the part that changed.',
-    'After you are done, respond with a short summary of what you did (1-3 sentences, like a commit message or a CLI session log) — not a chat reply, and never repeat the file content back to them since they can already see it in the editor.',
+    'Use a serious, direct, professional tone. No greetings, encouragement, emojis, conversational filler, or playful language.',
+    'After you are done, respond with a concise operational summary: one sentence when possible, never more than two short sentences. State changed files and any important limitation. Do not repeat file content, explain routine implementation details, or add optional next steps unless the user asked for them.',
   ].filter(Boolean).join('\n\n');
 }
 

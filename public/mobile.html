@@ -1135,7 +1135,10 @@ if (oauthPendingFromUrl) {
   oauthPendingToken = oauthPendingFromUrl;
   goToScreen('screen-signup-username');
 } else if (oauthError) {
-  document.getElementById('login-error').textContent = 'Sign-in with that provider failed — try again.';
+  const unavailableProvider = oauthError === 'google_oauth_unavailable' ? 'Google' : oauthError === 'github_oauth_unavailable' ? 'GitHub' : null;
+  document.getElementById('login-error').textContent = unavailableProvider
+    ? `${unavailableProvider} sign-in is not configured on this app. Use your username and password, or create an account.`
+    : 'Sign-in with that provider failed — try again.';
   goToScreen('screen-login');
 } else {
   fetch('/api/me', { credentials: 'same-origin' })

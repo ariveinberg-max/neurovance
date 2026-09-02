@@ -70,21 +70,6 @@
   body { display: flex; }
   #app-shell { display: flex; width: 100%; height: 100vh; }
 
-  /* ---------- Mobile gate — desktop-only for now, so a phone gets a clean
-     message instead of the unstyled desktop layout squeezed into a narrow
-     screen. Hidden by default; the media query below is the only thing
-     that ever shows it, and it hides everything else while active. ---------- */
-  #mobile-gate {
-    display: none;
-    width: 100vw; height: 100vh; flex-direction: column; align-items: center; justify-content: center;
-    text-align: center; padding: 32px; gap: 14px;
-  }
-  #mobile-gate p { max-width: 280px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin: 0; }
-  @media (max-width: 1024px) {
-    #mobile-gate { display: flex; }
-    #auth-gate, #app-shell { display: none !important; }
-  }
-
   /* ---------- Auth gate ---------- */
   #auth-gate {
     width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center;
@@ -294,13 +279,24 @@
   /* ---------- Talk drawer — text chat + task assignment, and a real
      transcript for voice conversations too, which otherwise vanish the
      moment they're spoken. ---------- */
-  #talk-toggle {
-    position: fixed; bottom: 24px; right: 24px; z-index: 40;
-    background: var(--surface-alt); border: 1px solid rgba(var(--overlay-rgb),0.14); color: var(--text-primary);
-    font-family: 'Inter', sans-serif; font-size: 12px; letter-spacing: 0.3px;
-    padding: 11px 18px; border-radius: 20px; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease;
+  /* Primary workspace actions live together at the top right. Code is the
+     main action; Assistant is deliberately quieter so the screen does not
+     look like it has two competing calls to action. */
+  #workspace-actions {
+    position: fixed; top: 20px; right: 24px; z-index: 40;
+    display: flex; align-items: center; gap: 8px;
   }
-  #talk-toggle:hover { background: var(--surface); border-color: rgba(var(--overlay-rgb),0.28); }
+  #talk-toggle, #code-toggle {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500;
+    letter-spacing: 0.2px; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  }
+  #talk-toggle {
+    min-width: 38px; height: 38px; padding: 0 11px; border-radius: 8px;
+    background: rgba(var(--surface-rgb),0.72); border: 1px solid rgba(var(--overlay-rgb),0.13); color: var(--text-secondary);
+  }
+  #talk-toggle:hover { background: var(--surface); border-color: rgba(var(--overlay-rgb),0.28); color: var(--text-primary); }
+  .workspace-action-icon { width: 15px; height: 15px; flex: 0 0 auto; }
   /* A real centered modal, not a corner drawer — big enough to actually
      live in, translucent enough that the sphere and vitals stay visible
      behind it rather than being fully hidden by a solid panel. */
@@ -422,12 +418,11 @@
      1024px breakpoint the mobile gate uses, since a phone is not a place
      to run a code editor. ---------- */
   #code-toggle {
-    position: fixed; bottom: 24px; right: 110px; z-index: 40;
-    background: var(--surface-alt); border: 1px solid rgba(var(--overlay-rgb),0.14); color: var(--text-primary);
-    font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: 0.3px;
-    padding: 11px 18px; border-radius: 20px; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease;
+    height: 38px; padding: 0 14px; border-radius: 8px;
+    background: var(--text-bright); border: 1px solid var(--text-bright); color: var(--bg);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
   }
-  #code-toggle:hover { background: var(--surface); border-color: rgba(var(--overlay-rgb),0.28); }
+  #code-toggle:hover { background: var(--accent-green-bright); border-color: var(--accent-green-bright); transform: translateY(-1px); }
   #code-backdrop {
     display: none; position: fixed; inset: 0; z-index: 42;
     background: rgba(0,0,0,0.45); align-items: center; justify-content: center; padding: 20px;
@@ -439,6 +434,9 @@
     display: flex; flex-direction: column; box-shadow: 0 60px 140px rgba(0,0,0,0.6);
     opacity: 0; transform: scale(0.97); transition: opacity 0.2s ease, transform 0.2s ease;
     font-family: 'Share Tech Mono', monospace; overflow: hidden;
+  }
+  #code-panel.is-fullscreen {
+    width: 100vw; max-width: none; height: 100vh; max-height: none; border: none; border-radius: 0;
   }
   #code-backdrop.open #code-panel { opacity: 1; transform: scale(1); }
   #code-panel-header {
@@ -452,6 +450,11 @@
   }
   #code-panel-close { color: #8a8a92; cursor: pointer; padding: 2px 6px; font-size: 14px; }
   #code-panel-close:hover { color: #e8e8ec; }
+  #code-panel-fullscreen {
+    background: none; border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; color: #a8a8b0;
+    font-family: 'Share Tech Mono', monospace; font-size: 10px; padding: 5px 8px; cursor: pointer;
+  }
+  #code-panel-fullscreen:hover { color: #f0f0f4; background: rgba(255,255,255,0.06); }
   #code-panel-body { flex: 1 1 auto; display: flex; min-height: 0; }
   #code-file-tree {
     flex: 0 0 200px; border-right: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column;
@@ -509,8 +512,6 @@
   }
   #code-prompt-input::placeholder { color: #57575f; }
   #code-prompt-input:disabled { opacity: 0.5; }
-  @media (max-width: 1024px) { #code-toggle { display: none; } }
-
   /* ---------- Artifacts — a long code block in a chat reply collapses to
      this card instead of dumping the whole thing inline; opening it slides
      in the panel below. Chat-only (talk-drawer/mobile); the Code panel
@@ -988,21 +989,6 @@
       stroke="url(#brandHeartGrad)" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round" />
   </svg>
 </template>
-
-<div id="mobile-gate">
-  <div id="brand-lockup"><span class="brand-mark-slot"></span>NEUROVANCE</div>
-  <p>Taking you to the mobile app…</p>
-</div>
-<script>
-  // Narrow viewport (same breakpoint the #mobile-gate CSS media query uses)
-  // means the desktop layout wouldn't fit — send it straight to the
-  // purpose-built mobile page instead of showing a blocking message.
-  // Query params (like a referral ?ref=) ride along so a link still works
-  // regardless of which device opens it.
-  if (window.matchMedia('(max-width: 1024px)').matches) {
-    window.location.replace('/mobile.html' + window.location.search);
-  }
-</script>
 
 <div id="auth-gate">
   <div id="auth-card">
@@ -1503,7 +1489,16 @@
   </div>
 </div>
 
-<button id="talk-toggle">Talk</button>
+<div id="workspace-actions" aria-label="Workspace actions">
+  <button id="talk-toggle" title="Open assistant" aria-label="Open assistant">
+    <svg class="workspace-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 8.6 8.6 0 0 1-3.7-.85L4 19l1.15-3.45A7.3 7.3 0 0 1 4.5 12a7.5 7.5 0 0 1 15.5-.5Z"/></svg>
+    <span>Assistant</span>
+  </button>
+  <button id="code-toggle" title="Open coding workspace" aria-label="Open coding workspace">
+    <svg class="workspace-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></svg>
+    <span>Code</span>
+  </button>
+</div>
 <div id="talk-backdrop">
 <div id="talk-drawer">
   <div id="talk-header">
@@ -1550,7 +1545,6 @@
      Code CLI's own input. Desktop only (no toggle rendered on mobile
      widths) — a phone screen is not a place to edit code.
      ============================================================ -->
-<button id="code-toggle" title="Code">Code</button>
 <div id="code-backdrop">
 <div id="code-panel" role="dialog" aria-modal="true" aria-label="Code editor" tabindex="-1">
   <div id="code-panel-header">
@@ -1562,6 +1556,7 @@
       <option value="material-darker">Material Darker</option>
       <option value="idea">Idea Light</option>
     </select>
+    <button id="code-panel-fullscreen" type="button" title="Toggle full screen" aria-pressed="false">Full screen</button>
     <div id="code-panel-close">✕</div>
   </div>
   <div id="code-panel-body">
@@ -2023,7 +2018,10 @@ if (oauthPendingFromUrl) {
   oauthPendingToken = oauthPendingFromUrl;
   goToScreen('screen-signup-username');
 } else if (oauthError) {
-  document.getElementById('login-error').textContent = 'Sign-in with that provider failed — try again.';
+  const unavailableProvider = oauthError === 'google_oauth_unavailable' ? 'Google' : oauthError === 'github_oauth_unavailable' ? 'GitHub' : null;
+  document.getElementById('login-error').textContent = unavailableProvider
+    ? `${unavailableProvider} sign-in is not configured on this app. Use your username and password, or create an account.`
+    : 'Sign-in with that provider failed — try again.';
   goToScreen('screen-login');
 } else {
   fetch('/api/me', { credentials: 'same-origin' })
@@ -3171,6 +3169,7 @@ function initCodePanel() {
   const backdrop = document.getElementById('code-backdrop');
   const panel = document.getElementById('code-panel');
   const closeBtn = document.getElementById('code-panel-close');
+  const fullscreenBtn = document.getElementById('code-panel-fullscreen');
   const fileListEl = document.getElementById('code-file-list');
   const newFileBtn = document.getElementById('code-new-file-btn');
   const editorMount = document.getElementById('code-editor-mount');
@@ -3388,13 +3387,25 @@ function initCodePanel() {
     setTimeout(() => { if (cm) cm.refresh(); promptInput.focus(); }, 30);
   }
   function closePanel() {
+    setFullscreen(false);
     backdrop.classList.remove('open');
     toggle.focus();
   }
+  function setFullscreen(fullscreen) {
+    panel.classList.toggle('is-fullscreen', fullscreen);
+    fullscreenBtn.setAttribute('aria-pressed', String(fullscreen));
+    fullscreenBtn.textContent = fullscreen ? 'Exit full screen' : 'Full screen';
+    setTimeout(() => { if (cm) cm.refresh(); }, 30);
+  }
   toggle.addEventListener('click', openPanel);
   closeBtn.addEventListener('click', closePanel);
+  fullscreenBtn.addEventListener('click', () => setFullscreen(!panel.classList.contains('is-fullscreen')));
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closePanel(); });
-  panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanel(); });
+  panel.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (panel.classList.contains('is-fullscreen')) setFullscreen(false);
+    else closePanel();
+  });
 }
 
 // Pairs two independent kinds of client, either or both at once: the local
