@@ -7,6 +7,7 @@ import { randomBytes } from 'crypto';
 import { allMemories, remember } from './memory.js';
 import { chatReply, getLastRecall, extractMemories, correctMemory, runTask, codeAgentPrompt } from './agent.js';
 import * as codeFiles from './codeFiles.js';
+import * as codeExecution from './codeExecution.js';
 import * as pendingNotes from './pending-notes.js';
 import { computeVitals } from './vitals.js';
 import * as auth from './auth.js';
@@ -90,6 +91,38 @@ function clearLoginRateLimit(username) {
   loginAttempts.delete(username);
 }
 
+// Per-IP limiter for the public, pre-auth endpoints that emit emails or
+// grindable codes (signup-start, forgot-password, waitlist). The login
+// limiter above is per-username (an attacker can cycle scrape every account
+// without one IP), but these have no username to key on, so they need an
+// IP-level cap instead. Firestore-backed would be ideal but pointless here:
+// the limit is about retrying fast, and a per-process Map is exactly what
+// that needs without making a live Firestore query on the hottest routes.
+const ipLimiters = new Map(); // key(ip:route) -> { count, resetAt }
+const IP_LIMIT_MAX = 15; // per 10 minutes per route per IP
+const IP_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+
+function realIp(req) {
+  return (
+    (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    || req.socket.remoteAddress
+    || 'unknown'
+  );
+}
+
+function checkIpRateLimit(req, route) {
+  const now = Date.now();
+  const key = `${realIp(req)}:${route}`;
+  const entry = ipLimiters.get(key);
+  if (!entry || entry.resetAt < now) {
+    ipLimiters.set(key, { count: 1, resetAt: now + IP_LIMIT_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= IP_LIMIT_MAX) return false;
+  entry.count += 1;
+  return true;
+}
+
 const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024; // generous for chat/memory text, nothing legitimate needs more
 
 function readJsonBody(req) {
@@ -133,11 +166,11 @@ function readRawBody(req) {
 // said — each call was otherwise completely memoryless. Bounded here
 // server-side too (not just client-side) so a crafted request can't blow up
 // the prompt: last 12 turns, 4000 chars each.
-function sanitizeHistory(history) {
+function sanitizeHistory(history, limit = 12) {
   if (!Array.isArray(history)) return [];
   return history
     .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
-    .slice(-12)
+    .slice(-limit)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
 }
 
@@ -170,9 +203,25 @@ function clearSessionCookie(res) {
 }
 
 function sendJson(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    ...SECURITY_HEADERS,
+  });
   res.end(JSON.stringify(body));
 }
+
+// Baseline headers on every response. CSP is deliberately permissive on
+// script-src (this is a single inlined HTML app with no separate JS bundle)
+// but hardens the things a static inline app can't handle: framing, MIME
+// sniffing, referrer leakage, and cross-origin resource policy.
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+};
 
 // The one shared shape every "you're now logged in" response sends back —
 // login, signup, oauth, and /api/me all used to build this by hand, and
@@ -342,6 +391,7 @@ async function handleRequest(req, res) {
   }
 
   if (req.url === '/api/waitlist' && req.method === 'POST') {
+    if (!checkIpRateLimit(req, 'waitlist')) return sendJson(res, 429, { error: 'Too many attempts from this IP — try again later.' });
     res.setHeader('Access-Control-Allow-Origin', WAITLIST_CORS_ORIGIN);
     try {
       const { email } = await readJsonBody(req);
@@ -459,6 +509,7 @@ async function handleRequest(req, res) {
 
   if (req.url === '/api/signup-start' && req.method === 'POST') {
     try {
+      if (!checkIpRateLimit(req, 'signup-start')) return sendJson(res, 429, { error: 'Too many attempts from this IP — try again later.' });
       const { email, password } = await readJsonBody(req);
       if (!email?.trim() || !password) {
         return sendJson(res, 400, { error: 'Email and password are required.' });
@@ -482,6 +533,7 @@ async function handleRequest(req, res) {
 
   if (req.url === '/api/signup-verify-code' && req.method === 'POST') {
     try {
+      if (!checkIpRateLimit(req, 'verify-code')) return sendJson(res, 429, { error: 'Too many attempts from this IP — try again later.' });
       const { email, code } = await readJsonBody(req);
       if (!email?.trim() || !code) {
         return sendJson(res, 400, { error: 'Email and code are required.' });
@@ -543,6 +595,7 @@ async function handleRequest(req, res) {
 
   if (req.url === '/api/forgot-password' && req.method === 'POST') {
     try {
+      if (!checkIpRateLimit(req, 'forgot-password')) return sendJson(res, 429, { error: 'Too many attempts from this IP — try again later.' });
       const { email } = await readJsonBody(req);
       if (!email?.trim()) return sendJson(res, 400, { error: 'Email is required.' });
       const code = await auth.startPasswordReset(email);
@@ -672,15 +725,18 @@ async function handleRequest(req, res) {
     if (!apiUser) return sendJson(res, 401, { error: 'Invalid or missing API key. Pass it as: Authorization: Bearer nv_...' });
 
     try {
-      const usage = await auth.checkAndIncrementUsage(apiUser.id);
+      const usage = await auth.checkTokenUsage(apiUser.id);
       if (!usage.allowed) {
-        return sendJson(res, 429, { error: `Daily limit reached (${usage.limit} messages) — resets at midnight UTC.` });
+        return sendJson(res, 429, { error: `Token budget exceeded (${usage.used}/${usage.budget}) — resets at midnight UTC.` });
       }
       const { message, history } = await readJsonBody(req);
       if (typeof message !== 'string' || !message.trim()) {
         return sendJson(res, 400, { error: 'message must be a non-empty string' });
       }
-      const { reply } = await chatReply(apiUser.id, apiUser, message.trim(), sanitizeHistory(history));
+      const effectiveUser = { ...apiUser };
+      if (usage.suggestDownscale) effectiveUser.model = 'pulse';
+      const { reply, usage: tokensUsed } = await chatReply(apiUser.id, effectiveUser, message.trim(), sanitizeHistory(history, usage.suggestDownscale ? 6 : 12));
+      await auth.incrementTokenUsage(apiUser.id, tokensUsed.input_tokens + tokensUsed.output_tokens);
       return sendJson(res, 200, { reply });
     } catch (e) {
       console.error('API v1 chat error:', e);
@@ -693,8 +749,109 @@ async function handleRequest(req, res) {
     const { user } = await getSessionAndUser(req);
     if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
 
+    // Lost from this file somewhere in the uncommitted changes this session
+    // found sitting in the working tree (buildGraph() itself was untouched
+    // and still exported correctly — only the route binding it to a URL was
+    // gone). Without this the whole desktop app hangs at login forever:
+    // startApp()'s fetch('/api/graph') 404s, so its .then() callback (which
+    // is what runs the entire initX() chain, Code panel included) never
+    // fires. Restored verbatim from the last commit (a43ac7f).
     if (req.url === '/api/graph') {
       return sendJson(res, 200, await buildGraph(user.id));
+    }
+
+    if (req.url === '/api/usage' && req.method === 'GET') {
+      try {
+        // Was `const user = await auth.findUserById(user.id)` — same name as
+        // the outer `user` from the session check a few lines up, so the
+        // `user.id` on its own right-hand side referenced itself before
+        // that const finished initializing (temporal dead zone), throwing
+        // on literally every call. Confirmed live: this 500'd on every
+        // single page load. Renamed to freshUser — the actual reason to
+        // re-fetch is to get today's real tokenUsage rather than whatever
+        // was on the session-check's user object, which can be stale.
+        const freshUser = await auth.findUserById(user.id);
+        const budget = freshUser.tokenBudget || auth.DEFAULT_TOKEN_BUDGET;
+        const today = new Date().toISOString().slice(0, 10);
+        const usage = freshUser.tokenUsage?.date === today ? freshUser.tokenUsage.used : 0;
+        return sendJson(res, 200, { ok: true, used: usage, budget });
+      } catch (e) {
+        return sendJson(res, 500, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/token-budget' && req.method === 'POST') {
+      try {
+        const { budget } = await readJsonBody(req);
+        if (!Number.isInteger(budget) || budget < 0) {
+          return sendJson(res, 400, { error: 'Budget must be a non-negative integer.' });
+        }
+        const user = await auth.findUserById(user.id);
+        user.tokenBudget = budget;
+        await auth.saveUser(user);
+        return sendJson(res, 200, { ok: true, budget });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/strict-mode' && req.method === 'POST') {
+      try {
+        const { enabled } = await readJsonBody(req);
+        if (typeof enabled !== 'boolean') {
+          return sendJson(res, 400, { error: 'enabled must be true or false.' });
+        }
+        const user = await auth.findUserById(user.id);
+        user.strictModeEnabled = enabled;
+        await auth.saveUser(user);
+        return sendJson(res, 200, { ok: true, enabled });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/session/clear' && req.method === 'POST') {
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.url === '/api/ai-settings' && req.method === 'POST') {
+      try {
+        const { temperature, topP, maxTokens, contextTurns } = await readJsonBody(req);
+        const updated = await auth.setAiSettings(user.id, { temperature, topP, maxTokens, contextTurns });
+        return sendJson(res, 200, { ok: true, ...updated });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/privacy/train' && req.method === 'POST') {
+      try {
+        const { enabled } = await readJsonBody(req);
+        if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'enabled must be a boolean.' });
+        await auth.setPrivacyTrain(user.id, enabled);
+        return sendJson(res, 200, { ok: true, enabled });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/memories/export' && req.method === 'GET') {
+      try {
+        const memories = await allMemories(user.id);
+        return sendJson(res, 200, { ok: true, memories });
+      } catch (e) {
+        return sendJson(res, 500, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/account/delete' && req.method === 'POST') {
+      try {
+        await auth.deleteUser(user.id);
+        clearSessionCookie(res);
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
     }
 
     // ---------- Model tier — Neurovance's own custom-branded model names
@@ -1016,18 +1173,51 @@ async function handleRequest(req, res) {
 
     if (req.url === '/api/code/prompt' && req.method === 'POST') {
       try {
-        const usage = await auth.checkAndIncrementUsage(user.id);
+        const usage = await auth.checkTokenUsage(user.id);
         if (!usage.allowed) {
-          return sendJson(res, 429, { error: `Daily limit reached (${usage.limit} messages) — resets at midnight UTC.` });
+          return sendJson(res, 429, { error: `Token budget exceeded (${usage.used}/${usage.budget}) — resets at midnight UTC.` });
         }
         const { prompt, activeFileName, history } = await readJsonBody(req);
         if (typeof prompt !== 'string' || !prompt.trim()) return sendJson(res, 400, { error: 'prompt must be a non-empty string' });
-        const result = await codeAgentPrompt(user.id, user, prompt.trim(), activeFileName, sanitizeHistory(history));
-        return sendJson(res, 200, { ok: true, ...result });
+        const effectiveUser = { ...user };
+        if (usage.suggestDownscale) effectiveUser.model = 'pulse';
+        const { reply, changedFiles, usage: tokensUsed } = await codeAgentPrompt(user.id, effectiveUser, prompt.trim(), activeFileName, sanitizeHistory(history, usage.suggestDownscale ? 6 : 12));
+        await auth.incrementTokenUsage(user.id, tokensUsed.input_tokens + tokensUsed.output_tokens);
+        return sendJson(res, 200, { ok: true, reply, changedFiles });
       } catch (e) {
         console.error('Code prompt error:', e);
         return sendJson(res, 500, { error: 'Prompt failed: ' + e.message });
       }
+    }
+
+    // Real process execution — spawns a real interpreter/dev server against
+    // the workspace's actual files on disk. codeExecution.isExecutionEnabled()
+    // is the hard gate: true only when ENABLE_LOCAL_CODE_EXECUTION=1 is set,
+    // which is set in this repo's local .env and NEVER in Render's
+    // environment, so every one of these three routes refuses outright on
+    // the live deployment — no signed-up stranger can ever get code
+    // execution on the shared production server. No token-usage accounting
+    // here since no Anthropic API call happens in any of these three routes.
+
+    if (req.url === '/api/code/run' && req.method === 'POST') {
+      if (!codeExecution.isExecutionEnabled()) return sendJson(res, 403, { error: 'Code execution is disabled in this environment.' });
+      try {
+        const result = await codeExecution.startRun(user.id);
+        return sendJson(res, 200, { ok: true, ...result });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    if (req.url === '/api/code/run/stop' && req.method === 'POST') {
+      if (!codeExecution.isExecutionEnabled()) return sendJson(res, 403, { error: 'Code execution is disabled in this environment.' });
+      const stopped = codeExecution.stopRun(user.id);
+      return sendJson(res, 200, { ok: true, stopped });
+    }
+
+    if (req.url === '/api/code/run/status' && req.method === 'GET') {
+      if (!codeExecution.isExecutionEnabled()) return sendJson(res, 403, { error: 'Code execution is disabled in this environment.' });
+      return sendJson(res, 200, { ok: true, ...codeExecution.getRunStatus(user.id) });
     }
 
     // ---------- Feedback — straight to Ari's inbox, plus a durable record
@@ -1318,15 +1508,18 @@ async function handleRequest(req, res) {
     // awaits it rather than pretending it's instant.
     if (req.url === '/api/task' && req.method === 'POST') {
       try {
-        const usage = await auth.checkAndIncrementUsage(user.id);
+        const usage = await auth.checkTokenUsage(user.id);
         if (!usage.allowed) {
-          return sendJson(res, 429, { error: `Daily limit reached (${usage.limit} messages) — resets at midnight UTC.` });
+          return sendJson(res, 429, { error: `Token budget exceeded (${usage.used}/${usage.budget}) — resets at midnight UTC.` });
         }
         const { task, history } = await readJsonBody(req);
         if (typeof task !== 'string' || !task.trim()) {
           return sendJson(res, 400, { error: 'task must be a non-empty string' });
         }
-        const result = await runTask(user.id, user, task.trim(), sanitizeHistory(history));
+        const effectiveUser = { ...user };
+        if (usage.suggestDownscale) effectiveUser.model = 'pulse';
+        const { result, usage: tokensUsed } = await runTask(user.id, effectiveUser, task.trim(), sanitizeHistory(history, usage.suggestDownscale ? 6 : 12));
+        await auth.incrementTokenUsage(user.id, tokensUsed.input_tokens + tokensUsed.output_tokens);
         return sendJson(res, 200, { result });
       } catch (e) {
         console.error('Task error:', e);
@@ -1336,15 +1529,18 @@ async function handleRequest(req, res) {
 
     if (req.url === '/api/chat' && req.method === 'POST') {
       try {
-        const usage = await auth.checkAndIncrementUsage(user.id);
+        const usage = await auth.checkTokenUsage(user.id);
         if (!usage.allowed) {
-          return sendJson(res, 429, { error: `Daily limit reached (${usage.limit} messages) — resets at midnight UTC.` });
+          return sendJson(res, 429, { error: `Token budget exceeded (${usage.used}/${usage.budget}) — resets at midnight UTC.` });
         }
         const { message, history, mode } = await readJsonBody(req);
         if (typeof message !== 'string' || !message.trim()) {
           return sendJson(res, 400, { error: 'message must be a non-empty string' });
         }
-        const { reply, thinking } = await chatReply(user.id, user, message.trim(), sanitizeHistory(history), mode === 'text' ? 'text' : 'voice');
+        const effectiveUser = { ...user };
+        if (usage.suggestDownscale) effectiveUser.model = 'pulse';
+        const { reply, thinking, usage: tokensUsed } = await chatReply(user.id, effectiveUser, message.trim(), sanitizeHistory(history, usage.suggestDownscale ? 6 : 12), mode === 'text' ? 'text' : 'voice');
+        await auth.incrementTokenUsage(user.id, tokensUsed.input_tokens + tokensUsed.output_tokens);
         return sendJson(res, 200, thinking ? { reply, thinking } : { reply });
       } catch (e) {
         console.error('Chat error:', e);
@@ -1373,7 +1569,7 @@ async function handleRequest(req, res) {
       res.end('Not found');
       return;
     }
-    const headers = { 'Content-Type': MIME[extname(filePath)] || 'application/octet-stream' };
+    const headers = { 'Content-Type': MIME[extname(filePath)] || 'application/octet-stream', ...SECURITY_HEADERS };
     // The whole app is one HTML file with everything inlined — no separate,
     // hash-named JS bundle to cache-bust. Without this, a browser can hold
     // onto a stale copy across a plain reload and never notice a real
@@ -1415,18 +1611,12 @@ companion.registerAgentHooks({
     const user = await auth.findUserById(userId);
     if (!user) throw new Error('Account not found.');
     if (typeof message !== 'string' || !message.trim()) throw new Error('message must be a non-empty string');
-    // Same daily cap as /api/chat — without this, the extension's side
-    // panel would be a free way around it, since it never touches that route.
-    const usage = await auth.checkAndIncrementUsage(userId);
-    if (!usage.allowed) throw new Error(`Daily limit reached (${usage.limit} messages) — resets at midnight UTC.`);
-    // 'text-plain': this really is a typed text conversation (the
-    // extension's side panel), not spoken voice — chatReply's default
-    // 'voice' mode was wrongly telling the model it had just given a
-    // spoken greeting that never happened and capping replies to 1-3
-    // sentences. But the panel renders replies with plain textContent, no
-    // markdown parser, so it still can't get 'text' mode's markdown
-    // encouragement — 'text-plain' gets the length freedom without it.
-    const { reply } = await chatReply(userId, user, message.trim(), sanitizeHistory(history), 'text-plain');
+    const usage = await auth.checkTokenUsage(userId);
+    if (!usage.allowed) throw new Error(`Token budget exceeded (${usage.used}/${usage.budget}) — resets at midnight UTC.`);
+    const effectiveUser = { ...user };
+    if (usage.suggestDownscale) effectiveUser.model = 'pulse';
+    const { reply, usage: tokensUsed } = await chatReply(userId, effectiveUser, message.trim(), sanitizeHistory(history, usage.suggestDownscale ? 6 : 12), 'text-plain');
+    await auth.incrementTokenUsage(userId, tokensUsed.input_tokens + tokensUsed.output_tokens);
     return reply;
   },
   identity: async (userId) => {

@@ -1,5 +1,5 @@
-import { randomUUID, randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto';
-import { getDoc, setDoc, deleteDoc, getAllDocs } from './db.js';
+import { randomUUID, randomBytes, scryptSync, timingSafeEqual, createHash, randomInt } from 'crypto';
+import { getDoc, setDoc, deleteDoc, getAllDocs, queryDocsByField, runTransaction } from './db.js';
 import { computeNextRun, assertValidSchedule } from './schedule-utils.js';
 
 // Every user is its own Firestore document (collection "users", doc id =
@@ -11,7 +11,7 @@ async function loadUsers() {
   return getAllDocs('users');
 }
 
-async function saveUser(user) {
+export async function saveUser(user) {
   await setDoc('users', user.id, user);
 }
 
@@ -80,14 +80,14 @@ function assertValidUsername(normalized) {
 
 export async function findUserByUsername(username) {
   const normalized = username.trim().toLowerCase();
-  const users = await loadUsers();
-  return users.find((u) => u.username === normalized) || null;
+  const results = await queryDocsByField('users', 'username', normalized);
+  return results[0] || null;
 }
 
 export async function findUserByEmail(email) {
   const normalized = email.trim().toLowerCase();
-  const users = await loadUsers();
-  return users.find((u) => u.email === normalized) || null;
+  const results = await queryDocsByField('users', 'email', normalized);
+  return results[0] || null;
 }
 
 export async function findUserById(userId) {
@@ -95,8 +95,8 @@ export async function findUserById(userId) {
 }
 
 export async function findUserByOAuth(provider, providerId) {
-  const users = await loadUsers();
-  return users.find((u) => u.oauthProvider === provider && u.oauthId === providerId) || null;
+  const results = await queryDocsByField('users', 'oauthId', providerId);
+  return results.find((u) => u.oauthProvider === provider) || null;
 }
 
 export async function listUsers() {
@@ -148,8 +148,8 @@ export async function setStripeInfo(userId, { customerId, subscriptionId }) {
 }
 
 export async function findUserByStripeSubscriptionId(subscriptionId) {
-  const users = await loadUsers();
-  return users.find((u) => u.stripeSubscriptionId === subscriptionId) || null;
+  const results = await queryDocsByField('users', 'stripeSubscriptionId', subscriptionId);
+  return results[0] || null;
 }
 
 export async function setModelTier(userId, tier) {
@@ -228,6 +228,12 @@ export async function setEffortLevel(userId, level) {
 // insurance against a runaway loop or a compromised account.
 const DEFAULT_DAILY_LIMIT = 500;
 
+// Token budget defaults if not set. Exported — server.js's /api/usage route
+// needs it as a fallback for a fresh account with no tokenBudget of its own
+// yet; was un-exported, so `auth.DEFAULT_TOKEN_BUDGET` there silently
+// resolved to undefined and broke the usage bar for exactly that case.
+export const DEFAULT_TOKEN_BUDGET = 1_000_000;
+
 // Referral codes: every account gets one, assigned at signup (or backfilled
 // on first request from an older account). Each successful referral raises
 // the referrer's own daily limit — a real, immediate perk that doesn't need
@@ -243,8 +249,8 @@ function generateReferralCode() {
 
 async function findUserByReferralCode(code) {
   if (!code) return null;
-  const users = await loadUsers();
-  return users.find((u) => u.referralCode === code.toUpperCase()) || null;
+  const results = await queryDocsByField('users', 'referralCode', code.toUpperCase());
+  return results[0] || null;
 }
 
 // Called once, on a brand-new user object, before its first save — never
@@ -289,25 +295,35 @@ function todayUTC() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Called once per chat/task request, before it's allowed to run — increments
-// on success, and never lets a request through once the day's count is
-// already at the cap. A user's own account doc carries its own counter
-// (user.usage = { date, count }) rather than a separate collection, since
-// this is a simple read-modify-write with no need for atomic increments at
-// this app's actual concurrency (one person, one conversation at a time).
-export async function checkAndIncrementUsage(userId) {
+export async function checkTokenUsage(userId) {
   const user = await findUserById(userId);
   if (!user) throw new Error('No such user.');
-  const limit = dailyLimit(user);
+
+  const budget = user.tokenBudget || DEFAULT_TOKEN_BUDGET;
   const today = todayUTC();
-  const usage = user.usage?.date === today ? user.usage : { date: today, count: 0 };
-  if (usage.count >= limit) {
-    return { allowed: false, count: usage.count, limit };
+  const usage = user.tokenUsage?.date === today ? user.tokenUsage : { date: today, used: 0 };
+
+  if (user.strictModeEnabled && usage.used >= budget) {
+    return { allowed: false, used: usage.used, budget };
   }
-  usage.count += 1;
-  user.usage = usage;
-  await saveUser(user);
-  return { allowed: true, count: usage.count, limit };
+
+  return {
+    allowed: true,
+    used: usage.used,
+    budget,
+    suggestDownscale: usage.used / budget > 0.8
+  };
+}
+
+// Updates the user's daily token consumption in Firestore.
+export async function incrementTokenUsage(userId, tokens) {
+  return await runTransaction('users', userId, async (user) => {
+    if (!user) throw new Error('No such user.');
+    const today = todayUTC();
+    const usage = user.tokenUsage?.date === today ? user.tokenUsage : { date: today, used: 0 };
+    usage.used += tokens;
+    return [{ tokenUsage: usage }];
+  });
 }
 
 export const PERMISSION_MODES = ['bypass', 'ask'];
@@ -373,7 +389,7 @@ const CODE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const VERIFIED_TOKEN_EXPIRY_MS = 15 * 60 * 1000; // window to finish picking a username after verifying
 
 function generateCode() {
-  return String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
+  return String(randomInt(100000, 1000000)); // 6 digits, crypto-random
 }
 
 const PASSWORD_ERROR = 'Password must be at least 8 characters and include an uppercase and a lowercase letter.';
@@ -822,6 +838,40 @@ export async function revokeApiKey(userId, keyHash) {
   user.apiKeys = (user.apiKeys || []).filter((k) => k.keyHash !== keyHash);
   await saveUser(user);
   await deleteDoc('apiKeys', keyHash);
+}
+
+export async function setAiSettings(userId, settings) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.aiSettings = {
+    temperature: settings.temperature ?? 0.7,
+    topP: settings.topP ?? 0.9,
+    maxTokens: settings.maxTokens ?? 4096,
+    contextTurns: settings.contextTurns ?? 20,
+  };
+  await saveUser(user);
+  return user.aiSettings;
+}
+
+export async function setPrivacyTrain(userId, enabled) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  user.privacyTrain = !!enabled;
+  await saveUser(user);
+}
+
+export async function deleteUser(userId) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+
+  // Revoke all API keys associated with the user
+  if (user.apiKeys) {
+    for (const key of user.apiKeys) {
+      await deleteDoc('apiKeys', key.keyHash);
+    }
+  }
+
+  await deleteDoc('users', userId);
 }
 
 // The auth path for /api/v1/* — a raw key straight off the wire, resolved
