@@ -78,6 +78,20 @@ function assertValidUsername(normalized) {
   }
 }
 
+// Display names (and the AI's name) are rendered into other users' browsers
+// (e.g. the connections list), so they must not carry HTML/metacharacters a
+// hostile signup could slip through as stored XSS. Keep it display-friendly:
+// letters, numbers, spaces, and a small set of harmless punctuation; strip
+// anything that could open a tag or attribute.
+const DISPLAY_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 _.'\-()]{0,49}$/;
+function sanitizeDisplayName(raw) {
+  const trimmed = String(raw ?? '').trim().replace(/[<>]/g, '').slice(0, 50);
+  if (!DISPLAY_NAME_RE.test(trimmed)) {
+    throw new Error('Name can only use letters, numbers, and basic punctuation.');
+  }
+  return trimmed;
+}
+
 export async function findUserByUsername(username) {
   const normalized = username.trim().toLowerCase();
   const results = await queryDocsByField('users', 'username', normalized);
@@ -358,11 +372,11 @@ export async function setUsername(userId, newUsername) {
 }
 
 export async function setAiName(userId, newAiName) {
-  const trimmed = newAiName.trim();
-  if (!trimmed) throw new Error('Name cannot be empty.');
+  const sanitized = sanitizeDisplayName(newAiName);
+  if (!sanitized) throw new Error('Name cannot be empty.');
   const user = await findUserById(userId);
   if (!user) throw new Error('No such user.');
-  user.aiName = trimmed;
+  user.aiName = sanitized;
   await saveUser(user);
   return user;
 }
@@ -459,8 +473,8 @@ export async function finishSignup({ email, verifiedToken, username, displayName
     username: normalizedUsername,
     email: normalizedEmail,
     passwordHash: record.passwordHash,
-    displayName: displayName.trim(),
-    aiName: aiName.trim(),
+    displayName: sanitizeDisplayName(displayName),
+    aiName: sanitizeDisplayName(aiName),
     plan: DEFAULT_PLAN,
     model: 'pulse', // free-tier default — Core requires 'paid', see setModelTier
     createdAt: new Date().toISOString(),
@@ -639,8 +653,8 @@ export async function finishOAuthSignup({ pendingToken, username, displayName, a
     passwordHash: null, // OAuth-only account — no password login until/unless they set one
     oauthProvider: record.provider,
     oauthId: record.providerId,
-    displayName: displayName.trim(),
-    aiName: aiName.trim(),
+    displayName: sanitizeDisplayName(displayName),
+    aiName: sanitizeDisplayName(aiName),
     plan: DEFAULT_PLAN,
     model: 'pulse', // free-tier default — Core requires 'paid', see setModelTier
     createdAt: new Date().toISOString(),
