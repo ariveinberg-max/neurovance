@@ -2823,17 +2823,23 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
-// Talk, Code, and Settings are three separate full-panel overlays (added
-// across different points this session, each with its own open/close
-// wiring in its own closure) — without this, opening one while another was
-// already open just stacked them by z-index instead of replacing it, so
-// closing the top one silently dropped you into a panel you'd forgotten
-// was still open underneath. Called at the start of each one's own open
-// handler; artifact-backdrop is deliberately NOT in this list since it's
-// opened by clicking a card inside an already-open Talk transcript and is
-// meant to layer on top of that, not replace it.
+// Talk, Code, Settings, and the artifact viewer are four separate
+// full-panel overlays (added across different points this session, each
+// with its own open/close wiring) — without this, opening one while
+// another was already open just stacked them by z-index instead of
+// replacing it, so closing the top one silently dropped you into a panel
+// you'd forgotten was still open underneath. Called at the start of each
+// one's own open handler. artifact-backdrop IS included even though it's
+// opened by clicking a card inside Talk, not from this function directly —
+// it only ever makes sense layered on top of the Talk drawer it came from,
+// so if Talk (or anything else) is about to close, the artifact viewer
+// needs to go with it rather than being left floating over whatever opens
+// next. Confirmed this was a real bug, not just theoretical: open an
+// artifact from Talk, then click Code — the artifact viewer stayed open
+// and sat on top of the Code panel with its actual host already closed
+// underneath, no visible way to tell where it came from.
 function closeOtherOverlays(exceptBackdropId) {
-  ['talk-backdrop', 'code-backdrop', 'settings-modal-backdrop'].forEach((id) => {
+  ['talk-backdrop', 'code-backdrop', 'settings-modal-backdrop', 'artifact-backdrop'].forEach((id) => {
     if (id !== exceptBackdropId) document.getElementById(id)?.classList.remove('open');
   });
 }
