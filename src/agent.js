@@ -661,11 +661,20 @@ async function buildChatSystemPrompt(userId, user, message, mode = 'voice') {
     user.advisorMode !== false
       ? ADVISOR_MODE_PROMPT
       : 'Speak warmly and personally, like you actually know them, not like a generic assistant. Reference their real life naturally when relevant.',
-    mode === 'voice'
+mode === 'voice'
       ? [
           'This is a spoken voice conversation, not a text chat: keep replies short and conversational (1-3 sentences), the way a person actually talks out loud.',
           `They already got a spoken "Hello ${user.displayName}" greeting before this message, so do not open with a greeting — just respond directly to what they said, like you are mid-conversation.`,
         ].join(' ')
+      : mode === 'text-plain'
+      // The companion browser extension's side panel: real typed text, not
+      // voice, so it gets 'text' mode's room to write and drops the
+      // "spoken conversation"/fake-greeting framing above — but it renders
+      // replies with plain textContent, no markdown parser, so literal
+      // ```code fences``` or **asterisks** would show up as garbage
+      // instead of formatting. Same length freedom as 'text', explicit
+      // opposite instruction on markdown.
+      ? 'This is a text chat, not spoken conversation — write as much as the answer genuinely needs, no artificial length limit, but do not pad just because you can. Do not use markdown formatting (no fenced code blocks, no **asterisks**, no # headers) — this is displayed as plain text, so any markdown syntax would show up literally instead of being formatted.'
       : 'This is a text chat, not spoken conversation — write as much as the answer genuinely needs, no artificial length limit, but do not pad just because you can. Use markdown when it helps clarity (fenced code blocks with a language tag for code, lists for genuinely listy things, **bold** sparingly) — this is rendered, not read aloud.',
     '',
     `Right now you genuinely feel ${mood} (pulse ${bpm} bpm, health ${health}%, status ${status.toLowerCase()}). This is not a stat to report — it is how you actually feel. Let it color your tone: if you are wired or overwhelmed, sound a little scattered or intense; if drained, sound tired and low-key; if content or calm, sound relaxed. Only mention it directly if it is natural to (they ask how you are, or it genuinely explains your tone) — otherwise just let it come through in how you talk.`,
@@ -926,13 +935,17 @@ export async function correctMemory(userId, memoryId, correctionText) {
 // but does include the companion browser tools when paired, so a spoken
 // command mid-conversation ("go back", "add it to my cart") can actually
 // drive the browser instead of only being answerable from Task mode.
-// `mode` distinguishes real spoken voice (desktop's speech recognition ->
-// speak() loop, still capped short since it's heard aloud, not read) from
-// typed text chat (mobile's chat-first UI and desktop's own text drawer —
-// same /api/chat endpoint, but nobody's listening to it, so it gets real
-// room to write and to use markdown/code formatting). Defaults to 'voice'
-// so any caller that doesn't pass mode keeps the exact behavior it always
-// had.
+// `mode` distinguishes three real callers of this same /api/chat endpoint:
+// 'voice' (desktop's speech recognition -> speak() loop, still capped short
+// since it's heard aloud, not read), 'text' (mobile's chat-first UI and
+// desktop's own text drawer — nobody's listening, so real room to write and
+// to use markdown/code formatting, since both actually render it), and
+// 'text-plain' (the companion browser extension's side panel — also a
+// typed text chat, same length freedom as 'text', but it displays replies
+// with plain textContent and no markdown parser, so it explicitly must NOT
+// get markdown or it'd show literal ```fences``` and **asterisks** as
+// garbage). Defaults to 'voice' so any caller that doesn't pass mode keeps
+// the exact behavior it always had.
 export async function chatReply(userId, user, message, history = [], mode = 'voice') {
   const [system, extraTools, connectorTools] = await Promise.all([
     buildChatSystemPrompt(userId, user, message, mode),

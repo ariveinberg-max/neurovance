@@ -1402,7 +1402,14 @@ companion.registerAgentHooks({
     // panel would be a free way around it, since it never touches that route.
     const usage = await auth.checkAndIncrementUsage(userId);
     if (!usage.allowed) throw new Error(`Daily limit reached (${usage.limit} messages) — resets at midnight UTC.`);
-    const { reply } = await chatReply(userId, user, message.trim(), sanitizeHistory(history));
+    // 'text-plain': this really is a typed text conversation (the
+    // extension's side panel), not spoken voice — chatReply's default
+    // 'voice' mode was wrongly telling the model it had just given a
+    // spoken greeting that never happened and capping replies to 1-3
+    // sentences. But the panel renders replies with plain textContent, no
+    // markdown parser, so it still can't get 'text' mode's markdown
+    // encouragement — 'text-plain' gets the length freedom without it.
+    const { reply } = await chatReply(userId, user, message.trim(), sanitizeHistory(history), 'text-plain');
     return reply;
   },
   identity: async (userId) => {
