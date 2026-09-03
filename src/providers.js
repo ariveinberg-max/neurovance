@@ -69,7 +69,14 @@ const PRESETS = {
     mode: 'openai',
     kind: 'openrouter',
     defaultBaseURL: 'https://openrouter.ai/api/v1',
-    models: { pulse: 'meta-llama/llama-3.1-8b-instruct:free', core: 'anthropic/claude-3.5-sonnet' },
+    models: { pulse: 'minimax/minimax-m3:free', core: 'minimax/minimax-m3:free' },
+    // OpenRouter's :free roster rotates and individual models get rate-limited
+    // (429), so keep a set of free alternates to fall through if the primary is
+    // unavailable. Order matters: tried in this order after the primary.
+    fallbackModels: {
+      pulse: ['z-ai/glm-5.2:free', 'google/gemma-4-31b-it:free', 'google/gemma-4-26b-a4b-it:free', 'minimax/minimax-m2.7:free', 'poolside/laguna-s-2.1:free'],
+      core: ['z-ai/glm-5.2:free', 'google/gemma-4-31b-it:free', 'google/gemma-4-26b-a4b-it:free', 'minimax/minimax-m2.7:free', 'poolside/laguna-s-2.1:free'],
+    },
     apiKeyEnv: 'OPENROUTER_API_KEY',
     free: true, // OpenRouter has :free model variants
   },
@@ -145,7 +152,8 @@ function resolveActiveProviders() {
     if (mode === 'openai' && !baseURL) continue;
     if (mode === 'anthropic' && !apiKey) continue;
 
-    out.push({ name, mode, kind: preset?.kind || p.kind || 'custom', baseURL, apiKey, models, free, priority });
+    out.push({ name, mode, kind: preset?.kind || p.kind || 'custom', baseURL, apiKey, models, free, priority,
+      fallbackModels: (p.fallbackModels && typeof p.fallbackModels === 'object') ? p.fallbackModels : preset?.fallbackModels || {} });
   }
   return out;
 }
@@ -172,15 +180,24 @@ export function getActiveProviders() {
 
 // "Route to free/cheap tiers": among usable providers, prefer free ones, then
 // by explicit priority (lower = preferred), then by the order they were listed.
-export function pickProvider() {
+// Providers ordered by preference (free first, then priority, then listing
+// order) — used both for the single pick and for multi-provider failover.
+function orderedProviders() {
   const providers = resolveActiveProviders();
-  if (providers.length === 0) return null;
-  const sorted = [...providers].sort((a, b) => {
+  return [...providers].sort((a, b) => {
     if (a.free !== b.free) return a.free ? -1 : 1;
     if (a.priority !== b.priority) return a.priority - b.priority;
     return 0;
   });
-  return sorted[0];
+}
+
+export function pickProvider() {
+  return orderedProviders()[0] || null;
+}
+
+// All providers in preference order, for failover.
+function pickProviders() {
+  return orderedProviders();
 }
 
 // Whether any provider is configured. When false, the server key fallback is
@@ -288,12 +305,12 @@ export function createProviderClient() {
   return {
     messages: {
       async create(input = {}) {
-        // Re-resolve the active provider on every call so config edits pick up
+        // Re-resolve the active providers on every call so config edits pick up
         // without a server restart.
-        const provider = pickProvider();
+        const providers = pickProviders();
 
         // No provider configured -> server key, today's exact behavior.
-        if (!provider) {
+        if (providers.length === 0) {
           const claudeModel = input.model || 'claude-sonnet-4-6';
           return getFallbackClient().messages.create({
             ...input,
@@ -301,29 +318,47 @@ export function createProviderClient() {
           });
         }
 
-        try {
+        // Try each provider in preference order; within a provider, try its
+        // primary model then any free fallback models (OpenRouter :free rosters
+        // rotate and individual models get 429'd). Returns the first success so
+        // a rate-limited or dead provider/model never kills the call. Collect
+        // errors and surface the first one if everything fails.
+        const errors = [];
+        for (const provider of providers) {
+          const claudeModel = input.model || 'claude-sonnet-4-6';
+          let candidates;
           if (provider.mode === 'anthropic') {
-            const { model } = resolveForProvider(provider, input.model || 'claude-sonnet-4-6');
-            const anthropic = new Anthropic({ apiKey: provider.apiKey, baseURL: provider.baseURL || undefined });
-            return await anthropic.messages.create({ ...input, model });
+            const { model } = resolveForProvider(provider, claudeModel);
+            candidates = [model];
+          } else {
+            const { tier, model } = resolveForProvider(provider, claudeModel);
+            const fb = (provider.fallbackModels?.[tier] || []).filter(Boolean);
+            candidates = [model, ...fb];
           }
-          return await openaiCreate(provider, input);
-        } catch (e) {
-          // A call that failed on the active provider should NOT silently burn
-          // the operator's money on the paid default without warning. Surface
-          // which provider failed so it's debuggable.
-          const msg = `Provider "${provider.name}" (${provider.mode}) failed: ${e.message}`;
-          const wrapped = new Error(msg);
-          wrapped.cause = e;
-          throw wrapped;
+          for (const model of candidates) {
+            try {
+              if (provider.mode === 'anthropic') {
+                const anthropic = new Anthropic({ apiKey: provider.apiKey, baseURL: provider.baseURL || undefined });
+                return await anthropic.messages.create({ ...input, model });
+              }
+              return await openaiCreate(provider, input, model);
+            } catch (e) {
+              const attemptErr = new Error(`Provider "${provider.name}" (${provider.mode}) model ${model} failed: ${e.message}`);
+              attemptErr.cause = e;
+              errors.push(attemptErr);
+            }
+          }
         }
+
+        // Everything failed. Surface which provider(s) tried so it's debuggable
+        // — never silently fall back and burn the paid key.
+        throw errors[0] || new Error('No configured provider succeeded.');
       },
     },
   };
 }
 
-async function openaiCreate(provider, input) {
-  const { model } = resolveForProvider(provider, input.model || 'claude-sonnet-4-6');
+async function openaiCreate(provider, input, model) {
   const body = {
     model,
     messages: anthropicContentToMessages(input.messages || [], input.system),

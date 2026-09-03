@@ -230,3 +230,11 @@ run('auto-discovery: no non-default keys -> null (server-key fallback)', async (
   assert.equal(providers.pickProvider(), null, 'anthropic key should not auto-discover as a provider');
   assert.equal(providers.isProviderConfigured(), false);
 });
+
+run('openrouter preset exposes free fallback models and free primary', async () => {
+  withEnv({ LLM_PROVIDERS: JSON.stringify([{ name: 'or', preset: 'openrouter', apiKey: 'sk-or-x' }]), ANTHROPIC_API_KEY: 'server-key' });
+  const p = providers.pickProvider();
+  assert.equal(p.free, true);
+  assert.ok(Array.isArray(p.fallbackModels.pulse) && p.fallbackModels.pulse.length > 0, 'has pulse fallback models');
+  assert.ok(p.models.pulse.endsWith(':free'), 'primary pulse model is a :free slug');
+});
