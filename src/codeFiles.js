@@ -42,6 +42,42 @@ export function languageDisplayName(mode) {
   return LANGUAGE_DISPLAY_NAMES[mode] || mode;
 }
 
+// Minimal line-based diff for rendering an edit in the panel. Returns an array
+// of { kind: 'ctx'|'add'|'del', text } lines in order. Uses a simple Myers
+// (DP) LCS over lines, capped to keep pathological inputs cheap.
+export function diffLines(a, b) {
+  const al = a.split('\n');
+  const bl = b.split('\n');
+  const MAX = 2000;
+  if (al.length > MAX || bl.length > MAX) {
+    return [
+      { kind: 'del', text: `--- before (${al.length} lines) ---` },
+      { kind: 'add', text: `+++ after (${bl.length} lines) ---` },
+    ];
+  }
+
+  // LCS length table (DP). We only need enough to walk back the equality path.
+  const n = al.length, m = bl.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      if (al[i] === bl[j]) dp[i][j] = dp[i + 1][j + 1] + 1;
+      else dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const out = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (al[i] === bl[j]) { out.push({ kind: 'ctx', text: al[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ kind: 'del', text: al[i] }); i++; }
+    else { out.push({ kind: 'add', text: bl[j] }); j++; }
+  }
+  while (i < n) { out.push({ kind: 'del', text: al[i] }); i++; }
+  while (j < m) { out.push({ kind: 'add', text: bl[j] }); j++; }
+  return out;
+}
+
 // The workspace root for the panel's file tree + run_command's default cwd.
 // Default to the user's home so "full device access" starts somewhere real,
 // reachable, and useful. Overridable with CODE_WORKSPACE_DIR.

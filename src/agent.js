@@ -7,7 +7,7 @@ import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
 import { findUserById, listSkills, mergePreferences } from './auth.js';
 import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
-import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, languageDisplayName, workspaceRoot, searchFiles } from './codeFiles.js';
+import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, languageDisplayName, workspaceRoot, searchFiles, diffLines } from './codeFiles.js';
 import { runCommand } from './codeExecution.js';
 import { client } from './providers.js';
 
@@ -1581,14 +1581,24 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
         }
         if (toolUse.name === 'edit_file') {
           const { path, old_string, new_string, replace_all } = toolUse.input;
+          const before = await findCodeFileByName(userId, path);
           const { occurrences } = await editCodeFile(userId, path, old_string, new_string, !!replace_all);
           changedFiles.add(path);
-          return { type: 'tool_result', tool_use_id: toolUse.id, content: occurrences === 1 ? `Edited ${path}.` : `Edited ${path} (${occurrences} replacements).` };
+          try {
+            const after = await findCodeFileByName(userId, path);
+            emit({ type: 'diff', path, delta: diffLines(before?.content ?? '', after?.content ?? '') });
+          } catch (e) { /* diff is cosmetic — never break the loop */ }
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: `${occurrences} replacement${occurrences === 1 ? '' : 's'} applied to ${path}.` };
         }
         if (toolUse.name === 'write_file') {
           const { path, content } = toolUse.input;
+          const before = await findCodeFileByName(userId, path);
           const { created } = await writeCodeFile(userId, path, content);
           changedFiles.add(path);
+          try {
+            const after = await findCodeFileByName(userId, path);
+            emit({ type: 'diff', path, delta: diffLines(before?.content ?? '', after?.content ?? '') });
+          } catch (e) { /* cosmetic */ }
           return { type: 'tool_result', tool_use_id: toolUse.id, content: created ? `Created ${path}.` : `Updated ${path}.` };
         }
         if (toolUse.name === 'delete_file') {

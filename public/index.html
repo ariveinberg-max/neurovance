@@ -668,6 +668,17 @@
      bottom of the log, with each finished step left behind as a muted line. */
   .code-log-status { flex-direction: row; align-items: center; gap: 8px; padding-left: 20px; color: var(--text-muted); font-family: 'Inter', sans-serif; font-size: 12px; }
   .code-log-step { padding-left: 20px; color: var(--text-faint); font-family: 'Share Tech Mono', monospace; font-size: 11px; margin-bottom: 4px; }
+  .code-log-diff { flex-direction: column; align-items: stretch; padding-left: 20px; margin: 4px 0; }
+  .code-log-diff-header { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--accent-green);
+    background: rgba(112,220,141,0.08); border: 1px solid rgba(112,220,141,0.2); border-radius: 5px; padding: 2px 8px; }
+  .code-log-diff-header:hover { background: rgba(112,220,141,0.15); }
+  .code-log-diff-body { margin-top: 4px; border: 1px solid rgba(var(--overlay-rgb),0.12); border-radius: 6px; overflow: auto; max-height: 320px; background: rgba(0,0,0,0.22); }
+  .code-log-diff-body pre { margin: 0; padding: 8px 0; font-family: 'Share Tech Mono', monospace; font-size: 11px; line-height: 1.5; white-space: pre; }
+  .code-log-diff-body span { display: block; white-space: pre; padding: 0 12px; }
+  .diff-add { color: #7ee787; }
+  .diff-del { color: #ff7b72; text-decoration: line-through; opacity: 0.85; }
+  .diff-ctx { color: var(--text-muted); }
   .code-log-spinner { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid rgba(190,190,195,0.25); border-top-color: var(--accent-green); animation: code-log-spin 0.8s linear infinite; flex-shrink: 0; }
   @keyframes code-log-spin { to { transform: rotate(360deg); } }
 
@@ -884,6 +895,10 @@
     transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
   }
   .browser-mode.active { color: var(--accent-green); background: rgba(190,190,195,0.08); border-color: rgba(190,190,195,0.3); }
+  .model-tab { background: none; border: 1px solid rgba(var(--overlay-rgb),0.1); color: var(--text-muted); font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 10px; cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease; }
+  .model-tab.active { color: var(--accent-green); background: rgba(190,190,195,0.08); border-color: rgba(190,190,195,0.3); }
   #browser-note { font-size: 10px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
   #permission-tabs { display: flex; gap: 6px; }
   .permission-tab {
@@ -1506,6 +1521,163 @@
           </div>
           <div style="margin-top:24px; display:flex; justify-content:flex-end;">
             <button class="settings-save-btn" id="ai-advanced-save" style="padding:8px 20px;">Save AI Settings</button>
+          </div>
+        </div>
+
+        <div class="settings-panel" data-panel="autonomy" id="settings-autonomy-section">
+          <h2 class="settings-panel-title">Autonomy</h2>
+          <p class="settings-panel-desc">How much running room your Superself gets when doing work for you.</p>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Max Iterations</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Steps per task</label>
+              <input class="settings-input" id="pref-max-iterations" type="number" min="1" max="30" />
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">How many tool-calling steps the AI can take before it has to stop and report. Higher is more thorough, but slower.</p>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Run Mode</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Auto-run</label>
+              <select class="settings-input" id="pref-auto-run" style="flex:1;">
+                <option value="false">Ask before running</option>
+                <option value="true">Run automatically</option>
+              </select>
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">When on, long tasks start without waiting for your confirmation on each step.</p>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Shell Access</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Run shell commands</label>
+              <select class="settings-input" id="pref-shell-access" style="flex:1;">
+                <option value="false">Off</option>
+                <option value="true">On</option>
+              </select>
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Lets the Companion execute local shell commands. Off by default for safety.</p>
+          </div>
+
+          <div style="margin-top:24px; display:flex; justify-content:flex-end;">
+            <span id="autonomy-save-status" class="settings-field-status" style="margin-right:12px;"></span>
+            <button class="settings-save-btn" id="autonomy-save" style="padding:8px 20px;">Save</button>
+          </div>
+        </div>
+
+        <div class="settings-panel" data-panel="communication" id="settings-communication-section">
+          <h2 class="settings-panel-title">Communication</h2>
+          <p class="settings-panel-desc">How your Superself talks back to you.</p>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Verbosity</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Length of replies</label>
+              <select class="settings-input" id="pref-verbosity" style="flex:1;">
+                <option value="concise">Concise</option>
+                <option value="balanced">Balanced</option>
+                <option value="detailed">Detailed</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Formality</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Register</label>
+              <select class="settings-input" id="pref-formality" style="flex:1;">
+                <option value="casual">Casual</option>
+                <option value="professional">Professional</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Personality Nudge</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Tone hint</label>
+              <input class="settings-input" id="pref-tone" type="text" placeholder="e.g. warm, direct, playful" style="flex:1;" />
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Optional one-line personality or tone your Superself should lean into.</p>
+          </div>
+
+          <div style="margin-top:24px; display:flex; justify-content:flex-end;">
+            <span id="communication-save-status" class="settings-field-status" style="margin-right:12px;"></span>
+            <button class="settings-save-btn" id="communication-save" style="padding:8px 20px;">Save</button>
+          </div>
+        </div>
+
+        <div class="settings-panel" data-panel="memory" id="settings-memory-section">
+          <h2 class="settings-panel-title">Memory & Learning</h2>
+          <p class="settings-panel-desc">How your Superself stores and refines what it learns about you.</p>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Auto-Memory</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Save on its own</label>
+              <select class="settings-input" id="pref-auto-memory" style="flex:1;">
+                <option value="true">On</option>
+                <option value="false">Off</option>
+              </select>
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">When off, the remember tool stops and your Superself no longer writes long-term memories during chats.</p>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Consolidation</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Dedupe & merge</label>
+              <select class="settings-input" id="pref-consolidation" style="flex:1;">
+                <option value="true">On</option>
+                <option value="false">Off</option>
+              </select>
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Periodically merges duplicate memories to keep your store clean.</p>
+          </div>
+
+          <div style="margin-top:24px; display:flex; justify-content:flex-end;">
+            <span id="memory-save-status" class="settings-field-status" style="margin-right:12px;"></span>
+            <button class="settings-save-btn" id="memory-save" style="padding:8px 20px;">Save</button>
+          </div>
+        </div>
+
+        <div class="settings-panel" data-panel="automation" id="settings-automation-section">
+          <h2 class="settings-panel-title">Automation</h2>
+          <p class="settings-panel-desc">Autonomous growth and scheduled behavior.</p>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Daily Growth</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Grow daily</label>
+              <select class="settings-input" id="pref-daily-grow" style="flex:1;">
+                <option value="true">On</option>
+                <option value="false">Off</option>
+              </select>
+            </div>
+            <div class="settings-field" style="margin-top:8px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Time (local)</label>
+              <input class="settings-input" id="pref-daily-grow-time" type="time" style="flex:1;" />
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Runs an idle review of your memories on a schedule so your Superself keeps learning when you're not around.</p>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Proactive Check-Ins</div>
+            <div class="settings-field" style="margin-top:10px;">
+              <label style="font-size:12px; color:var(--text-muted); width:150px;">Say hi on its own</label>
+              <select class="settings-input" id="pref-proactive" style="flex:1;">
+                <option value="false">Off</option>
+                <option value="true">On</option>
+              </select>
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Future: lets your Superself reach out with thoughts when it notices patterns.</p>
+          </div>
+
+          <div style="margin-top:24px; display:flex; justify-content:flex-end;">
+            <span id="automation-save-status" class="settings-field-status" style="margin-right:12px;"></span>
+            <button class="settings-save-btn" id="automation-save" style="padding:8px 20px;">Save</button>
           </div>
         </div>
         <div class="settings-panel" data-panel="privacy" id="settings-privacy-section">
@@ -3769,6 +3941,36 @@ function initCodePanel() {
     terminalLog.scrollTop = terminalLog.scrollHeight;
   }
 
+  // Renders a server-computed line diff ({kind:'add'|'del'|'ctx', text}) inside
+  // a collapsible block so edits are reviewable at a glance without stuffing
+  // the whole file into the log.
+  function addDiffEntry(path, delta) {
+    if (!delta || !delta.length) return;
+    const add = delta.filter((l) => l.kind === 'add').length;
+    const del = delta.filter((l) => l.kind === 'del').length;
+    const el = document.createElement('div');
+    el.className = 'code-log-entry code-log-diff';
+    const header = document.createElement('button');
+    header.className = 'code-log-diff-header';
+    header.type = 'button';
+    header.textContent = `${escapeHtml(path.split('/').pop())}  +${add} −${del}`;
+    const body = document.createElement('div');
+    body.className = 'code-log-diff-body';
+    body.hidden = true;
+    const pre = document.createElement('pre');
+    pre.innerHTML = delta.map((l) => {
+      const cls = l.kind === 'add' ? 'diff-add' : l.kind === 'del' ? 'diff-del' : 'diff-ctx';
+      const sign = l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' ';
+      return `<span class="${cls}">${sign}${escapeHtml(l.text)}</span>`;
+    }).join('\n');
+    body.appendChild(pre);
+    header.addEventListener('click', () => { body.hidden = !body.hidden; });
+    el.appendChild(header);
+    el.appendChild(body);
+    terminalLog.appendChild(el);
+    terminalLog.scrollTop = terminalLog.scrollHeight;
+  }
+
   async function submitPrompt() {
     const text = promptInput.value.trim();
     if (!text) return;
@@ -3798,6 +4000,7 @@ function initCodePanel() {
         if (evt.type === 'status') status.set(`${evt.text}…`);
         else if (evt.type === 'tool') { addStepEntry(evt.label); status.set(`${evt.label}…`); status.keepAtBottom(); }
         else if (evt.type === 'text') { addLogEntry(`<div class="code-log-reply">${escapeHtml(evt.text)}</div>`); status.keepAtBottom(); }
+        else if (evt.type === 'diff') { addDiffEntry(evt.path, evt.delta); status.keepAtBottom(); }
         else if (evt.type === 'done') result = evt;
         else if (evt.type === 'error') throw new Error(evt.error || 'Prompt failed.');
       };
@@ -4292,8 +4495,92 @@ function initSettings() {
       body: JSON.stringify(settings),
     });
     if (!res.ok) return alert('Failed to save AI settings.');
+    // Persist the model choice alongside (same preferences store).
+    if (selectedModel !== 'core') {
+      await fetch('/api/preferences', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: selectedModel }),
+      });
+    }
     alert('AI settings updated.');
   });
+
+  // ---------- Machine panels (Autonomy / Communication / Memory / Automation) ----------
+  const prefs = (currentIdentity && currentIdentity.preferences) || {};
+  const PREF_FIELD = {
+    'pref-max-iterations': 'maxIterations',
+    'pref-auto-run': 'autoRun',
+    'pref-shell-access': 'shellAccess',
+    'pref-verbosity': 'verbosity',
+    'pref-formality': 'formality',
+    'pref-tone': 'tone',
+    'pref-auto-memory': 'autoMemory',
+    'pref-consolidation': 'consolidation',
+    'pref-daily-grow': 'dailyGrow',
+    'pref-daily-grow-time': 'dailyGrowTime',
+    'pref-proactive': 'proactive',
+  };
+  Object.entries(PREF_FIELD).forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el && prefs[key] !== undefined) el.value = prefs[key];
+  });
+
+  async function savePreferences(patch, statusId) {
+    const status = document.getElementById(statusId);
+    const res = await fetch('/api/preferences', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return setFieldStatus(status, data.error || 'Failed to save.', true);
+    }
+    setFieldStatus(status, 'Saved.', false);
+    // Keep local state in sync.
+    Object.assign(currentIdentity.preferences || (currentIdentity.preferences = {}), patch);
+  }
+
+  function prefPatch(fieldMap, statusId) {
+    const patch = {};
+    const BOOL_KEYS = new Set(['autoRun', 'shellAccess', 'autoMemory', 'consolidation', 'dailyGrow', 'proactive']);
+    Object.entries(fieldMap).forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (el.type === 'number') patch[key] = parseInt(el.value, 10);
+      else if (BOOL_KEYS.has(key)) patch[key] = el.value === 'true';
+      else patch[key] = el.value;
+    });
+    savePreferences(patch, statusId);
+  }
+
+  document.getElementById('autonomy-save').addEventListener('click', () =>
+    prefPatch({ 'pref-max-iterations': 'maxIterations', 'pref-auto-run': 'autoRun', 'pref-shell-access': 'shellAccess' }, 'autonomy-save-status'));
+  document.getElementById('communication-save').addEventListener('click', () =>
+    prefPatch({ 'pref-verbosity': 'verbosity', 'pref-formality': 'formality', 'pref-tone': 'tone' }, 'communication-save-status'));
+  document.getElementById('memory-save').addEventListener('click', () =>
+    prefPatch({ 'pref-auto-memory': 'autoMemory', 'pref-consolidation': 'consolidation' }, 'memory-save-status'));
+  document.getElementById('automation-save').addEventListener('click', () =>
+    prefPatch({ 'pref-daily-grow': 'dailyGrow', 'pref-daily-grow-time': 'dailyGrowTime', 'pref-proactive': 'proactive' }, 'automation-save-status'));
+
+  // Model tier tabs.
+  let selectedModel = prefs.model || 'core';
+  const modelTabs = document.querySelectorAll('.model-tab');
+  function setModelTab(m) {
+    modelTabs.forEach((b) => b.classList.toggle('active', b.dataset.model === m));
+  }
+  setModelTab(selectedModel);
+  modelTabs.forEach((btn) => btn.addEventListener('click', async () => {
+    selectedModel = btn.dataset.model;
+    setModelTab(selectedModel);
+    const res = await fetch('/api/preferences', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: selectedModel }),
+    });
+    if (res.ok && currentIdentity.preferences) currentIdentity.preferences.model = selectedModel;
+  }));
 
   // ---------- Privacy Panel ----------
   document.getElementById('privacy-train-toggle').addEventListener('change', async (e) => {
