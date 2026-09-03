@@ -1316,10 +1316,16 @@ async function handleRequest(req, res) {
         if (!usage.allowed) {
           return sendJson(res, 429, { error: `Token budget exceeded (${usage.used}/${usage.budget}) — resets at midnight UTC.` });
         }
-        const { prompt, activeFileName, history } = await readJsonBody(req);
+        const { prompt, activeFileName, history, sessionContext } = await readJsonBody(req);
         if (typeof prompt !== 'string' || !prompt.trim()) return sendJson(res, 400, { error: 'prompt must be a non-empty string' });
         const effectiveUser = { ...user };
         if (usage.suggestDownscale) effectiveUser.model = 'pulse';
+
+        // Fold in a session-scoped memory of files already touched in this
+        // conversation (client persists it across history truncation/refresh).
+        const promptWithContext = sessionContext
+          ? `[Session context — files the agent already changed in this conversation: ${sessionContext}]\n\nThe user now says:\n\n${prompt}`
+          : prompt;
 
         res.writeHead(200, {
           'Content-Type': 'application/x-ndjson; charset=utf-8',
@@ -1331,7 +1337,7 @@ async function handleRequest(req, res) {
         const send = (evt) => { if (!res.writableEnded) res.write(JSON.stringify(evt) + '\n'); };
 
         const { reply, changedFiles, usage: tokensUsed } = await codeAgentPrompt(
-          user.id, effectiveUser, prompt.trim(), activeFileName,
+          user.id, effectiveUser, promptWithContext, activeFileName,
           sanitizeHistory(history, usage.suggestDownscale ? 6 : 12), send, controller.signal,
         );
         await auth.incrementTokenUsage(user.id, tokensUsed.input_tokens + tokensUsed.output_tokens);

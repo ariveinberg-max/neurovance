@@ -4206,6 +4206,26 @@ function initCodePanel() {
     terminalLog.scrollTop = terminalLog.scrollHeight;
   }
 
+  const SESSION_FILES_KEY = 'neurovance_code_session_files';
+
+  // The set of files the agent has touched this session, kept in sessionStorage
+  // so it survives history truncation and page refreshes. If the next prompt
+  // refers to earlier work, the model can rely on this instead of guessing.
+  function sessionChangedFiles() {
+    try { return JSON.parse(sessionStorage.getItem(SESSION_FILES_KEY) || 'null') || []; } catch (e) { return []; }
+  }
+  function rememberSessionChangedFiles(paths) {
+    const set = new Set(sessionChangedFiles());
+    (paths || []).forEach((p) => p && set.add(p));
+    try { sessionStorage.setItem(SESSION_FILES_KEY, JSON.stringify(Array.from(set).slice(-40))); } catch (e) {}
+  }
+  function sessionChangedContext() {
+    const files = sessionChangedFiles();
+    if (!files.length) return '';
+    const quoted = files.slice(0, 20).map((f) => `"${f}"`).join(', ');
+    return (files.length > 20 ? quoted + ', …' : quoted) + `.`;
+  }
+
   async function submitPrompt() {
     const text = promptInput.value.trim();
     if (!text) return;
@@ -4223,7 +4243,7 @@ function initCodePanel() {
       const res = await fetch('/api/code/prompt', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: text, activeFileName, history: codeHistory }),
+        body: JSON.stringify({ prompt: text, activeFileName, history: codeHistory, sessionContext: sessionChangedContext() }),
         signal: stopController.signal,
       });
       const contentType = res.headers.get('content-type') || '';
@@ -4272,6 +4292,10 @@ function initCodePanel() {
       codeHistory.push({ role: 'user', content: text });
       codeHistory.push({ role: 'assistant', content: data.reply });
       codeHistory = codeHistory.slice(-12);
+      // Remember every file touched this session (sessionStorage, survives
+      // history truncation + page refresh) so later turns stay grounded about
+      // work already done even after the last 12 lines scroll on.
+      if (data.changedFiles && data.changedFiles.length) rememberSessionChangedFiles(data.changedFiles);
       await refreshFileList();
       // The file open in the editor may be exactly what the AI just wrote —
       // reload it so the editor doesn't silently drift out of sync with
