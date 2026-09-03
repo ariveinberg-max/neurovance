@@ -2684,11 +2684,15 @@ function initGraph(data) {
     .nodeColor((n) => (n.id === selectedId ? '#ffffff' : n.color))
     .nodeVal((n) => n.val)
     .nodeResolution(28)
-    // Glowing icosahedron "neurons" — additive blending makes them read as
-    // luminous against the dark space instead of flat shaded balls.
+    // Soft glassy bubbles, sized by memory importance. The old icosahedron
+    // was a fixed radius of 1 unit in a scene spanning hundreds of units —
+    // at any distance it read as a sparkling point, not a bubble. Bigger
+    // smooth spheres with normal (non-additive) blending read as bubbles
+    // sitting in space instead of blinking stars.
     .nodeThreeObject((n) => {
-      const geo = new THREE.IcosahedronGeometry(1, 1);
-      const mat = new THREE.MeshBasicMaterial({ color: n.color || '#7dd3fc', transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending });
+      const r = 2.6 + Math.min(6, Math.sqrt(Math.max(n.val || 1, 1))) * 1.7;
+      const geo = new THREE.SphereGeometry(r, 20, 16);
+      const mat = new THREE.MeshBasicMaterial({ color: n.color || '#7dd3fc', transparent: true, opacity: 0.55, depthWrite: false });
       const mesh = new THREE.Mesh(geo, mat);
       if (!mesh.userData) mesh.userData = {};
       mesh.userData.neuralNode = true;
@@ -2766,40 +2770,11 @@ function initGraph(data) {
     if (center) center.strength(0.035);
   } catch (e) { console.warn('Force tuning skipped:', e); }
 
-  // The shell is NOT a sphere — it's an organic hull pulled out toward
-  // wherever memories actually sit and pulled in wherever they don't, so the
-  // silhouette itself is the shape your memories make, not a stand-in for it.
-  // We keep the icosahedron only as a set of sample directions to deform.
-  const shellGeo = new THREE.IcosahedronGeometry(1, 3);
-  const shellPos = shellGeo.attributes.position;
-  const shellDirs = [];
-  for (let i = 0; i < shellPos.count; i++) {
-    const v = new THREE.Vector3(shellPos.getX(i), shellPos.getY(i), shellPos.getZ(i)).normalize();
-    shellDirs.push(v);
-  }
-  shellMaterial = new THREE.MeshBasicMaterial({ color: shellColorFor(document.documentElement.dataset.theme || 'dark'), wireframe: true, transparent: true, opacity: 0.24, blending: THREE.AdditiveBlending });
-  const shellMesh = new THREE.Mesh(shellGeo, shellMaterial);
-  Graph.scene().add(shellMesh);
-
-  // For a sample direction, radius = how far memories reach that way — a
-  // soft, dot-product-weighted max so the hull bulges toward real clusters
-  // and pinches in toward the centroid where there's nothing.
-  function reachAlong(dir, cx, cy, cz, fallback) {
-    let wSum = 0, rSum = 0;
-    for (const n of allNodes) {
-      const vx = n.x - cx, vy = n.y - cy, vz = n.z - cz;
-      const dist = Math.hypot(vx, vy, vz) || 0.01;
-      const dot = (vx * dir.x + vy * dir.y + vz * dir.z) / dist;
-      if (dot <= 0) continue;
-      const w = Math.pow(dot, 7); // sharp cone — only nodes roughly in this direction count
-      wSum += w;
-      rSum += w * dist;
-    }
-    if (wSum < 1e-6) return fallback * 0.45;
-    return rSum / wSum + 16; // small padding so the shell hugs just outside the outermost nodes
-  }
-
-  function refreshShell() {
+  // No shell, no wireframe, no imposed boundary geometry — the memories and
+  // their links ARE the shape. We still track the cloud's extent (invisibly)
+  // so the soft containment force below has a radius to work with, but
+  // nothing is drawn for it.
+  function refreshExtent() {
     if (!allNodes.length) return;
     let cx = 0, cy = 0, cz = 0;
     allNodes.forEach((n) => { cx += n.x; cy += n.y; cz += n.z; });
@@ -2807,18 +2782,9 @@ function initGraph(data) {
     let maxR = 40;
     allNodes.forEach((n) => { maxR = Math.max(maxR, Math.hypot(n.x - cx, n.y - cy, n.z - cz)); });
     adaptRadius = maxR + 30;
-
-    for (let i = 0; i < shellDirs.length; i++) {
-      const dir = shellDirs[i];
-      const r = reachAlong(dir, cx, cy, cz, adaptRadius);
-      shellPos.setXYZ(i, dir.x * r, dir.y * r, dir.z * r);
-    }
-    shellPos.needsUpdate = true;
-    shellGeo.computeVertexNormals();
-    shellMesh.position.set(cx, cy, cz);
   }
-  refreshShell();
-  setInterval(refreshShell, 900);
+  refreshExtent();
+  setInterval(refreshExtent, 900);
 
   // ---- Always moving ----
   // A permanent low simmer instead of periodic full reheats: alpha never
