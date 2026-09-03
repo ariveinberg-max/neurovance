@@ -113,10 +113,20 @@ function parseProviders() {
 }
 
 // Resolve the provider list to concrete, keyed providers.
+//
+// Two modes:
+//   1. LLM_PROVIDERS is set (JSON)  -> only those providers, in provided order.
+//   2. LLM_PROVIDERS is empty       -> auto-discover: enable every preset whose
+//      *_API_KEY env var is present (GEMINI_API_KEY, OPENROUTER_API_KEY,
+//      OPENAI_API_KEY, ANTHROPIC_API_KEY, ...). This is the "just set a key and
+//      go" path — no JSON to hand-write.
 function resolveActiveProviders() {
+  const explicit = parseProviders();
+  const list = explicit.length > 0 ? explicit : autoDiscoverPresets();
+
   const out = [];
   const seenNames = new Set();
-  for (const p of parseProviders()) {
+  for (const p of list) {
     const name = String(p.name || '').trim();
     if (!name || seenNames.has(name)) continue;
     seenNames.add(name);
@@ -136,6 +146,22 @@ function resolveActiveProviders() {
     if (mode === 'anthropic' && !apiKey) continue;
 
     out.push({ name, mode, kind: preset?.kind || p.kind || 'custom', baseURL, apiKey, models, free, priority });
+  }
+  return out;
+}
+
+// When no explicit LLM_PROVIDERS is configured, enable any preset whose key env
+// var is set so adding a single *_API_KEY is enough to route there.
+function autoDiscoverPresets() {
+  const out = [];
+  for (const [presetName, preset] of Object.entries(PRESETS)) {
+    // Skip Anthropic — its key is the default fallback, not a "provider" to
+    // route to. Keep isProviderConfigured()/pickProvider() meaning "a
+    // non-default provider is active".
+    if (presetName === 'anthropic') continue;
+    if (preset.apiKeyEnv && isNonEmpty(process.env[preset.apiKeyEnv])) {
+      out.push({ name: presetName, preset: presetName, apiKey: process.env[preset.apiKeyEnv] });
+    }
   }
   return out;
 }

@@ -211,3 +211,22 @@ run('Claude model -> provider model mapping', async () => {
   const p = providers.pickProvider();
   assert.equal(p.models.pulse, 'gemini-2.0-flash');
 });
+
+run('auto-discovery: a set free key alone routes to it (no LLM_PROVIDERS)', async () => {
+  withEnv({ LLM_PROVIDERS: '', GEMINI_API_KEY: 'AI-g', ANTHROPIC_API_KEY: 'server-key' });
+  const p = providers.pickProvider();
+  assert.equal(p.name, 'gemini', 'GEMINI_API_KEY should auto-enable the gemini preset');
+  assert.equal(p.free, true);
+  assert.equal(p.mode, 'openai');
+});
+
+run('auto-discovery: free key beats a paid key that is only discoverable', async () => {
+  withEnv({ LLM_PROVIDERS: '', GEMINI_API_KEY: 'AI-g', OPENAI_API_KEY: 'sk-o', ANTHROPIC_API_KEY: 'server-key' });
+  assert.equal(providers.pickProvider().name, 'gemini', 'free gemini should win over paid openai');
+});
+
+run('auto-discovery: no non-default keys -> null (server-key fallback)', async () => {
+  withEnv({ LLM_PROVIDERS: '', GEMINI_API_KEY: '', OPENROUTER_API_KEY: '', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: 'server-key' });
+  assert.equal(providers.pickProvider(), null, 'anthropic key should not auto-discover as a provider');
+  assert.equal(providers.isProviderConfigured(), false);
+});
