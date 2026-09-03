@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { assertSpendSafeShell } from './spend-safety.js';
@@ -10,8 +9,16 @@ import { findUserById, listSkills, mergePreferences } from './auth.js';
 import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
 import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, languageDisplayName, workspaceRoot, searchFiles } from './codeFiles.js';
 import { runCommand } from './codeExecution.js';
+import { client } from './providers.js';
 
-const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+// The provider router (`./providers.js`) exposes the same
+// messages.create(anthropic-format) contract as the Anthropic SDK, so all of
+// the card/model/run/code call sites below keep working unchanged. By default
+// (no LLM_PROVIDERS configured) it falls back to the server's own
+// ANTHROPIC_API_KEY — exactly today's behavior. When providers are configured
+// it routes to free/cheap tiers and only falls back to the server key if the
+// provider is unavailable, which is how the agent can keep working around a
+// capped/expensive default account.
 
 // Custom-branded model tiers (Neurovance's own names, matching auth.js's
 // MODEL_TIERS) mapped to real underlying Claude models. "core" keeps the
