@@ -103,6 +103,37 @@ export async function writeCodeFile(userId, name, content) {
   return { file, created: true };
 }
 
+// Precise in-place edit — the code agent's edit_file tool. Replaces one exact
+// occurrence of oldString (or every occurrence with replaceAll) instead of
+// rewriting the whole file. That's the single biggest speed win for the code
+// panel: the model only emits the lines that change, not the entire file,
+// and it can't silently drop code it "forgot" to include in a full rewrite.
+// Refuses ambiguous matches so an edit never lands in the wrong place.
+export async function editCodeFile(userId, name, oldString, newString, replaceAll = false) {
+  assertValidFilename(name);
+  const existing = await findCodeFileByName(userId, name);
+  if (!existing) throw new Error(`No file named "${name}".`);
+  if (typeof oldString !== 'string' || !oldString) throw new Error('old_string must be a non-empty string.');
+  if (typeof newString !== 'string') throw new Error('new_string must be a string.');
+  if (oldString === newString) throw new Error('old_string and new_string are identical — nothing to change.');
+
+  const content = existing.content || '';
+  const occurrences = content.split(oldString).length - 1;
+  if (occurrences === 0) {
+    throw new Error(`old_string was not found in "${name}". Copy the exact existing text (including indentation and whitespace) you want to replace.`);
+  }
+  if (occurrences > 1 && !replaceAll) {
+    throw new Error(`old_string matches ${occurrences} places in "${name}". Include more surrounding lines so it is unique, or pass replace_all: true.`);
+  }
+  // Function replacer so "$&"-style patterns in new_string are inserted literally.
+  const updated = replaceAll
+    ? content.split(oldString).join(newString)
+    : content.replace(oldString, () => newString);
+  const file = { ...existing, content: updated, updatedAt: new Date().toISOString() };
+  await setDoc(codeFilesPath(userId), existing.id, file);
+  return { file, occurrences: replaceAll ? occurrences : 1 };
+}
+
 export async function renameCodeFile(userId, fileId, newName) {
   assertValidFilename(newName);
   const existing = await getCodeFile(userId, fileId);

@@ -1,13 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { assertSpendSafeShell } from './spend-safety.js';
 import { remember, recall, recentMemories, coreMemories, allMemories, vitalsWindow, findMemory, updateMemory, getProjectMap } from './memory.js';
 import { computeVitals } from './vitals.js';
 import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
 import { findUserById, listSkills } from './auth.js';
 import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
-import { listCodeFiles, findCodeFileByName, writeCodeFile, deleteCodeFileByName, languageDisplayName } from './codeFiles.js';
+import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, languageDisplayName } from './codeFiles.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
@@ -654,33 +655,10 @@ async function handleCompanionTool(userId, toolUse) {
   return null;
 }
 
-// Hard, server-side blocklist that the model cannot talk or prompt its way
-// around and that no client-side human-confirm depends on. Since
-// run_shell_command gives real full-machine reach (and a bypass permission
-// mode means no confirmation is asked), a prompt-injected page or a glitchy
-// tool chain could otherwise steer the shell at an ad-account/card/billing
-// endpoint and spend real money. These categories NEVER execute regardless of
-// who asked or what permission mode is set. Returns an explanation when it
-// blocks, otherwise null (safe to run). Kept deliberately conservative so the
-// brain stays fully capable for ordinary, free work.
-function assertSpendSafeShell(command) {
-  const cmd = String(command || '').toLowerCase();
-  const hits = [
-    [/adsapi\.snapchat\.com|snapchat.*(ads?|business)|business\.snapchat/, 'Snapchat Ads'],
-    [/graph\.facebook\.com.*(act_|adaccount|campaign|adset|ads)/, 'Meta/Facebook Ads'],
-    [/googleads\.googleapis\.com/, 'Google Ads'],
-    [/business-api\.tiktok\.com/, 'TikTok Ads'],
-    [/ads-api\.twitter\.com|api\.twitter\.com.*ads/, 'Twitter/X Ads'],
-    [/stripe\.com|stripe\b/, 'Stripe/payment processing'],
-    [/flyctl (scale|machine update|machine create|machine clone|ips allocate|volumes create|volumes extend|certs add|apps create|billing)|fly (scale|billing)/, 'paid Fly.io provisioning'],
-    [/aws |az |gcloud .*billing|gsutil|gcloud compute/, 'paid cloud provisioning'],
-    [/npm (publish|yarn publish)|pnpm publish/, 'package publish'],
-  ];
-  for (const [pattern, label] of hits) {
-    if (pattern.test(cmd)) return label;
-  }
-  return null;
-}
+// Spend-safety blocklist lives in ./spend-safety.js (shared with the code
+// sandbox terminal). Re-exported here so the run_shell_command handler and
+// anything else importing agent.js keeps the same API.
+export { assertSpendSafeShell };
 
 async function searchWeb(query) {
   const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
@@ -1321,8 +1299,23 @@ const CODE_TOOLS = [
     },
   },
   {
+    name: 'edit_file',
+    description:
+      'Make a precise edit to an existing file by replacing one exact snippet with another. Strongly preferred over write_file for ANY change to an existing file: you only send the lines that change, so it is far faster and cannot accidentally drop code. old_string must match the file text exactly (same indentation and whitespace) and must be unique in the file unless replace_all is true — include a few surrounding lines to make it unique. You may call edit_file several times in one turn for several separate changes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Exact file name, e.g. "index.js".' },
+        old_string: { type: 'string', description: 'The exact existing text to replace. Must be unique in the file (or set replace_all).' },
+        new_string: { type: 'string', description: 'The replacement text.' },
+        replace_all: { type: 'boolean', description: 'Replace every occurrence instead of requiring a unique match. Default false.' },
+      },
+      required: ['name', 'old_string', 'new_string'],
+    },
+  },
+  {
     name: 'write_file',
-    description: 'Create a new file, or overwrite an existing one with new full content. content replaces the entire file — include everything that should remain, not just the changed part.',
+    description: 'Create a new file, or completely replace an existing one. Use this for NEW files, or when nearly the whole file changes. For any smaller change to an existing file use edit_file instead. content replaces the entire file — include everything that should remain.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1343,40 +1336,100 @@ const CODE_TOOLS = [
   },
 ];
 
+// Files up to this size are inlined into the system prompt when they're the
+// one open in the editor. Above it, the model falls back to read_file.
+const ACTIVE_FILE_INLINE_MAX_CHARS = 24_000;
+
 async function buildCodeSystemPrompt(userId, activeFileName) {
   const files = await listCodeFiles(userId);
   const fileList = files.length
-    ? files.map((f) => `- ${f.name} (${languageDisplayName(f.language)}, ${f.content.length} chars)`).join('\n')
+    ? files.map((f) => `- ${f.name} (${languageDisplayName(f.language)}, ${(f.content || '').length} chars)`).join('\n')
     : '(workspace is empty — no files yet)';
+
+  // Inline the file they're looking at. The most common request by far is
+  // "change something in this file", and without this every such request
+  // costs a full extra model round trip (read_file, wait, then edit). With
+  // the content already in context the model can edit_file immediately —
+  // one less model call per edit is the biggest latency win in this panel.
+  const active = activeFileName ? files.find((f) => f.name === activeFileName) : null;
+  let activeLine = '';
+  if (active && (active.content || '').length <= ACTIVE_FILE_INLINE_MAX_CHARS) {
+    activeLine = `They are currently looking at "${active.name}" in the editor. Its full, current content is below — edit it directly with edit_file; do NOT call read_file on it first.\n<file name="${active.name}">\n${active.content || ''}\n</file>`;
+  } else if (activeFileName) {
+    activeLine = `They are currently looking at "${activeFileName}" in the editor (too large to inline — read_file it before editing).`;
+  }
+
   return [
     'You are the coding assistant embedded in Neurovance\'s code editor — a real pair-programmer with actual read/write access to the user\'s workspace, not a chat that talks about code in the abstract.',
-    'You have no execution tool yourself — you can only read, write, and delete files, not run them. But the user has a real Run button that actually executes what you write: it materializes every file to real disk and either runs "npm run dev"/"npm start" (if package.json exists — make sure it has one of those two scripts) or runs the single entry file directly (name it main.<ext>, index.<ext>, app.<ext>, or server.<ext> if there is more than one runnable file, so it is unambiguous which one runs).',
+    'You have no execution tool yourself — you can only read, edit, write, and delete files, not run them. But the user has a real Run button that actually executes what you write: it materializes every file to real disk and either runs "npm run dev"/"npm start" (if package.json exists — make sure it has one of those two scripts) or runs the single entry file directly (name it main.<ext>, index.<ext>, app.<ext>, or server.<ext> if there is more than one runnable file, so it is unambiguous which one runs).',
     'Any server you write must bind to the port from the PORT environment variable, defaulting to 3999 if it is unset — the preview always opens http://localhost:3999, so a server that ignores $PORT and hardcodes its own will never show up there. Example: Node/Express `const port = process.env.PORT || 3999;` — Python/Flask `port=int(os.environ.get("PORT", 3999))` — same idea in any other language.',
     `Current files:\n${fileList}`,
-    activeFileName ? `They are currently looking at "${activeFileName}" in the editor.` : '',
-    'Always read_file before editing a file you have not already read in this conversation — never guess at content that already exists. write_file replaces a file\'s entire content, so when editing, include the full file back, not just the part that changed.',
+    activeLine,
+    'Editing rules: prefer edit_file for every change to an existing file — send only the changed snippet with enough surrounding lines to be unique. Use write_file only for brand-new files or a near-total rewrite. Before editing a file whose content you have not seen in this conversation (and that is not shown above), read_file it first — never guess at existing content.',
+    // The single most common complaint about this panel: the model would
+    // freeze a simple request behind a checklist of five clarifying questions.
+    // Bias hard toward acting on a sensible assumption; when a question is
+    // truly unavoidable, it is exactly one, short, and then it stops.
+    'Clarifying questions: almost never needed. If the request is ambiguous in a way that would genuinely change what you build, ask exactly ONE short, specific question and stop — never a list of questions, never a menu of options, never "a few things to confirm". Otherwise make the most reasonable assumption, state it in one short line, and just do it.',
+    'Work fast: the file list is already above, so do not call list_files. Do not re-read a file you already have. Do not narrate what you are about to do — make the change, then report it.',
     'Use a serious, direct, professional tone. No greetings, encouragement, emojis, conversational filler, or playful language.',
     'After you are done, respond with a concise operational summary: one sentence when possible, never more than two short sentences. State changed files and any important limitation. Do not repeat file content, explain routine implementation details, or add optional next steps unless the user asked for them.',
   ].filter(Boolean).join('\n\n');
 }
 
-// Returns { reply, changedFiles } — changedFiles (names only) lets the
+// Human-readable one-liner for a code tool call, streamed to the panel so the
+// user watches the work happen ("Editing app.js") instead of staring at a
+// disabled input until the whole loop finishes.
+function codeToolLabel(toolUse) {
+  const n = toolUse.input?.name || '';
+  switch (toolUse.name) {
+    case 'list_files': return 'Listing files';
+    case 'read_file': return `Reading ${n}`;
+    case 'edit_file': return `Editing ${n}`;
+    case 'write_file': return `Writing ${n}`;
+    case 'delete_file': return `Deleting ${n}`;
+    default: return toolUse.name;
+  }
+}
+
+// Returns { reply, changedFiles, usage } — changedFiles (names only) lets the
 // frontend know which files to re-fetch/refresh without re-sending every
 // file's full content back over the wire on every turn.
-export async function codeAgentPrompt(userId, user, prompt, activeFileName, history = []) {
+//
+// onEvent (optional) receives progress as it happens so the route can stream
+// it: { type: 'status', text } | { type: 'tool', name, label } |
+// { type: 'text', text } (interim text the model wrote alongside tool calls).
+export async function codeAgentPrompt(userId, user, prompt, activeFileName, history = [], onEvent = () => {}) {
+  const emit = (evt) => { try { onEvent(evt); } catch (e) { /* a broken listener must never break the loop */ } };
+  emit({ type: 'status', text: 'Reading workspace' });
   const system = await buildCodeSystemPrompt(userId, activeFileName);
   const messages = [...history, { role: 'user', content: prompt }];
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, 2048);
   const changedFiles = new Set();
-  // Server.js's /api/code/prompt route (added by a separate, uncommitted
-  // parallel session) destructures `usage` off this return value to feed
-  // auth.incrementTokenUsage — this loop makes its own API calls same as
-  // chatReply/runTask do, so it needs to accumulate and return real totals
-  // across every iteration, not just the last one.
+  // Server.js's /api/code/prompt route destructures `usage` off this return
+  // value to feed auth.incrementTokenUsage — this loop makes its own API
+  // calls same as chatReply/runTask do, so it needs to accumulate and return
+  // real totals across every iteration, not just the last one.
   let usage = { input_tokens: 0, output_tokens: 0 };
+  // Same runaway-loop protection runLoop has — the code agent can also chain
+  // tool calls indefinitely; without a cap a stuck model bills tokens forever.
+  const MAX_CODE_ITERATIONS = 40;
+  const MAX_CODE_INPUT_TOKENS = 500_000;
+  let totalIterations = 0;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    totalIterations++;
+
+    if (totalIterations > MAX_CODE_ITERATIONS || usage.input_tokens > MAX_CODE_INPUT_TOKENS) {
+      const partial = messages.filter((m) => m.role === 'assistant').map((m) => {
+        return Array.isArray(m.content) ? m.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n') : m.content;
+      }).filter(Boolean).join('\n').slice(-4000);
+      emit({ type: 'status', text: 'Stopping — work budget reached' });
+      return { reply: `Reached this edit's work budget after ${totalIterations} iterations — stopping to avoid a runaway. Here is what was done so far:\n${partial || '(nothing completed yet)'}`, changedFiles: [...changedFiles], usage };
+    }
+
+    emit({ type: 'status', text: 'Thinking' });
     const response = await client.messages.create({
       model: resolveModel(user?.model),
       max_tokens: maxTokens,
@@ -1398,6 +1451,12 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
       return { reply: text, changedFiles: [...changedFiles], usage };
     }
 
+    // Anything the model said while calling tools ("Adding the route now.")
+    // is worth showing immediately rather than dropping.
+    const interim = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+    if (interim) emit({ type: 'text', text: interim });
+    for (const toolUse of toolUses) emit({ type: 'tool', name: toolUse.name, label: codeToolLabel(toolUse) });
+
     const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
       try {
         if (toolUse.name === 'list_files') {
@@ -1409,6 +1468,12 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
           const file = await findCodeFileByName(userId, toolUse.input.name);
           if (!file) return { type: 'tool_result', tool_use_id: toolUse.id, content: `No file named "${toolUse.input.name}".`, is_error: true };
           return { type: 'tool_result', tool_use_id: toolUse.id, content: file.content || '(empty file)' };
+        }
+        if (toolUse.name === 'edit_file') {
+          const { name, old_string, new_string, replace_all } = toolUse.input;
+          const { occurrences } = await editCodeFile(userId, name, old_string, new_string, !!replace_all);
+          changedFiles.add(name);
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: occurrences === 1 ? `Edited ${name}.` : `Edited ${name} (${occurrences} replacements).` };
         }
         if (toolUse.name === 'write_file') {
           const { created } = await writeCodeFile(userId, toolUse.input.name, toolUse.input.content);

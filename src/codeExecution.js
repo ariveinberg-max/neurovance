@@ -4,6 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import net from 'net';
 import { listCodeFiles } from './codeFiles.js';
+import { assertSpendSafeShell } from './spend-safety.js';
 
 // Real process execution — spawning real interpreters, real dev servers,
 // real ports — for the Code panel's "Run" button. This is the one part of
@@ -211,4 +212,76 @@ export async function startRun(userId) {
 
   const portOpen = await waitForPort(PREVIEW_PORT, 12000);
   return { status: state.status, previewUrl: portOpen ? `http://localhost:${PREVIEW_PORT}` : null };
+}
+
+// One-shot shell command for the code agent's run_command tool. Unlike
+// startRun (which picks a single entrypoint and binds a fixed preview port),
+// this executes an arbitrary command the model chose, against the workspace
+// materialized from Firestore, with three layers of protection:
+//
+//  1. Spend-safety blocklist (assertSpendSafeShell) — a command mentioning a
+//     billing/ad-spend command or provider is refused before anything spawns.
+//     Same guard a normal terminal user gets, applied to model-chosen shells.
+//  2. Sanitized env (childEnv) — no real secrets leak into the child; it only
+//     gets PATH/HOME/PORT, so a tricky `env` dump finds nothing worth exfil.
+//  3. Hard timeout + output bound — a runaway (`while(true)`, slow build) is
+//     killed and its output truncated, so one bad command can't hang the loop
+//     or blow up context memory.
+//
+// Gated the same as everything else here by isExecutionEnabled(), so it's a
+// no-op that throws on the shared deployment.
+export async function runCommand(userId, opts = {}) {
+  if (!isExecutionEnabled()) throw new Error('Code execution is disabled in this environment.');
+  const command = String(opts.command || '').trim();
+  if (!command) throw new Error('run_command needs a non-empty command.');
+  const timeoutMs = Math.min(Math.max(Number(opts.timeoutMs) || 30000, 1000), 120000);
+
+  assertSpendSafeShell(command);
+
+  const dir = workDirFor(userId);
+  await materializeFiles(userId);
+
+  const MAX_OUTPUT_CHARS = 12000;
+  let output = '';
+  let killed = false;
+
+  const result = await new Promise((resolve) => {
+    let settled = false;
+    const finish = (r) => { if (!settled) { settled = true; clearTimeout(killTimer); resolve(r); } };
+    const deadline = Date.now() + timeoutMs;
+    const child = spawn(command, { cwd: dir, env: childEnv(0), shell: true });
+    const killTimer = setTimeout(() => {
+      killed = true;
+      try { child.kill('SIGKILL'); } catch (e) {}
+    }, timeoutMs);
+    const onOutput = (chunk) => {
+      if (output.length >= MAX_OUTPUT_CHARS) return;
+      output += chunk;
+      if (output.length > MAX_OUTPUT_CHARS) {
+        output = output.slice(0, MAX_OUTPUT_CHARS);
+        output += '\n…[output truncated at 12,000 chars]\n';
+      }
+    };
+    child.stdout.on('data', onOutput);
+    child.stderr.on('data', onOutput);
+    child.on('error', (e) => finish({ exited: false, error: e.message }));
+    child.on('exit', (code, signal) => finish({ exited: true, code, signal, killed }));
+  });
+
+  if (result.killed) {
+    return {
+      ok: false,
+      output: `${output.trim()}\n\n[command timed out after ${timeoutMs}ms and was killed]\n`.trim(),
+      timedOut: true,
+    };
+  }
+  if (result.error) {
+    return { ok: false, output: `[failed to start: ${result.error}]`, timedOut: false };
+  }
+  return {
+    ok: result.code === 0,
+    code: result.code,
+    output: output.trim() || '(no output)',
+    timedOut: false,
+  };
 }
