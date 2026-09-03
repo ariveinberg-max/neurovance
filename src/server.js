@@ -152,12 +152,33 @@ function readJsonBody(req) {
 // Stripe webhook signature verification needs the exact raw bytes of the
 // request body — JSON.parse (or re-stringifying a parsed object) can shift
 // whitespace/key order just enough to make the signature no longer match.
+// Capped like readJsonBody: the endpoint is reached pre-auth (signature
+// check), so an attacker who lacks Stripe's secret can still POST an
+// arbitrarily large body here — without a cap that's an unauthenticated
+// memory-exhaustion DoS. Legitimate Stripe events are small, so an 8MB
+// ceiling is far above anything real and truncates only junk.
+const MAX_RAW_BODY_BYTES = 8 * 1024 * 1024;
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
+    let bytes = 0;
+    let rejected = false;
+    req.on('data', (chunk) => {
+      if (rejected) return;
+      bytes += chunk.length;
+      if (bytes > MAX_RAW_BODY_BYTES) {
+        rejected = true;
+        req.destroy();
+        reject(new Error('Request body too large.'));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (rejected) return;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', (e) => { if (!rejected) reject(e); });
   });
 }
 
@@ -826,7 +847,7 @@ async function handleRequest(req, res) {
         const usage = freshUser.tokenUsage?.date === today ? freshUser.tokenUsage.used : 0;
         return sendJson(res, 200, { ok: true, used: usage, budget });
       } catch (e) {
-        return sendJson(res, 500, { error: e.message });
+        return sendJson(res, 500, { error: 'Could not load your usage.' });
       }
     }
 
@@ -890,7 +911,7 @@ async function handleRequest(req, res) {
         const memories = await allMemories(user.id);
         return sendJson(res, 200, { ok: true, memories });
       } catch (e) {
-        return sendJson(res, 500, { error: e.message });
+        return sendJson(res, 500, { error: 'Could not export your memories.' });
       }
     }
 
@@ -1222,6 +1243,13 @@ async function handleRequest(req, res) {
     }
 
     if (req.url === '/api/code/prompt' && req.method === 'POST') {
+      // Streams progress as newline-delimited JSON. The code agent's loop is
+      // several full model round trips (think → edit → summarize), and a
+      // single blocking response meant the panel showed nothing at all until
+      // the very end — which is what made it feel slow. Each step now lands
+      // in the panel the moment it happens. Validation/budget errors before
+      // the stream opens still come back as ordinary JSON status codes.
+      let streaming = false;
       try {
         const usage = await auth.checkTokenUsage(user.id);
         if (!usage.allowed) {
@@ -1231,12 +1259,29 @@ async function handleRequest(req, res) {
         if (typeof prompt !== 'string' || !prompt.trim()) return sendJson(res, 400, { error: 'prompt must be a non-empty string' });
         const effectiveUser = { ...user };
         if (usage.suggestDownscale) effectiveUser.model = 'pulse';
-        const { reply, changedFiles, usage: tokensUsed } = await codeAgentPrompt(user.id, effectiveUser, prompt.trim(), activeFileName, sanitizeHistory(history, usage.suggestDownscale ? 6 : 12));
+
+        res.writeHead(200, {
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'X-Accel-Buffering': 'no',
+          ...SECURITY_HEADERS,
+        });
+        streaming = true;
+        const send = (evt) => { if (!res.writableEnded) res.write(JSON.stringify(evt) + '\n'); };
+
+        const { reply, changedFiles, usage: tokensUsed } = await codeAgentPrompt(
+          user.id, effectiveUser, prompt.trim(), activeFileName,
+          sanitizeHistory(history, usage.suggestDownscale ? 6 : 12), send,
+        );
         await auth.incrementTokenUsage(user.id, tokensUsed.input_tokens + tokensUsed.output_tokens);
-        return sendJson(res, 200, { ok: true, reply, changedFiles });
+        send({ type: 'done', reply, changedFiles });
+        return res.end();
       } catch (e) {
         console.error('Code prompt error:', e);
-        return sendJson(res, 500, { error: 'Something went wrong while processing your prompt — try again.' });
+        const message = 'Something went wrong while processing your prompt — try again.';
+        if (!streaming) return sendJson(res, 500, { error: message });
+        try { res.write(JSON.stringify({ type: 'error', error: message }) + '\n'); } catch (_) { /* socket gone */ }
+        return res.end();
       }
     }
 
