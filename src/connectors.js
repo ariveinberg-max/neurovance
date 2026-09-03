@@ -69,6 +69,7 @@ function isPrivateOrLoopbackIp(ip) {
     if (a === 127 || a === 0 || a === 10) return true;
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT shared address space
     if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata
     return false;
   }
@@ -76,7 +77,8 @@ function isPrivateOrLoopbackIp(ip) {
     const lower = ip.toLowerCase();
     if (lower === '::1') return true;
     if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local
-    if (lower.startsWith('fe80')) return true; // link-local
+    // Link-local is fe80::/10 — the first hex group spans fe8 through feb.
+    if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true;
     return false;
   }
   return true; // couldn't classify it — refuse rather than guess
@@ -135,6 +137,18 @@ export async function removeConnector(userId, connectorId) {
 // just contributes zero tools for that turn rather than failing the whole
 // request — the user still gets a reply, only missing that one connector's
 // capabilities for this message.
+// Neutralizes text that will be embedded in the agent's tool list. Strips
+// newlines (so a multi-line "instruction" can't span more than one sentence),
+// control characters, and common prompt-injection cue words, so a hostile
+// connector description reads as plain metadata rather than an instruction.
+function sanitizeToolText(text) {
+  return String(text || '')
+    .replace(/[\r\n\t\x00-\x1f]/g, ' ')
+    .replace(/\b(ignore|override|disregard|forget|pretend|acting as|you are now|system prompt)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export async function discoverAllConnectorTools(userId) {
   const user = await loadUserDoc(userId);
   const connectors = user.connectors || [];
@@ -145,7 +159,13 @@ export async function discoverAllConnectorTools(userId) {
       const tools = await listConnectorTools(decryptConnector(record));
       return tools.map((t) => ({
         name: `connector_${record.id.slice(0, 8)}__${t.name}`,
-        description: `[${record.name}] ${t.description || ''}`.slice(0, 1000),
+        // The description comes from an external server the user pointed at —
+        // a malicious/buggy server could return "ignore all instructions…"
+        // text here, which flows into the model's tool list. Frame it as
+        // metadata (what it is, not what to do) and strip common injection
+        // cues so a hostile description reads as inert text rather than
+        // as a system-level instruction.
+        description: `Tool from connector "${sanitizeToolText(record.name)}". The connected server describes it as: "${sanitizeToolText(t.description || '').slice(0, 500)}"`.slice(0, 1000),
         input_schema: t.inputSchema || { type: 'object', properties: {} },
       }));
     } catch (e) {

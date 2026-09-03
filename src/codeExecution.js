@@ -247,10 +247,10 @@ export async function runCommand(userId, opts = {}) {
 
   const result = await new Promise((resolve) => {
     let settled = false;
-    const finish = (r) => { if (!settled) { settled = true; clearTimeout(killTimer); resolve(r); } };
-    const deadline = Date.now() + timeoutMs;
     const child = spawn(command, { cwd: dir, env: childEnv(0), shell: true });
-    const killTimer = setTimeout(() => {
+    let killTimer;
+    const finish = (r) => { if (!settled) { settled = true; clearTimeout(killTimer); resolve(r); } };
+    killTimer = setTimeout(() => {
       killed = true;
       try { child.kill('SIGKILL'); } catch (e) {}
     }, timeoutMs);

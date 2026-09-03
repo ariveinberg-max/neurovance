@@ -1027,7 +1027,10 @@ function connect(userId) {
 
   ws.on('open', () => {
     activeWs = ws;
-    if (userId) ws.send(JSON.stringify({ type: 'reconnect', userId }));
+    if (userId) {
+      const config = loadConfig();
+      ws.send(JSON.stringify({ type: 'reconnect', userId, reconnectToken: config?.reconnectToken }));
+    }
   });
 
   ws.on('message', async (raw) => {
@@ -1036,7 +1039,7 @@ function connect(userId) {
 
     if (msg.type === 'pair_result') {
       if (msg.ok) {
-        saveConfig({ userId: msg.userId });
+        saveConfig({ userId: msg.userId, reconnectToken: msg.reconnectToken });
         console.log(green('Paired.') + ' Your Superself can now read from:\n  ' + ALLOWED_ROOT);
       } else {
         console.error('Pairing failed:', msg.error);

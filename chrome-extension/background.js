@@ -164,6 +164,47 @@ let lastTabList = [];
 // (result.opened / result.url+title+text / result.result / result.elements),
 // so nothing server-side has to know which kind of client answered. ----------
 
+// Some sites are too sensitive for an AI agent to drive — even with the
+// user's consent and the extension's usual "security by prompt" protections,
+// a single bad instruction on a financial or identity-critical page can do
+// real damage. The AI can still open these in a tab (so the user can see
+// them themselves), but read/click/type/list all refuse on the exact-URL
+// list below. This is a hard client-side gate — the server's system prompt
+// also shields these, but this doesn't rely on the model behaving.
+const SENSITIVE_HOSTS = new Set([
+  // Personal finance
+  'bankofamerica.com', 'wellsfargo.com', 'chase.com', 'citibank.com',
+  'capitalone.com', 'americafirst.com', 'paypal.com', 'venmo.com',
+  'cash.app', 'robinhood.com', 'fidelity.com', 'vanguard.com', 'schwab.com',
+  'coinbase.com', 'kraken.com', 'binance.com', 'etrade.com',
+  // Healthcare
+  'mychart.com', 'healthcare.gov', 'nih.gov', 'cdc.gov', 'mayoclinic.org',
+  'clevelandclinic.org', 'kpthealth.org',
+  // Cloud and infrastructure — a click/type mistake here can take down real services
+  'console.aws.amazon.com', 'console.cloud.google.com', 'portal.azure.com',
+  'cloudflare.com', 'vercel.com', 'railway.app', 'render.com',
+  // Government and identity
+  'irs.gov', 'ssa.gov', 'uscis.gov', 'dmv.org', 'dhs.gov',
+]);
+
+function isUrlSensitive(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return SENSITIVE_HOSTS.has(host) || [...SENSITIVE_HOSTS].some((h) => host === h || host.endsWith('.' + h));
+  } catch {
+    return true; // unparseable URL — block rather than risk it
+  }
+}
+
+// These actions are the ones that drive the page. Blocked on sensitive hosts.
+const PAGE_DRIVING_ACTIONS = new Set(['read_safari_content', 'click_page_element', 'type_into_page_field', 'list_page_elements', 'go_back']);
+
+function assertPageSafe(tab) {
+  if (isUrlSensitive(tab.url || '')) {
+    throw new Error('That page is a sensitive site (finance, healthcare, government, or infrastructure). The Companion refuses to read or act there for safety — you can still view it yourself.');
+  }
+}
+
 async function handleCommand(action, params) {
   if (action === 'open_url') {
     const url = params.url || '';
@@ -190,6 +231,7 @@ async function handleCommand(action, params) {
     const tab = await targetTab();
     if (!tab) throw new Error('No active tab open.');
     assertScriptable(tab);
+    assertPageSafe(tab);
     const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readPageText });
     return { url: tab.url, title: tab.title, text: (result || '').slice(0, 8000) };
   }
@@ -198,6 +240,7 @@ async function handleCommand(action, params) {
     const tab = await targetTab();
     if (!tab) throw new Error('No active tab open.');
     assertScriptable(tab);
+    assertPageSafe(tab);
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id }, func: clickElementByText, args: [params.text || ''],
     });
@@ -209,6 +252,7 @@ async function handleCommand(action, params) {
     const tab = await targetTab();
     if (!tab) throw new Error('No active tab open.');
     assertScriptable(tab);
+    assertPageSafe(tab);
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id }, func: typeIntoFieldByLabel, args: [params.label || '', params.text ?? '', !!params.submit],
     });
@@ -221,8 +265,17 @@ async function handleCommand(action, params) {
     const tab = await targetTab();
     if (!tab) throw new Error('No active tab open.');
     assertScriptable(tab);
+    assertPageSafe(tab);
     const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: listClickableElements });
     return { elements: result };
+  }
+
+  if (action === 'go_back') {
+    const tab = await targetTab();
+    if (!tab) throw new Error('No active tab open.');
+    assertPageSafe(tab);
+    await chrome.tabs.goBack(tab.id);
+    return { result: 'OK' };
   }
 
   // Genuine Chrome-extension-only capability — AppleScript never exposed a
@@ -290,7 +343,7 @@ function connect() {
     console.log('Neurovance: socket open');
     const config = await loadConfig();
     if (config?.userId) {
-      ws.send(JSON.stringify({ type: 'reconnect', userId: config.userId, kind: 'browser' }));
+      ws.send(JSON.stringify({ type: 'reconnect', userId: config.userId, reconnectToken: config.reconnectToken, kind: 'browser' }));
     } else {
       console.log('Neurovance: no saved pairing — waiting for a pair code');
     }
@@ -303,7 +356,7 @@ function connect() {
     if (msg.type === 'pair_result') {
       if (msg.ok) {
         pairedUserId = msg.userId;
-        await saveConfig({ userId: msg.userId });
+        await saveConfig({ userId: msg.userId, reconnectToken: msg.reconnectToken });
         await updateActionPopup();
       }
       notifyPopup({ type: 'pair_status', ok: msg.ok, error: msg.error });

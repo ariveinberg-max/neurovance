@@ -76,8 +76,24 @@ async function executeTask(user, task) {
 }
 
 // Manual "Run now" — same execution path as a real tick, just triggered
-// directly instead of waiting for nextRunAt.
+// directly instead of waiting for nextRunAt. Capped per-user to one manual
+// run every 60 seconds: an authenticated user could otherwise script
+// thousands of concurrent model runs here (each one billing an Anthropic
+// call) — unlike /api/chat's one-at-a-time, run-now fires independently of
+// the caller's own turn. In-memory is fine; a restart just resets the
+// cooldown, same tradeoff as the pairing-code map.
+const runNowCooldowns = new Map(); // userId -> timestamp of last allowed run
+const RUN_NOW_COOLDOWN_MS = 60 * 1000;
+
 export async function runScheduledTaskNow(userId, taskId) {
+  const now = Date.now();
+  const last = runNowCooldowns.get(userId);
+  if (last && now - last < RUN_NOW_COOLDOWN_MS) {
+    const waitSec = Math.ceil((RUN_NOW_COOLDOWN_MS - (now - last)) / 1000);
+    throw new Error(`Please wait ${waitSec}s before running a task manually again.`);
+  }
+  runNowCooldowns.set(userId, now);
+
   const user = await auth.findUserById(userId);
   if (!user) throw new Error('No such user.');
   const task = (user.scheduledTasks || []).find((t) => t.id === taskId);

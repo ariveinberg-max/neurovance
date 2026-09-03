@@ -1,7 +1,18 @@
 import { WebSocketServer } from 'ws';
-import { randomBytes, randomUUID } from 'crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import { getDoc, setDoc } from './db.js';
 import * as pendingNotes from './pending-notes.js';
+
+// Constant-time string comparison for the reconnect token — a naive ===
+// comparison of a client-supplied secret could leak timing information
+// useful for a byte-by-byte guess (the token is 64 hex chars, brute-forced
+// byte-by-byte this way is far cheaper than the full 256-bit space).
+function timingSafeEqualStr(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
 
 // Lets a user's own agent reach a small, read-only, explicitly-scoped folder
 // on their own computer, and drive their own browser — via two kinds of
@@ -82,6 +93,14 @@ const SHELL_COMMAND_TIMEOUT_MS = 3 * 60 * 1000;
 // connections to grind through codes before a real one expires. This caps
 // how many pairing attempts one source IP gets in that same window, so
 // brute-forcing needs many different IPs, not just many connections.
+//
+// The reconnect token below complements this: a pair code is a short-lived
+// claim of identity, but reconnecting after a drop would otherwise accept
+// the userId alone with no proof — the userId is stored in plaintext on the
+// user's machine (config file), so someone who read that file could hijack
+// the companion connection for life. The token is the secret half of the
+// pair: kept alongside the userId on the client, needed to reconnect, and
+// regenerated on every new pairing so an old token dies with the session.
 const pairAttempts = new Map(); // ip -> { count, resetAt }
 const PAIR_MAX_ATTEMPTS = 8;
 
@@ -189,6 +208,9 @@ export function attach(server) {
 
         const doc = (await loadDoc(userId)) || {};
         const now = new Date().toISOString();
+        // Fresh reconnect token on every pair — an old token dies when it's
+        // replaced, so a leaked token can never outlive a re-pairing.
+        const reconnectToken = randomBytes(32).toString('hex');
         if (kind === 'native') {
           const prev = nativeRecord(doc);
           await setDoc('companions', userId, {
@@ -197,15 +219,16 @@ export function attach(server) {
             lastSeen: now,
             hostname: msg.hostname || 'unknown computer',
             unpaired: false,
+            reconnectToken,
           });
         } else {
           const prev = browserRecord(doc);
           await setDoc('companions', userId, {
             ...doc,
-            browserExt: { pairedAt: prev?.pairedAt || now, lastSeen: now, unpaired: false },
+            browserExt: { pairedAt: prev?.pairedAt || now, lastSeen: now, unpaired: false, reconnectToken },
           });
         }
-        ws.send(JSON.stringify({ type: 'pair_result', ok: true, userId }));
+        ws.send(JSON.stringify({ type: 'pair_result', ok: true, userId, reconnectToken }));
         return;
       }
 
@@ -213,8 +236,15 @@ export function attach(server) {
         const reqKind = normalizeKind(msg.kind);
         const doc = await loadDoc(msg.userId);
         const record = reqKind === 'native' ? nativeRecord(doc) : browserRecord(doc);
-        if (!record) {
-          ws.send(JSON.stringify({ type: 'reconnect_result', ok: false }));
+        // The reconnect token is the sole proof of identity here — the
+        // userId alone is stored in plaintext on the client, so accepting
+        // it without the token would let anyone who read that file hijack
+        // the connection. Old accounts paired before this existed have no
+        // token on record; they must re-pair (one 6-digit code, rate-limited)
+        // rather than silently trusting a bare userId.
+        const expectedToken = reqKind === 'native' ? doc?.reconnectToken : doc?.browserExt?.reconnectToken;
+        if (!record || !expectedToken || !timingSafeEqualStr(msg.reconnectToken, expectedToken)) {
+          ws.send(JSON.stringify({ type: 'reconnect_result', ok: false, error: 'Reconnect rejected — re-pair the Companion.' }));
           return ws.close();
         }
         userId = msg.userId;
@@ -239,7 +269,15 @@ export function attach(server) {
       // user sees inside a session they opened, never a push notification.
       // Native-only; the browser extension never sends this.
       if (msg.type === 'event' && msg.name === 'file_changed' && userId) {
-        await pendingNotes.addNote(userId, 'companion', `I noticed "${msg.data.filename}" changed in your Neurovance folder.`);
+        // The filename comes from the user's own filesystem, but a downloaded
+        // file with a crafted name could carry prompt-injection text ("ignore
+        // instructions…"). It flows into a pending note which later goes into
+        // the system prompt, so strip anything that isn't a plain filename.
+        const cleanName = String(msg.data?.filename || '')
+          .replace(/[\r\n\t\x00-\x1f]/g, ' ')
+          .slice(0, 200)
+          .trim();
+        await pendingNotes.addNote(userId, 'companion', `I noticed "${cleanName}" changed in your Neurovance folder.`);
         return;
       }
 

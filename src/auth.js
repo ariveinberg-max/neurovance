@@ -317,7 +317,20 @@ export async function checkTokenUsage(userId) {
   const today = todayUTC();
   const usage = user.tokenUsage?.date === today ? user.tokenUsage : { date: today, used: 0 };
 
+  // The token budget is always enforced as a hard cap — the failure mode
+  // of a budget that can be exceeded is exactly what this exists to prevent
+  // (a runaway loop quietly billing unlimited Anthropic tokens). Strict mode
+  // makes the cap tight and absolute; without it, a soft ceiling sits at the
+  // budget with a hard floor at 3x, so a normal user going slightly over is
+  // tolerated (suggesting a downscale) but a real runaway loop always stops.
+  const HARD_CAP_MULTIPLIER = 3;
+  const hardCap = budget * HARD_CAP_MULTIPLIER;
+
   if (user.strictModeEnabled && usage.used >= budget) {
+    return { allowed: false, used: usage.used, budget };
+  }
+
+  if (usage.used >= hardCap) {
     return { allowed: false, used: usage.used, budget };
   }
 
@@ -773,15 +786,31 @@ export async function finishOAuthSignup({ pendingToken, username, displayName, a
   return user;
 }
 
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — matches the cookie's Max-Age for "remember me"
+
 export async function createSession(userId) {
   const token = randomBytes(32).toString('hex');
-  await saveSessionRecord(token, { userId, createdAt: new Date().toISOString() });
+  const now = new Date();
+  await saveSessionRecord(token, {
+    userId,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + SESSION_TTL_MS).toISOString(),
+  });
   return token;
 }
 
 export async function getSession(token) {
   if (!token) return null;
-  return getSessionRecord(token);
+  const session = await getSessionRecord(token);
+  if (!session) return null;
+  // Older sessions created before expiration was added have no expiresAt —
+  // treat them as never expiring rather than locking out everyone who was
+  // already signed in.
+  if (session.expiresAt && Date.now() > new Date(session.expiresAt).getTime()) {
+    await deleteSessionRecord(token);
+    return null;
+  }
+  return session;
 }
 
 export async function destroySession(token) {

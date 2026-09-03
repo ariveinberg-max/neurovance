@@ -119,12 +119,13 @@ export async function sendFeedbackNotification(user, message) {
     console.log(`[mailer] GMAIL_USER/GMAIL_APP_PASSWORD not set — feedback from ${user.username}: ${message}`);
     return;
   }
+  const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   await t.sendMail({
     from: process.env.GMAIL_SEND_AS || `"Neurovance" <${process.env.GMAIL_USER}>`,
     to: process.env.GMAIL_USER,
     subject: `Feedback from ${user.username}`,
     text: `${user.username} (${user.email || 'no email on file'}):\n\n${message}`,
-    html: `<p><strong>${user.username}</strong> (${user.email || 'no email on file'}):</p><p>${message.replace(/\n/g, '<br>')}</p>`,
+    html: `<p><strong>${esc(user.username)}</strong> (${esc(user.email || 'no email on file')}):</p><p>${esc(message).replace(/\n/g, '<br>')}</p>`,
   });
 }
 

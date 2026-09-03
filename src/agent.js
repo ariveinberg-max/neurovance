@@ -9,6 +9,7 @@ import * as pendingNotes from './pending-notes.js';
 import { findUserById, listSkills } from './auth.js';
 import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
 import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, languageDisplayName } from './codeFiles.js';
+import { runCommand } from './codeExecution.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
@@ -1334,6 +1335,19 @@ const CODE_TOOLS = [
       required: ['name'],
     },
   },
+  {
+    name: 'run_command',
+    description:
+      'Run a shell command inside the workspace and return its output. Use this to EXECUTE the code you wrote — run your script, run tests, run a linter, install a dependency — so you can verify your work actually runs and fix any errors it reports, rather than just writing code that looks right. The command runs in a fresh copy of the workspace materialized from your saved files, with a sanitized environment. Output is capped at ~12k chars and the command is hard-killed after a timeout (default 30s, max 120s — pass timeoutMs for slow operations like npm install). A non-zero exit is fine — read the error output and fix the code. Prefer this over narrating that "the code should work": run it and prove it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'The full shell command to run, e.g. "node index.js" or "npm test".' },
+        timeoutMs: { type: 'number', description: 'Optional timeout in ms (1000–120000, default 30000).' },
+      },
+      required: ['command'],
+    },
+  },
 ];
 
 // Files up to this size are inlined into the system prompt when they're the
@@ -1484,6 +1498,11 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
           const existed = await deleteCodeFileByName(userId, toolUse.input.name);
           if (existed) changedFiles.add(toolUse.input.name);
           return { type: 'tool_result', tool_use_id: toolUse.id, content: existed ? `Deleted ${toolUse.input.name}.` : `No file named "${toolUse.input.name}".` };
+        }
+        if (toolUse.name === 'run_command') {
+          const r = await runCommand(userId, { command: toolUse.input.command, timeoutMs: toolUse.input.timeoutMs });
+          const head = r.ok ? 'Command succeeded.' : (r.timedOut ? 'Command timed out.' : 'Command exited with error.');
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: `${head}\n${r.output}` };
         }
         return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Unknown tool.', is_error: true };
       } catch (e) {
