@@ -2733,13 +2733,17 @@ function initGraph(data) {
     let nodes = [];
     function force(alpha) {
       for (const n of nodes) {
-        n.vx += (Math.random() - 0.5) * 0.02 * alpha; // constant low-grade life
-        n.vy += (Math.random() - 0.5) * 0.02 * alpha;
-        n.vz += (Math.random() - 0.5) * 0.02 * alpha;
+        // Wander at a fixed rate, NOT scaled by alpha — alpha decays toward
+        // the (nonzero) target below, and jitter that depended on it faded
+        // to a near-frozen sculpture between reheats. This keeps every node
+        // drifting forever, however low the simulation's heat gets.
+        n.vx += (Math.random() - 0.5) * 0.02;
+        n.vy += (Math.random() - 0.5) * 0.02;
+        n.vz += (Math.random() - 0.5) * 0.02;
         const r = Math.hypot(n.x, n.y, n.z) || 0.01;
         const R = radiusFn();
         if (r < R * 0.5) continue;
-        const k = (R - r) * alpha * 0.05;
+        const k = (R - r) * Math.max(alpha, 0.04) * 0.05;
         n.vx += (n.x / r) * k;
         n.vy += (n.y / r) * k;
         n.vz += (n.z / r) * k;
@@ -2762,12 +2766,38 @@ function initGraph(data) {
     if (center) center.strength(0.035);
   } catch (e) { console.warn('Force tuning skipped:', e); }
 
-  // The shell is computed FROM the memories: centroid + furthest node, then we
-  // scale the wireframe to hug that real cloud so it grows as thoughts do.
-  const shellGeo = new THREE.IcosahedronGeometry(1, 2);
+  // The shell is NOT a sphere — it's an organic hull pulled out toward
+  // wherever memories actually sit and pulled in wherever they don't, so the
+  // silhouette itself is the shape your memories make, not a stand-in for it.
+  // We keep the icosahedron only as a set of sample directions to deform.
+  const shellGeo = new THREE.IcosahedronGeometry(1, 3);
+  const shellPos = shellGeo.attributes.position;
+  const shellDirs = [];
+  for (let i = 0; i < shellPos.count; i++) {
+    const v = new THREE.Vector3(shellPos.getX(i), shellPos.getY(i), shellPos.getZ(i)).normalize();
+    shellDirs.push(v);
+  }
   shellMaterial = new THREE.MeshBasicMaterial({ color: shellColorFor(document.documentElement.dataset.theme || 'dark'), wireframe: true, transparent: true, opacity: 0.24, blending: THREE.AdditiveBlending });
   const shellMesh = new THREE.Mesh(shellGeo, shellMaterial);
   Graph.scene().add(shellMesh);
+
+  // For a sample direction, radius = how far memories reach that way — a
+  // soft, dot-product-weighted max so the hull bulges toward real clusters
+  // and pinches in toward the centroid where there's nothing.
+  function reachAlong(dir, cx, cy, cz, fallback) {
+    let wSum = 0, rSum = 0;
+    for (const n of allNodes) {
+      const vx = n.x - cx, vy = n.y - cy, vz = n.z - cz;
+      const dist = Math.hypot(vx, vy, vz) || 0.01;
+      const dot = (vx * dir.x + vy * dir.y + vz * dir.z) / dist;
+      if (dot <= 0) continue;
+      const w = Math.pow(dot, 7); // sharp cone — only nodes roughly in this direction count
+      wSum += w;
+      rSum += w * dist;
+    }
+    if (wSum < 1e-6) return fallback * 0.45;
+    return rSum / wSum + 16; // small padding so the shell hugs just outside the outermost nodes
+  }
 
   function refreshShell() {
     if (!allNodes.length) return;
@@ -2776,20 +2806,26 @@ function initGraph(data) {
     cx /= allNodes.length; cy /= allNodes.length; cz /= allNodes.length;
     let maxR = 40;
     allNodes.forEach((n) => { maxR = Math.max(maxR, Math.hypot(n.x - cx, n.y - cy, n.z - cz)); });
-    const R = maxR + 30;
-    adaptRadius = R;
-    const scale = R / 100;
-    shellMesh.scale.set(scale, scale, scale);
+    adaptRadius = maxR + 30;
+
+    for (let i = 0; i < shellDirs.length; i++) {
+      const dir = shellDirs[i];
+      const r = reachAlong(dir, cx, cy, cz, adaptRadius);
+      shellPos.setXYZ(i, dir.x * r, dir.y * r, dir.z * r);
+    }
+    shellPos.needsUpdate = true;
+    shellGeo.computeVertexNormals();
     shellMesh.position.set(cx, cy, cz);
   }
   refreshShell();
-  setInterval(refreshShell, 2000);
+  setInterval(refreshShell, 900);
 
   // ---- Always moving ----
-  // Reheat the simulation periodically so the web keeps breathing and slowly
-  // re-forming instead of settling into one frozen block. The gentle wander in
-  // adaptiveSphere + the streaming particles do the rest.
-  setInterval(() => { if (Graph) Graph.d3ReheatSimulation(); }, 5000);
+  // A permanent low simmer instead of periodic full reheats: alpha never
+  // decays to zero, so the web never settles into a frozen sculpture — it
+  // just keeps drifting, breathing, and slowly re-forming, forever.
+  Graph.d3AlphaTarget(0.02);
+  Graph.d3ReheatSimulation();
 
   Graph.controls().autoRotate = true;
   Graph.controls().autoRotateSpeed = 0.65;
