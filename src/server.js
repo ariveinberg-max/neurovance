@@ -659,6 +659,7 @@ async function handleRequest(req, res) {
 
   if (req.url === '/api/reset-password-verify' && req.method === 'POST') {
     try {
+      if (!checkIpRateLimit(req, 'reset-password-verify')) return sendJson(res, 429, { error: 'Too many attempts from this IP — try again later.' });
       const { email, code } = await readJsonBody(req);
       if (!email?.trim() || !code) return sendJson(res, 400, { error: 'Email and code are required.' });
       const resetToken = await auth.verifyPasswordResetCode({ email, code });

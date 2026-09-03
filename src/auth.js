@@ -401,6 +401,11 @@ export async function changePassword(userId, currentPassword, newPassword) {
 
 const CODE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const VERIFIED_TOKEN_EXPIRY_MS = 15 * 60 * 1000; // window to finish picking a username after verifying
+// Codes are what you know with access to the inbox. A brute force over the
+// 6-digit space can't be fully stopped by per-IP route limits alone (many
+// IPs each grinds a slice), so a code also self-destructs after this many
+// wrong guesses — a global cap no amount of rotating sources can outrun.
+const MAX_CODE_ATTEMPTS = 10;
 
 function generateCode() {
   return String(randomInt(100000, 1000000)); // 6 digits, crypto-random
@@ -443,7 +448,17 @@ export async function verifySignupCode({ email, code }) {
   const record = await getPendingSignup(normalizedEmail);
   if (!record) throw new Error('No signup in progress for that email — start over.');
   if (Date.now() > record.expiresAt) throw new Error('That code expired — request a new one.');
-  if (record.code !== String(code).trim()) throw new Error('Wrong code.');
+
+  const wrongGuesses = record.attempts || 0;
+  if (wrongGuesses >= MAX_CODE_ATTEMPTS) {
+    await deletePendingSignup(normalizedEmail);
+    throw new Error('Too many wrong attempts — request a new code.');
+  }
+  if (record.code !== String(code).trim()) {
+    record.attempts = wrongGuesses + 1;
+    await savePendingSignup(normalizedEmail, record);
+    throw new Error('Wrong code.');
+  }
 
   record.verified = true;
   record.verifiedToken = randomBytes(24).toString('hex');
@@ -591,8 +606,24 @@ export async function verifyPasswordResetCode({ email, code }) {
   const record = await getPasswordReset(normalizedEmail);
   if (!record) throw new Error('No reset in progress for that email — request a new code.');
   if (Date.now() > record.expiresAt) throw new Error('That code expired — request a new one.');
-  if (record.code !== String(code).trim()) throw new Error('Wrong code.');
 
+  // A wrong code that's been guessed too many times burns the code outright.
+  // Without this, a distributed attacker (many IPs, spoofed sources) could
+  // grind through the 6-digit space with no way to cap them per-code — the
+  // per-IP route limit only slows a single IP source. Global per-code cap is
+  // the hard stop an account-takeover brute force can't route around.
+  const wrongGuesses = record.attempts || 0;
+  if (wrongGuesses >= MAX_CODE_ATTEMPTS) {
+    await deletePasswordReset(normalizedEmail);
+    throw new Error('Too many wrong attempts — request a new code.');
+  }
+  if (record.code !== String(code).trim()) {
+    record.attempts = wrongGuesses + 1;
+    await savePasswordReset(normalizedEmail, record);
+    throw new Error('Wrong code.');
+  }
+
+  record.attempts = 0;
   record.verified = true;
   record.resetToken = randomBytes(24).toString('hex');
   record.resetTokenExpiresAt = Date.now() + VERIFIED_TOKEN_EXPIRY_MS;
@@ -658,7 +689,17 @@ export async function finishEmailChange(userId, code) {
   const record = await getPendingEmailChange(userId);
   if (!record) throw new Error('No email change in progress — start over.');
   if (Date.now() > record.expiresAt) throw new Error('That code expired — request a new one.');
-  if (record.code !== String(code).trim()) throw new Error('Wrong code.');
+
+  const wrongGuesses = record.attempts || 0;
+  if (wrongGuesses >= MAX_CODE_ATTEMPTS) {
+    await deletePendingEmailChange(userId);
+    throw new Error('Too many wrong attempts — request a new code.');
+  }
+  if (record.code !== String(code).trim()) {
+    record.attempts = wrongGuesses + 1;
+    await savePendingEmailChange(userId, record);
+    throw new Error('Wrong code.');
+  }
   if (await findUserByEmail(record.newEmail)) throw new Error('That email is already in use.');
 
   const user = await findUserById(userId);
