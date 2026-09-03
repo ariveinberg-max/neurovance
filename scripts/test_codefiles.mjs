@@ -82,6 +82,21 @@ run('snapshots dir is hidden from list_code_files (incl. recursive)', async () =
   for (const f of l) assert.ok(!f.name.split('/').pop().startsWith('.'), 'all dotfiles hidden');
 });
 
+run('detectRunHints reads package.json scripts (dev/test)', async () => {
+  await fsp.writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { dev: 'vite', test: 'vitest', build: 'vite build' } }));
+  const h = await cf.detectRunHints();
+  assert.equal(h.dev, 'vite');
+  assert.equal(h.test, 'vitest');
+  assert.equal(h.build, 'vite build');
+  await fsp.unlink(join(root, 'package.json'));
+});
+
+run('detectRunHints returns nulls when no package.json', async () => {
+  const h = await cf.detectRunHints();
+  assert.equal(h.dev, null);
+  assert.equal(h.test, null);
+});
+
 run('teardown: remove temp workspace', async () => {
   await fsp.rm(root, { recursive: true, force: true });
 });

@@ -148,6 +148,26 @@ export async function listCodeFiles(dir, { recursive = false } = {}) {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Lightweight "how do I run this?" detection, fed to the code agent so it runs
+// the project's actual scripts instead of guessing. Reads package.json scripts
+// (dev/start/test/build) when present. Never touches the network or spawns a
+// process — just a shallow read of a couple of common manifest files.
+export async function detectRunHints() {
+  const root = workspaceRoot();
+  const hints = { dev: null, start: null, test: null, build: null, files: [] };
+  try {
+    const pkgRaw = await fsp.readFile(resolve(root, 'package.json'), 'utf8');
+    const pkg = JSON.parse(pkgRaw);
+    const scripts = (pkg && typeof pkg.scripts === 'object' ? pkg.scripts : {}) || {};
+    const pick = (name) => (typeof scripts[name] === 'string' && scripts[name].trim() ? scripts[name].trim() : null);
+    hints.dev = pick('dev') || pick('start');
+    hints.test = pick('test');
+    hints.build = pick('build');
+    hints.start = pick('start');
+  } catch (e) { /* no package.json — fine */ }
+  return hints;
+}
+
 // Read a file by path.
 export async function getCodeFile(userIdOrPath, maybePath) {
   const p = maybePath !== undefined ? resolvePath(String(maybePath)) : resolvePath(String(userIdOrPath));

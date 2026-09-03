@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { basename } from 'path';
 import net from 'net';
 import { listCodeFiles, workspaceRoot, resolvePath } from './codeFiles.js';
+import { assertSpendSafeShell } from './spend-safety.js';
 
 // Real process execution — spawning real interpreters, real dev servers,
 // real ports — for the Code panel's "Run" button. This is the one part of
@@ -195,10 +196,21 @@ export async function startRun(userId) {
 // One-shot shell command for the code agent's run_command tool — full
 // device access, like Claude Code. Runs the command against the REAL machine
 // with the user's choice of working directory (default: the workspace root).
-// No sandbox materialization and no spend-safety blocklist here: the operator
-// explicitly chose "full trust" for the self-hosted local code panel. Two
-// protective rails remain — a hard timeout kills runaways and a bounded
-// output cap keeps one noisy command from blowing up the agent's context:
+// No sandbox materialization and no filesystem permission prompts here: the
+// operator explicitly chose "full trust" for the self-hosted local code panel,
+// so the agent may read/write/edit ANY file directly.
+//
+// The ONE exception is money: commands that would touch advertising / billing /
+// payment / charging a card / provisioning paid infrastructure NEVER run here,
+// exactly as they never run in the main agent. This is the inviolable spend
+// rule — the code agent having unrestricted device access never meant it could
+// fire off ad conversions or charges. assertSpendSafeShell (shared with the
+// main agent) gates this chokepoint, so no prompt injection or glitchy tool
+// chain can route the terminal at a paying endpoint.
+//
+// Two protective rails remain for ordinary work — a hard timeout kills
+// runaways and a bounded output cap keeps one noisy command from blowing up
+// the agent's context:
 //
 //  1. Hard timeout — a runaway (`while(true)`, slow build) is killed.
 //  2. Output bound — truncated so it can't hang the loop or blow up memory.
@@ -209,6 +221,16 @@ export async function runCommand(userId, opts = {}) {
   if (!isExecutionEnabled()) throw new Error('Code execution is disabled in this environment.');
   const command = String(opts.command || '').trim();
   if (!command) throw new Error('run_command needs a non-empty command.');
+
+  const spendHit = assertSpendSafeShell(command);
+  if (spendHit) {
+    return {
+      ok: false,
+      spendBlocked: true,
+      output: `Refused: ${spendHit}. This command would touch advertising/billing/payment systems or paid provisioning and is never run, even with full device access.`,
+    };
+  }
+
   const timeoutMs = Math.min(Math.max(Number(opts.timeoutMs) || 30000, 1000), 120000);
 
   const dir = opts.cwd ? resolvePath(String(opts.cwd)) : workspaceRoot();

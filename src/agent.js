@@ -7,7 +7,7 @@ import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
 import { findUserById, listSkills, mergePreferences } from './auth.js';
 import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
-import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, appendToFile, truncateToLineCount, restoreFileSnapshot, languageDisplayName, workspaceRoot, searchFiles, diffLines } from './codeFiles.js';
+import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, appendToFile, truncateToLineCount, restoreFileSnapshot, detectRunHints, languageDisplayName, workspaceRoot, searchFiles, diffLines } from './codeFiles.js';
 import { runCommand } from './codeExecution.js';
 import { client } from './providers.js';
 
@@ -1492,13 +1492,28 @@ async function buildCodeSystemPrompt(userId, activeFileName) {
     activeLine = `Workspace root: ${base}\n\nThey are currently looking at "${activeFileName}" in the editor. (Too large to inline, or not found — read_file it before editing.)`;
   }
 
+  // Auto-run hint: tell the model the project's actual scripts (when a
+  // package.json exists) so "make it work" / "fix the bug" runs the right
+  // command instead of guessing an entry point.
+  let runHint = '';
+  try {
+    const h = await detectRunHints();
+    const parts = [];
+    if (h.dev) parts.push(`dev/start: "${h.dev}" (npm run dev / npm start)`);
+    if (h.test) parts.push(`test: "${h.test}"`);
+    if (h.build) parts.push(`build: "${h.build}"`);
+    if (parts.length) runHint = `Your workspace has a package.json. To run/verify the project: ${parts.join('; ')}. Prefer these exact scripts over guessing an entry point.`;
+  } catch (e) { /* no hint */ }
+
   return [
     'You are the coding assistant embedded in Neurovance\'s code editor — a real pair-programmer with full read/write/execute access to the user\'s actual device and filesystem, not a chat that talks about code in the abstract.',
     'You can read, edit, write, and delete REAL files anywhere on the machine, list directories, search file contents, and run real shell commands with run_command (git, npm, running your code, tests, etc.). Relative paths resolve from the workspace root; absolute paths reach anywhere. You work directly on the user\'s real files — make changes in place, then VERIFY by running.',
     'Verify your work: after writing or editing code, run it with run_command to prove it works, and fix anything it reports. Prefer proving over asserting the code is right.',
+    'You have full, unrestricted access to read, write, edit and delete ANY file on the device. The ONLY thing that is ever refused is shell commands that would touch money: advertising accounts, billing, payment/card processing, or paid provisioning. Those are hard-blocked at the terminal and you must not try to route around them. Everything else — every file, every ordinary command — runs freely.',
     'Any server you write must bind to a port you choose and are told about; run_command reports output so you can see it binding. The preview opens at the reported URL, and the Run button runs the workspace entrypoint (npm run dev/start if package.json exists, else the single runnable entry file).',
     `Current files in workspace root: ${fileList}`,
     activeLine,
+    runHint,
     'Editing rules: prefer edit_file for every change to an existing file — send only the changed snippet with enough surrounding lines to be unique. Use write_file only for brand-new files or a near-total rewrite. Before editing a file whose content you have not seen in this conversation (and that is not shown above), read_file it first — never guess at existing content.',
     // The single most common complaint about this panel: the model would
     // freeze a simple request behind a checklist of five clarifying questions.
@@ -1689,6 +1704,9 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
         }
         if (toolUse.name === 'run_command') {
           const r = await runCommand(userId, { command: toolUse.input.command, timeoutMs: toolUse.input.timeoutMs, cwd: toolUse.input.cwd });
+          if (r.spendBlocked) {
+            return { type: 'tool_result', tool_use_id: toolUse.id, content: `${r.output}\n\nThis command is permanently refused (money/spend safety). Do NOT retry it or attempt an equivalent that touches the same accounts/cards.`, is_error: true };
+          }
           const head = r.ok ? 'Command succeeded.' : (r.timedOut ? 'Command timed out.' : 'Command exited with error.');
           return { type: 'tool_result', tool_use_id: toolUse.id, content: `${head}\n${r.output}` };
         }
