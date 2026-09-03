@@ -303,7 +303,7 @@
      main action; Assistant is deliberately quieter so the screen does not
      look like it has two competing calls to action. */
   #workspace-actions {
-    position: fixed; top: 20px; right: 24px; z-index: 40;
+    position: fixed; bottom: 24px; right: 24px; z-index: 40;
     display: flex; align-items: center; gap: 8px;
   }
   #talk-toggle, #code-toggle {
@@ -664,6 +664,12 @@
   }
   .code-log-error { display: flex; align-items: center; gap: 7px; color: var(--accent-red); padding-left: 20px; font-family: 'Inter', sans-serif; font-size: 12px; }
   .code-log-output { color: var(--text-muted); white-space: pre-wrap; word-break: break-word; padding-left: 20px; }
+  /* Live progress while the code agent works: a spinner + current step at the
+     bottom of the log, with each finished step left behind as a muted line. */
+  .code-log-status { flex-direction: row; align-items: center; gap: 8px; padding-left: 20px; color: var(--text-muted); font-family: 'Inter', sans-serif; font-size: 12px; }
+  .code-log-step { padding-left: 20px; color: var(--text-faint); font-family: 'Share Tech Mono', monospace; font-size: 11px; margin-bottom: 4px; }
+  .code-log-spinner { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid rgba(190,190,195,0.25); border-top-color: var(--accent-green); animation: code-log-spin 0.8s linear infinite; flex-shrink: 0; }
+  @keyframes code-log-spin { to { transform: rotate(360deg); } }
 
   #code-prompt-row {
     flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 12px 18px 16px;
@@ -3719,20 +3725,83 @@ function initCodePanel() {
     terminalLog.scrollTop = terminalLog.scrollHeight;
   }
 
+  // Live status line at the bottom of the log while the agent works. The
+  // server streams one JSON event per step (see /api/code/prompt), so this
+  // shows "Editing app.js…" the moment it happens instead of a blank wait.
+  function addStatusEntry() {
+    const el = document.createElement('div');
+    el.className = 'code-log-entry code-log-status';
+    el.innerHTML = '<span class="code-log-spinner"></span><span class="code-log-status-text">Working…</span>';
+    terminalLog.appendChild(el);
+    terminalLog.scrollTop = terminalLog.scrollHeight;
+    return {
+      set(text) { el.querySelector('.code-log-status-text').textContent = text; terminalLog.scrollTop = terminalLog.scrollHeight; },
+      // Completed steps get logged above it — re-append so it stays last.
+      keepAtBottom() { terminalLog.appendChild(el); terminalLog.scrollTop = terminalLog.scrollHeight; },
+      remove() { el.remove(); },
+    };
+  }
+
+  // Completed step ("Edited app.js") — muted, so the reply stays the focus.
+  function addStepEntry(label) {
+    const el = document.createElement('div');
+    el.className = 'code-log-entry code-log-step';
+    el.textContent = label;
+    terminalLog.appendChild(el);
+    terminalLog.scrollTop = terminalLog.scrollHeight;
+  }
+
   async function submitPrompt() {
     const text = promptInput.value.trim();
     if (!text) return;
     promptInput.value = '';
     promptInput.disabled = true;
     addLogEntry(`<div class="code-log-prompt"><span class="code-log-caret">&gt;</span><span>${escapeHtml(text)}</span></div>`);
+    const status = addStatusEntry();
     try {
+      // Flush whatever is in the editor first, so the agent works on what's
+      // actually on screen — not the last autosaved copy from a moment ago.
+      await saveActiveFile();
+
       const res = await fetch('/api/code/prompt', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: text, activeFileName, history: codeHistory }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok || !contentType.includes('ndjson') || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+
+      // Read newline-delimited JSON events as they arrive.
+      let result = null;
+      const handleEvent = (evt) => {
+        if (evt.type === 'status') status.set(`${evt.text}…`);
+        else if (evt.type === 'tool') { addStepEntry(evt.label); status.set(`${evt.label}…`); status.keepAtBottom(); }
+        else if (evt.type === 'text') { addLogEntry(`<div class="code-log-reply">${escapeHtml(evt.text)}</div>`); status.keepAtBottom(); }
+        else if (evt.type === 'done') result = evt;
+        else if (evt.type === 'error') throw new Error(evt.error || 'Prompt failed.');
+      };
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (line) handleEvent(JSON.parse(line));
+        }
+      }
+      if (buffer.trim()) handleEvent(JSON.parse(buffer.trim()));
+      if (!result) throw new Error('The agent stopped without replying — try again.');
+
+      status.remove();
+      const data = result;
       addLogEntry(`<div class="code-log-reply">${escapeHtml(data.reply)}</div>`);
       if (data.changedFiles && data.changedFiles.length) {
         addLogEntry(`<div class="code-log-files">Changed: ${data.changedFiles.map(escapeHtml).join(', ')}</div>`);
@@ -3751,6 +3820,7 @@ function initCodePanel() {
         if (touched) openFile(touched.id, touched.name);
       }
     } catch (e) {
+      status.remove();
       addLogEntry(`<div class="code-log-error">${escapeHtml(e.message)}</div>`);
     } finally {
       promptInput.disabled = false;
