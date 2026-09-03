@@ -3,7 +3,7 @@ import { pathToFileURL } from 'url';
 import { runTask, runDreamCycle, runCuriosityCycle } from './agent.js';
 import { allMemories, consolidateMemories, thinTopics } from './memory.js';
 import * as pendingNotes from './pending-notes.js';
-import { listUsers, checkTokenUsage, incrementTokenUsage } from './auth.js';
+import { listUsers, checkTokenUsage, incrementTokenUsage, mergePreferences } from './auth.js';
 import { sendBroadcast } from './mailer.js';
 
 // Routine "grow one thing" prompt — the baseline daily task that kept working
@@ -89,6 +89,11 @@ async function sendDigest(user, items) {
 // doubles spend: the budget check is the real limiter, not the trigger.
 export async function runDailyGrow() {
   for (const user of await listUsers()) {
+    // Per-user off switch in Settings (Memory & Learning -> daily self-
+    // improvement). Skipping here (rather than in the scheduler trigger)
+    // keeps the "once per process per day" semantics intact for everyone
+    // who still wants it.
+    if (mergePreferences(user).dailyGrow === false) continue;
     const memories = await allMemories(user.id);
     const pending = await pendingNotes.unseenNotes(user.id);
     const digestItems = [];

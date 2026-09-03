@@ -248,6 +248,108 @@ const DEFAULT_DAILY_LIMIT = 500;
 // resolved to undefined and broke the usage bar for exactly that case.
 export const DEFAULT_TOKEN_BUDGET = 1_000_000;
 
+// Machine "tuning" settings — the knobs a user can turn to make their
+// Superself behave a certain way. Kept out of the top-level user model in
+// one flat object so new knobs can be added without migrating the schema:
+// defaults merge over whatever's stored, so an old account picks up brand
+// new knobs automatically. Exported so server.js's /api/me + agent.js can
+// read the same source of truth instead of each guessing.
+export const DEFAULT_PREFERENCES = {
+  // Model & depth
+  temperature: 0.7,      // 0..1 creativity
+  topP: 0.9,             // 0..1 nucleus sampling
+  maxTokens: 4096,       // output ceiling for a normal (non-deep) response
+  contextTurns: 20,      // how many prior turns are sent as context
+  model: 'core',         // core | pulse
+  // Autonomy & abilities
+  webFetch: true,        // allow the fetch_webpage tool
+  shellAccess: false,    // allow the companion run_shell tool
+  maxIterations: 20,     // per-run tool-use step ceiling
+  autoRun: false,        // allow unattended/deep runs to fire on their own
+  // Communication
+  verbosity: 'balanced', // concise | balanced | detailed
+  formality: 'casual',   // casual | professional
+  tone: '',              // free-text extra instruction for how to talk
+  // Memory & learning
+  autoMemory: true,      // write new memories during conversations
+  dailyGrow: true,       // run the overnight self-improvement pass
+  consolidation: true,   // dedupe/merge memories on the write path
+  // Automation
+  proactive: false,      // volunteer unprompted suggestions/observations
+  dailyGrowTime: '08:00',// local "HH:MM" for the daily grow window
+};
+
+export function mergePreferences(user) {
+  return { ...DEFAULT_PREFERENCES, ...(user?.preferences || {}) };
+}
+
+// PATCH-style update: only writes the keys actually present, merges over the
+// existing preferences, and validates the constrained ones so a bad value
+// can't be persisted. Returns the merged preferences for the caller to echo.
+export async function updatePreferences(userId, patch = {}) {
+  const user = await findUserById(userId);
+  if (!user) throw new Error('No such user.');
+  const merged = mergePreferences(user);
+  const next = { ...merged };
+
+  if (patch.temperature !== undefined) {
+    const v = Number(patch.temperature);
+    if (!Number.isFinite(v) || v < 0 || v > 1) throw new Error('temperature must be between 0 and 1.');
+    next.temperature = v;
+  }
+  if (patch.topP !== undefined) {
+    const v = Number(patch.topP);
+    if (!Number.isFinite(v) || v < 0 || v > 1) throw new Error('topP must be between 0 and 1.');
+    next.topP = v;
+  }
+  if (patch.maxTokens !== undefined) {
+    const v = parseInt(patch.maxTokens, 10);
+    if (!Number.isFinite(v) || v < 256 || v > 32000) throw new Error('maxTokens must be between 256 and 32000.');
+    next.maxTokens = v;
+  }
+  if (patch.contextTurns !== undefined) {
+    const v = parseInt(patch.contextTurns, 10);
+    if (!Number.isFinite(v) || v < 1 || v > 100) throw new Error('contextTurns must be between 1 and 100.');
+    next.contextTurns = v;
+  }
+  if (patch.model !== undefined) {
+    if (!MODEL_TIERS.includes(patch.model)) throw new Error('model must be core or pulse.');
+    next.model = patch.model;
+  }
+  if (patch.webFetch !== undefined) next.webFetch = !!patch.webFetch;
+  if (patch.shellAccess !== undefined) next.shellAccess = !!patch.shellAccess;
+  if (patch.maxIterations !== undefined) {
+    const v = parseInt(patch.maxIterations, 10);
+    if (!Number.isFinite(v) || v < 1 || v > 100) throw new Error('maxIterations must be between 1 and 100.');
+    next.maxIterations = v;
+  }
+  if (patch.autoRun !== undefined) next.autoRun = !!patch.autoRun;
+  if (patch.verbosity !== undefined) {
+    if (!['concise', 'balanced', 'detailed'].includes(patch.verbosity)) throw new Error('verbosity must be concise, balanced, or detailed.');
+    next.verbosity = patch.verbosity;
+  }
+  if (patch.formality !== undefined) {
+    if (!['casual', 'professional'].includes(patch.formality)) throw new Error('formality must be casual or professional.');
+    next.formality = patch.formality;
+  }
+  if (patch.tone !== undefined) {
+    if (typeof patch.tone !== 'string' || patch.tone.length > 500) throw new Error('tone must be text, 500 chars or fewer.');
+    next.tone = patch.tone;
+  }
+  if (patch.autoMemory !== undefined) next.autoMemory = !!patch.autoMemory;
+  if (patch.dailyGrow !== undefined) next.dailyGrow = !!patch.dailyGrow;
+  if (patch.consolidation !== undefined) next.consolidation = !!patch.consolidation;
+  if (patch.proactive !== undefined) next.proactive = !!patch.proactive;
+  if (patch.dailyGrowTime !== undefined) {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(patch.dailyGrowTime)) throw new Error('dailyGrowTime must be HH:MM.');
+    next.dailyGrowTime = patch.dailyGrowTime;
+  }
+
+  user.preferences = next;
+  await saveUser(user);
+  return next;
+}
+
 // Referral codes: every account gets one, assigned at signup (or backfilled
 // on first request from an older account). Each successful referral raises
 // the referrer's own daily limit — a real, immediate perk that doesn't need

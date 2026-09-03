@@ -1,5 +1,6 @@
 import { getAllDocs, setDoc, deleteDoc, getDoc, vectorSearch, runTransaction, queryOrdered, queryWhereOrdered, queryArrayContains } from './db.js';
 import { getEmbedding } from './embeddings.js';
+import { findUserById, mergePreferences } from './auth.js';
 
 function memoriesPath(userId) {
   return `users/${userId}/memories`;
@@ -77,8 +78,12 @@ export function remember(userId, content, tags = [], importance = 1) {
 
     // Opportunistic normalization — a small tax on the path that already runs,
     // so the store stays deduplicated without anyone having to schedule it.
+    // The user lookup only happens on the every-12th threshold so it adds
+    // ~zero reads; honoring the "consolidation" knob in Settings when off.
     if (entry.id % CONSOLIDATE_EVERY === 0 && entry.embedding) {
       try {
+        const user = await findUserById(userId);
+        if (mergePreferences(user).consolidation === false) return entry;
         const merged = await consolidateMemories(userId);
         if (merged > 0) entry.mergedDuplicates = merged;
       } catch (e) {
