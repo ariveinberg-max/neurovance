@@ -1487,7 +1487,11 @@ function codeToolLabel(toolUse) {
     case 'edit_file': return `Editing ${n}`;
     case 'write_file': return `Writing ${n}`;
     case 'delete_file': return `Deleting ${n}`;
-    case 'run_command': return 'Running command';
+    case 'run_command': {
+      const cmd = (toolUse.input?.command || '').trim();
+      const shown = cmd.length > 80 ? cmd.slice(0, 77) + '…' : cmd;
+      return shown ? `Running: ${shown}` : 'Running command';
+    }
     default: return toolUse.name;
   }
 }
@@ -1499,7 +1503,7 @@ function codeToolLabel(toolUse) {
 // onEvent (optional) receives progress as it happens so the route can stream
 // it: { type: 'status', text } | { type: 'tool', name, label } |
 // { type: 'text', text } (interim text the model wrote alongside tool calls).
-export async function codeAgentPrompt(userId, user, prompt, activeFileName, history = [], onEvent = () => {}) {
+export async function codeAgentPrompt(userId, user, prompt, activeFileName, history = [], onEvent = () => {}, signal = null) {
   const emit = (evt) => { try { onEvent(evt); } catch (e) { /* a broken listener must never break the loop */ } };
   emit({ type: 'status', text: 'Reading workspace' });
   const system = await buildCodeSystemPrompt(userId, activeFileName);
@@ -1517,16 +1521,21 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
   const MAX_CODE_INPUT_TOKENS = 500_000;
   let totalIterations = 0;
 
+  const partialReply = (why) => {
+    const partial = messages.filter((m) => m.role === 'assistant').map((m) => {
+      return Array.isArray(m.content) ? m.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n') : m.content;
+    }).filter(Boolean).join('\n').slice(-4000);
+    return { reply: `${why}${partial ? '\n\nHere is what was done so far:\n' + partial : ''}`, changedFiles: [...changedFiles], usage };
+  };
+
   // eslint-disable-next-line no-constant-condition
   while (true) {
     totalIterations++;
 
+    if (signal && signal.aborted) return partialReply('Stopped by you.');
     if (totalIterations > MAX_CODE_ITERATIONS || usage.input_tokens > MAX_CODE_INPUT_TOKENS) {
-      const partial = messages.filter((m) => m.role === 'assistant').map((m) => {
-        return Array.isArray(m.content) ? m.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n') : m.content;
-      }).filter(Boolean).join('\n').slice(-4000);
       emit({ type: 'status', text: 'Stopping — work budget reached' });
-      return { reply: `Reached this edit's work budget after ${totalIterations} iterations — stopping to avoid a runaway. Here is what was done so far:\n${partial || '(nothing completed yet)'}`, changedFiles: [...changedFiles], usage };
+      return partialReply(`Reached this edit's work budget after ${totalIterations} iterations — stopping to avoid a runaway.`);
     }
 
     emit({ type: 'status', text: 'Thinking' });

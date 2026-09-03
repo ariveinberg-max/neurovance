@@ -670,6 +670,7 @@
     background: rgba(190,190,195,0.08); border: 1px solid rgba(190,190,195,0.15);
     border-radius: 999px; padding: 2px 10px; font-size: 10px; margin-left: 20px;
   }
+  .code-log-usage { color: var(--text-faint); font-size: 10px; padding-left: 20px; font-family: 'Share Tech Mono', monospace; }
   .code-log-error { display: flex; align-items: center; gap: 7px; color: var(--accent-red); padding-left: 20px; font-family: 'Inter', sans-serif; font-size: 12px; }
   .code-log-output { color: var(--text-muted); white-space: pre-wrap; word-break: break-word; padding-left: 20px; }
   /* Live progress while the code agent works: a spinner + current step at the
@@ -720,6 +721,17 @@
   #code-prompt-send:hover { filter: brightness(1.08); box-shadow: 0 6px 18px rgba(190,190,195,0.3); }
   #code-prompt-send:active { transform: scale(0.94); }
   #code-prompt-send:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+  #code-prompt-stop {
+    flex: 0 0 auto; width: 38px; height: 38px; border-radius: 11px; border: 1px solid rgba(255,95,69,0.4); cursor: pointer;
+    background: rgba(255,95,69,0.12); color: var(--accent-red); display: flex; align-items: center; justify-content: center;
+    font-size: 14px; transition: background 0.15s ease, transform 0.12s ease;
+    animation: code-stop-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes code-stop-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,95,69,0.35); } 50% { box-shadow: 0 0 0 5px rgba(255,95,69,0); } }
+  #code-prompt-stop:hover { background: rgba(255,95,69,0.22); }
+  #code-prompt-stop:active { transform: scale(0.94); }
+  #code-prompt-stop:disabled { opacity: 0.5; cursor: default; animation: none; }
+  .code-log-stop { color: var(--text-muted); padding-left: 20px; font-size: 11px; font-family: 'Share Tech Mono', monospace; }
   /* ---------- Artifacts — a long code block in a chat reply collapses to
      this card instead of dumping the whole thing inline; opening it slides
      in the panel below. Chat-only (talk-drawer/mobile); the Code panel
@@ -2110,6 +2122,7 @@
       <input id="code-prompt-input" type="text" placeholder="Ask for anything: create a file, fix a bug, refactor, explain..." autocomplete="off" />
     </div>
     <button id="code-prompt-send" type="button" title="Send (Enter)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z"/></svg></button>
+      <button id="code-prompt-stop" type="button" title="Stop" hidden>■</button>
   </div>
 </div>
 </div>
@@ -3742,6 +3755,7 @@ function initCodePanel() {
   const terminalLog = document.getElementById('code-terminal-log');
   const promptInput = document.getElementById('code-prompt-input');
   const promptSend = document.getElementById('code-prompt-send');
+  const promptStop = document.getElementById('code-prompt-stop');
   const statusbar = document.getElementById('code-editor-statusbar');
   const statusLang = document.getElementById('code-editor-status-lang');
   const statusName = document.getElementById('code-editor-status-name');
@@ -3771,6 +3785,7 @@ function initCodePanel() {
   let activeFileName = null;
   let saveTimer = null;
   let codeHistory = []; // simplified {role, content} turns for the prompt bar, session-only
+  let stopController = null; // AbortController for the in-flight code prompt (Stop button)
 
   function ensureEditor() {
     if (cm) return cm;
@@ -4040,6 +4055,8 @@ function initCodePanel() {
     if (!text) return;
     promptInput.value = '';
     promptInput.disabled = true;
+    promptStop.hidden = false;
+    stopController = new AbortController();
     addLogEntry(`<div class="code-log-prompt"><span class="code-log-caret">&gt;</span><span>${escapeHtml(text)}</span></div>`);
     const status = addStatusEntry();
     try {
@@ -4051,6 +4068,7 @@ function initCodePanel() {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: text, activeFileName, history: codeHistory }),
+        signal: stopController.signal,
       });
       const contentType = res.headers.get('content-type') || '';
       if (!res.ok || !contentType.includes('ndjson') || !res.body) {
@@ -4091,6 +4109,10 @@ function initCodePanel() {
       if (data.changedFiles && data.changedFiles.length) {
         addLogEntry(`<div class="code-log-files">Changed: ${data.changedFiles.map(escapeHtml).join(', ')}</div>`);
       }
+      if (data.usage && (data.usage.input_tokens || data.usage.output_tokens)) {
+        const tot = (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0);
+        addLogEntry(`<div class="code-log-usage">${tot.toLocaleString()} tokens used</div>`);
+      }
       codeHistory.push({ role: 'user', content: text });
       codeHistory.push({ role: 'assistant', content: data.reply });
       codeHistory = codeHistory.slice(-12);
@@ -4106,12 +4128,22 @@ function initCodePanel() {
       }
     } catch (e) {
       status.remove();
-      addLogEntry(`<div class="code-log-error">${escapeHtml(e.message)}</div>`);
+      // A manual Stop aborts the fetch — that's expected, not an error.
+      if (e && (e.name === 'AbortError' || stopController?.signal?.aborted)) {
+        addLogEntry(`<div class="code-log-stop">Stopped — work so far is saved.</div>`);
+      } else {
+        addLogEntry(`<div class="code-log-error">${escapeHtml(e.message)}</div>`);
+      }
     } finally {
       promptInput.disabled = false;
       promptInput.focus();
+      promptStop.hidden = true;
+      stopController = null;
     }
   }
+  promptStop.addEventListener('click', () => {
+    if (stopController) { stopController.abort(); promptStop.disabled = true; }
+  });
   promptInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); submitPrompt(); }
   });

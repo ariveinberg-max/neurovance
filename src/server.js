@@ -1276,6 +1276,11 @@ async function handleRequest(req, res) {
       // in the panel the moment it happens. Validation/budget errors before
       // the stream opens still come back as ordinary JSON status codes.
       let streaming = false;
+      const controller = new AbortController();
+      // If the client disconnects (Stop button / tab close), abort the in-flight
+      // code loop on the next iteration boundary instead of letting it burn
+      // through the whole work budget for a reply nobody's there to read.
+      res.on('close', () => controller.abort());
       try {
         const usage = await auth.checkTokenUsage(user.id);
         if (!usage.allowed) {
@@ -1297,10 +1302,10 @@ async function handleRequest(req, res) {
 
         const { reply, changedFiles, usage: tokensUsed } = await codeAgentPrompt(
           user.id, effectiveUser, prompt.trim(), activeFileName,
-          sanitizeHistory(history, usage.suggestDownscale ? 6 : 12), send,
+          sanitizeHistory(history, usage.suggestDownscale ? 6 : 12), send, controller.signal,
         );
         await auth.incrementTokenUsage(user.id, tokensUsed.input_tokens + tokensUsed.output_tokens);
-        send({ type: 'done', reply, changedFiles });
+        send({ type: 'done', reply, changedFiles, usage: tokensUsed });
         return res.end();
       } catch (e) {
         console.error('Code prompt error:', e);
