@@ -571,6 +571,14 @@
     width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; background: var(--text-faint);
   }
   .code-file-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .code-file-dir { display: flex; align-items: center; gap: 6px; padding: 6px 8px; cursor: pointer;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-faint);
+    border-radius: 6px; transition: background 0.12s ease; }
+  .code-file-dir:hover { background: rgba(var(--overlay-rgb),0.05); color: var(--text-secondary); }
+  .code-file-dir-toggle { all: unset; cursor: pointer; width: 12px; flex-shrink: 0; text-align: center; color: var(--text-muted); font-size: 10px; }
+  .code-file-dir-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .code-file-dir-count { flex-shrink: 0; font-size: 10px; color: var(--text-faint); background: rgba(var(--overlay-rgb),0.1);
+    border-radius: 999px; padding: 0 6px; }
   .code-file-row-delete {
     flex-shrink: 0; opacity: 0; color: var(--text-muted); font-size: 13px; line-height: 1; padding: 2px; background: none; border: none; cursor: pointer; border-radius: 4px;
   }
@@ -3758,6 +3766,7 @@ function initCodePanel() {
 
   let cm = null; // lazily created on first open — no point loading it before it's needed
   let files = []; // current listing (metadata only, matches /api/code/files)
+  let workspaceRoot = ''; // absolute workspace root, for relativizing paths in the tree
   let activeFileId = null;
   let activeFileName = null;
   let saveTimer = null;
@@ -3800,10 +3809,32 @@ function initCodePanel() {
       const res = await fetch('/api/code/files', { credentials: 'same-origin' });
       const data = await res.json();
       files = data.files || [];
+      workspaceRoot = data.workspaceRoot || '';
     } catch (e) {
       files = [];
     }
     renderFileList();
+  }
+
+  // Builds a nested folder tree from the flat file list. Each path is absolute;
+  // we relativize against workspaceRoot so the left rail shows a readable
+  // structure (src/ → components/ → Button.jsx) instead of one huge absolute
+  // path, while still carrying the full path in data-* for operations.
+  function buildTree(list) {
+    const root = { children: new Map(), files: [] };
+    for (const f of list) {
+      let rel = f.name;
+      if (workspaceRoot && rel.startsWith(workspaceRoot)) rel = rel.slice(workspaceRoot.length).replace(/^[\\/]+/, '');
+      const parts = rel.split(/[\\/]/).filter(Boolean);
+      if (!parts.length) continue;
+      let node = root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!node.children.has(parts[i])) node.children.set(parts[i], { children: new Map(), files: [] });
+        node = node.children.get(parts[i]);
+      }
+      node.files.push(f);
+    }
+    return root;
   }
 
   function renderFileList() {
@@ -3811,15 +3842,29 @@ function initCodePanel() {
       fileListEl.innerHTML = '<div id="code-file-tree-empty">No files in the workspace yet — create one, or ask below.</div>';
       return;
     }
-    fileListEl.innerHTML = files.map((f) => {
-      const dotColor = LANG_DOT_COLOR[f.language] || 'var(--text-faint)';
-      const label = f.name.split('/').pop().split('\\').pop();
-      return `<div class="code-file-row${f.id === activeFileId ? ' active' : ''}" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(f.name)}">
-        <span class="code-file-lang-dot" style="background:${dotColor}"></span>
-        <span class="code-file-row-name" title="${escapeHtml(f.name)}">${escapeHtml(label)}</span>
-        <button class="code-file-row-delete" data-delete-id="${escapeHtml(f.id)}" title="Delete">✕</button>
-      </div>`;
-    }).join('');
+    const tree = buildTree(files);
+    const closedDirs = new Set();
+    let html = '';
+    const walk = (node, depth) => {
+      const dirs = [...node.children.keys()].sort();
+      for (const d of dirs) {
+        const child = node.children.get(d);
+        const total = child.files.length + [...child.children.values()].reduce((n, c) => n + c.files.length + [...c.children.keys()].length, 0);
+        const open = !closedDirs.has(d);
+        html += `<div style="padding-left:${depth * 14}px" class="code-file-dir${open ? ' open' : ''}" data-dir="${escapeHtml(d)}">
+          <button class="code-file-dir-toggle" type="button">${open ? '▾' : '▸'}</button>
+          <span class="code-file-dir-name">${escapeHtml(d)}</span><span class="code-file-dir-count">${total}</span>
+        </div>`;
+        if (open) {
+          walk(child, depth + 1);
+          for (const f of child.files) html += fileRowHtml(f, depth + 1);
+        }
+      }
+      for (const f of node.files) html += fileRowHtml(f, depth);
+    };
+    walk(tree, 0);
+
+    fileListEl.innerHTML = html;
     fileListEl.querySelectorAll('.code-file-row').forEach((row) => {
       row.addEventListener('click', (e) => {
         if (e.target.dataset.deleteId) return;
@@ -3839,6 +3884,25 @@ function initCodePanel() {
         refreshFileList();
       });
     });
+    fileListEl.querySelectorAll('.code-file-dir').forEach((dir) => {
+      dir.addEventListener('click', (e) => {
+        if (e.target.closest('.code-file-row, .code-file-row-delete')) return;
+        const name = dir.dataset.dir;
+        if (closedDirs.has(name)) closedDirs.delete(name);
+        else closedDirs.add(name);
+        renderFileList();
+      });
+    });
+  }
+
+  function fileRowHtml(f, depth) {
+    const dotColor = LANG_DOT_COLOR[f.language] || 'var(--text-faint)';
+    const label = f.name.split('/').pop().split('\\').pop();
+    return `<div class="code-file-row${f.id === activeFileId ? ' active' : ''}" style="padding-left:${10 + depth * 14}px" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(f.name)}">
+      <span class="code-file-lang-dot" style="background:${dotColor}"></span>
+      <span class="code-file-row-name" title="${escapeHtml(f.name)}">${escapeHtml(label)}</span>
+      <button class="code-file-row-delete" data-delete-id="${escapeHtml(f.id)}" title="Delete">✕</button>
+    </div>`;
   }
 
   async function openFile(id, name) {
