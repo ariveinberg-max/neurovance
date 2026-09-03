@@ -588,6 +588,8 @@
     width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; background: var(--text-faint);
   }
   .code-file-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .code-file-dirty { color: var(--accent-green); font-size: 9px; vertical-align: middle; animation: code-dirty-pulse 1.4s ease-in-out infinite; }
+  @keyframes code-dirty-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
   .code-file-dir { display: flex; align-items: center; gap: 6px; padding: 6px 8px; cursor: pointer;
     font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-faint);
     border-radius: 6px; transition: background 0.12s ease; }
@@ -3809,6 +3811,7 @@ function initCodePanel() {
   let saveTimer = null;
   let codeHistory = []; // simplified {role, content} turns for the prompt bar, session-only
   let stopController = null; // AbortController for the in-flight code prompt (Stop button)
+  const dirtySet = new Set(); // paths with unsaved edits (drives the dirty dot)
 
   function ensureEditor() {
     if (cm) return cm;
@@ -3818,6 +3821,7 @@ function initCodePanel() {
     });
     cm.on('change', () => {
       if (!activeFileId) return;
+      if (!dirtySet.has(activeFileName)) { dirtySet.add(activeFileName); renderFileList(); }
       clearTimeout(saveTimer);
       saveTimer = setTimeout(saveActiveFile, 700); // debounced autosave, not on every keystroke
     });
@@ -3839,6 +3843,7 @@ function initCodePanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: activeFileId, content: cm.getValue() }),
       });
+      if (dirtySet.has(activeFileName)) { dirtySet.delete(activeFileName); renderFileList(); }
     } catch (e) {}
   }
 
@@ -3936,9 +3941,10 @@ function initCodePanel() {
   function fileRowHtml(f, depth) {
     const dotColor = LANG_DOT_COLOR[f.language] || 'var(--text-faint)';
     const label = f.name.split('/').pop().split('\\').pop();
+    const dirty = dirtySet.has(f.name) || dirtySet.has(f.id);
     return `<div class="code-file-row${f.id === activeFileId ? ' active' : ''}" style="padding-left:${10 + depth * 14}px" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(f.name)}">
       <span class="code-file-lang-dot" style="background:${dotColor}"></span>
-      <span class="code-file-row-name" title="${escapeHtml(f.name)}">${escapeHtml(label)}</span>
+      <span class="code-file-row-name" title="${escapeHtml(f.name)}">${escapeHtml(label)}${dirty ? ' <span class="code-file-dirty" title="Unsaved changes">●</span>' : ''}</span>
       <button class="code-file-row-delete" data-delete-id="${escapeHtml(f.id)}" title="Delete">✕</button>
     </div>`;
   }
@@ -4042,6 +4048,7 @@ function initCodePanel() {
       if (!res.ok) throw new Error(data.error);
       activeFileId = id;
       activeFileName = name;
+      dirtySet.delete(name);
       const editor = ensureEditor();
       editor.setOption('mode', data.file.language);
       editor.setValue(data.file.content || '');
@@ -4064,6 +4071,7 @@ function initCodePanel() {
     editorMount.style.display = 'none';
     emptyState.style.display = 'flex';
     statusbar.hidden = true;
+    renderFileList();
   }
 
   newFileBtn.addEventListener('click', async () => {
