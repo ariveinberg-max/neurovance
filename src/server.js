@@ -273,6 +273,7 @@ function identityPayload(user) {
     language: auth.LANGUAGES.includes(user.language) ? user.language : 'English',
     permissionMode: user.permissionMode === 'ask' ? 'ask' : 'bypass',
     effortLevel: auth.EFFORT_LEVELS.includes(user.effortLevel) ? user.effortLevel : 'low',
+    preferences: auth.mergePreferences(user),
   };
 }
 
@@ -888,8 +889,27 @@ async function handleRequest(req, res) {
     if (req.url === '/api/ai-settings' && req.method === 'POST') {
       try {
         const { temperature, topP, maxTokens, contextTurns } = await readJsonBody(req);
-        const updated = await auth.setAiSettings(user.id, { temperature, topP, maxTokens, contextTurns });
-        return sendJson(res, 200, { ok: true, ...updated });
+        // Delegates into the unified preferences store so the older Advanced
+        // AI panel keeps working; these four knobs now live in preferences.
+        const updated = await auth.updatePreferences(user.id, { temperature, topP, maxTokens, contextTurns });
+        return sendJson(res, 200, { ok: true, preferences: updated });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
+    // The single settings endpoint for everything new. GET returns the merged
+    // preferences (so the UI can populate all the toggles on load); POST is a
+    // PATCH that only writes the keys present in the body. The frontend now
+    // saves every new machine-tuning knob through here.
+    if (req.url === '/api/preferences' && req.method === 'GET') {
+      return sendJson(res, 200, { ok: true, preferences: auth.mergePreferences(user) });
+    }
+    if (req.url === '/api/preferences' && req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        const updated = await auth.updatePreferences(user.id, body || {});
+        return sendJson(res, 200, { ok: true, preferences: updated });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }
@@ -1177,11 +1197,12 @@ async function handleRequest(req, res) {
 
     if (req.url === '/api/code/files' && req.method === 'GET') {
       try {
-        const files = await codeFiles.listCodeFiles(user.id);
+        const files = await codeFiles.listCodeFiles();
         // Listing is metadata-only — full content only over the wire when a
         // specific file is actually opened, not on every workspace refresh.
+        // name is the real absolute path now (full device access).
         const listing = files.map(({ id, name, language, updatedAt }) => ({ id, name, language, updatedAt }));
-        return sendJson(res, 200, { ok: true, files: listing });
+        return sendJson(res, 200, { ok: true, files: listing, workspaceRoot: codeFiles.workspaceRoot() });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }
@@ -1189,9 +1210,10 @@ async function handleRequest(req, res) {
 
     if (req.url === '/api/code/files' && req.method === 'POST') {
       try {
-        const { name } = await readJsonBody(req);
-        if (typeof name !== 'string' || !name.trim()) return sendJson(res, 400, { error: 'name must be a non-empty string' });
-        const file = await codeFiles.createCodeFile(user.id, { name: name.trim() });
+        const { path, name } = await readJsonBody(req);
+        const p = path || name;
+        if (typeof p !== 'string' || !p.trim()) return sendJson(res, 400, { error: 'path must be a non-empty string' });
+        const file = await codeFiles.createCodeFile(user.id, { name: p.trim(), content: '' });
         return sendJson(res, 200, { ok: true, file });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
@@ -1200,8 +1222,9 @@ async function handleRequest(req, res) {
 
     if (req.url === '/api/code/files/get' && req.method === 'POST') {
       try {
-        const { id } = await readJsonBody(req);
-        const file = await codeFiles.getCodeFile(user.id, id);
+        const { path, id } = await readJsonBody(req);
+        const p = path || id;
+        const file = await codeFiles.getCodeFile(user.id, p);
         if (!file) return sendJson(res, 404, { error: 'File not found.' });
         return sendJson(res, 200, { ok: true, file });
       } catch (e) {
@@ -1211,8 +1234,9 @@ async function handleRequest(req, res) {
 
     if (req.url === '/api/code/files/save' && req.method === 'POST') {
       try {
-        const { id, content } = await readJsonBody(req);
-        const existing = await codeFiles.getCodeFile(user.id, id);
+        const { path, id, content } = await readJsonBody(req);
+        const p = path || id;
+        const existing = await codeFiles.getCodeFile(user.id, p);
         if (!existing) return sendJson(res, 404, { error: 'File not found.' });
         const { file } = await codeFiles.writeCodeFile(user.id, existing.name, content ?? '');
         return sendJson(res, 200, { ok: true, file });
@@ -1223,9 +1247,11 @@ async function handleRequest(req, res) {
 
     if (req.url === '/api/code/files/rename' && req.method === 'POST') {
       try {
-        const { id, name } = await readJsonBody(req);
-        if (typeof name !== 'string' || !name.trim()) return sendJson(res, 400, { error: 'name must be a non-empty string' });
-        const file = await codeFiles.renameCodeFile(user.id, id, name.trim());
+        const { path, id, name } = await readJsonBody(req);
+        const from = path || id;
+        const to = name;
+        if (typeof to !== 'string' || !to.trim()) return sendJson(res, 400, { error: 'name must be a non-empty string' });
+        const file = await codeFiles.renameCodeFile(user.id, from, to.trim());
         return sendJson(res, 200, { ok: true, file });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
@@ -1234,8 +1260,8 @@ async function handleRequest(req, res) {
 
     if (req.url === '/api/code/files/remove' && req.method === 'POST') {
       try {
-        const { id } = await readJsonBody(req);
-        await codeFiles.deleteCodeFile(user.id, id);
+        const { path, id } = await readJsonBody(req);
+        await codeFiles.deleteCodeFile(user.id, path || id);
         return sendJson(res, 200, { ok: true });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });

@@ -1405,6 +1405,14 @@
           <button class="settings-nav-item" data-section="scheduled"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>Scheduled Tasks</button>
         </div>
 
+        <div class="settings-nav-group" data-group="machine">
+          <div class="settings-nav-group-label">Machine</div>
+          <button class="settings-nav-item" data-section="autonomy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>Autonomy</button>
+          <button class="settings-nav-item" data-section="communication"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H7l-3 3z"/><path d="M8 9h8M8 12h5"/></svg>Communication</button>
+          <button class="settings-nav-item" data-section="memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9M4 9h6M4 14h9"/><path d="M17 14l3 3-3 3"/></svg>Memory & Learning</button>
+          <button class="settings-nav-item" data-section="automation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>Automation</button>
+        </div>
+
         <div class="settings-nav-group" data-group="support">
           <div class="settings-nav-group-label">Support</div>
           <button class="settings-nav-item" data-section="feedback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H7l-3 3z"/><path d="M8 9h8M8 12h5"/></svg>Feedback</button>
@@ -1456,6 +1464,15 @@
         <div class="settings-panel" data-panel="advanced-ai" id="settings-advanced-ai-section">
           <h2 class="settings-panel-title">Advanced AI</h2>
           <p class="settings-panel-desc">Fine-tune the behavior and constraints of your Superself.</p>
+
+          <div class="settings-subsection">
+            <div class="settings-subtitle">Model</div>
+            <div id="model-tabs" style="margin-top:12px;">
+              <button class="model-tab" data-model="core">Core</button>
+              <button class="model-tab" data-model="pulse">Pulse</button>
+            </div>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Core is the full model. Pulse trades a little depth for much faster, cheaper replies — the app auto-switches to it near your token budget.</p>
+          </div>
 
           <div class="settings-subsection">
             <div class="settings-subtitle">Creativity (Temperature)</div>
@@ -3619,15 +3636,16 @@ function initCodePanel() {
 
   function renderFileList() {
     if (!files.length) {
-      fileListEl.innerHTML = '<div id="code-file-tree-empty">No files yet — create one, or ask below.</div>';
+      fileListEl.innerHTML = '<div id="code-file-tree-empty">No files in the workspace yet — create one, or ask below.</div>';
       return;
     }
     fileListEl.innerHTML = files.map((f) => {
       const dotColor = LANG_DOT_COLOR[f.language] || 'var(--text-faint)';
-      return `<div class="code-file-row${f.id === activeFileId ? ' active' : ''}" data-id="${f.id}" data-name="${escapeHtml(f.name)}">
+      const label = f.name.split('/').pop().split('\\').pop();
+      return `<div class="code-file-row${f.id === activeFileId ? ' active' : ''}" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(f.name)}">
         <span class="code-file-lang-dot" style="background:${dotColor}"></span>
-        <span class="code-file-row-name">${escapeHtml(f.name)}</span>
-        <button class="code-file-row-delete" data-delete-id="${f.id}" title="Delete">✕</button>
+        <span class="code-file-row-name" title="${escapeHtml(f.name)}">${escapeHtml(label)}</span>
+        <button class="code-file-row-delete" data-delete-id="${escapeHtml(f.id)}" title="Delete">✕</button>
       </div>`;
     }).join('');
     fileListEl.querySelectorAll('.code-file-row').forEach((row) => {

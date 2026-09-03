@@ -1,10 +1,7 @@
 import { spawn } from 'child_process';
-import { mkdirSync, writeFileSync, rmSync, readdirSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import { basename } from 'path';
 import net from 'net';
-import { listCodeFiles } from './codeFiles.js';
-import { assertSpendSafeShell } from './spend-safety.js';
+import { listCodeFiles, workspaceRoot, resolvePath } from './codeFiles.js';
 
 // Real process execution — spawning real interpreters, real dev servers,
 // real ports — for the Code panel's "Run" button. This is the one part of
@@ -39,39 +36,18 @@ const RUNTIME_BY_EXT = {
 // whatever was running first.
 const runningByUser = new Map(); // userId -> { proc, port, output: string[], startedAt, status, workDir }
 
-function workDirFor(userId) {
-  const safe = String(userId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'unknown';
-  return join(tmpdir(), 'neurovance-exec', safe);
-}
-
-// Always wipes and rewrites every file fresh from Firestore before running,
-// rather than trying to diff/sync — the workspace is small (a personal
-// code panel, not a real repo), and this guarantees the disk never drifts
-// from what's actually saved, e.g. a file deleted in the UI can't linger
-// on disk and get accidentally executed.
-async function materializeFiles(userId) {
-  const dir = workDirFor(userId);
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
-  const files = await listCodeFiles(userId);
-  for (const file of files) {
-    writeFileSync(join(dir, file.name), file.content || '');
-  }
-  return { dir, files };
-}
-
 // package.json present -> npm project (install + run its dev/start script).
 // Otherwise a single script file, run directly with the right interpreter.
-// Deliberately simple entrypoint rules — this is a personal scratch
-// workspace, not a real project layout, so "guess intelligently across a
-// nested file tree" isn't worth the complexity it'd add.
+// Files are real paths on disk (codeFiles.js), so we key off each file's
+// basename for detection but run them in place.
 function planRun(dir, files) {
-  const hasPackageJson = files.some((f) => f.name === 'package.json');
+  const names = files.map((f) => basename(f.name || f.path || ''));
+  const hasPackageJson = names.includes('package.json');
   if (hasPackageJson) {
     let scripts = {};
+    const pkgFile = files.find((f) => basename(f.name || f.path || '') === 'package.json');
     try {
-      const pkg = JSON.parse(files.find((f) => f.name === 'package.json').content || '{}');
-      scripts = pkg.scripts || {};
+      scripts = JSON.parse(pkgFile.content || '{}').scripts || {};
     } catch (e) {
       throw new Error('package.json is not valid JSON.');
     }
@@ -80,16 +56,17 @@ function planRun(dir, files) {
     return { needsInstall: true, command: 'npm', args: ['run', scriptName] };
   }
 
-  const runnable = files.filter((f) => RUNTIME_BY_EXT[f.name.split('.').pop()?.toLowerCase()]);
+  const runnable = files.filter((f) => RUNTIME_BY_EXT[basename(f.name || f.path || '').split('.').pop()?.toLowerCase()]);
   if (runnable.length === 0) throw new Error('No runnable file found (.js, .py, .rb, .sh, .go) and no package.json.');
   const entry =
-    runnable.find((f) => /^(main|index|app|server)\./i.test(f.name)) || runnable[0];
-  if (runnable.length > 1 && !/^(main|index|app|server)\./i.test(entry.name)) {
-    throw new Error(`Multiple runnable files and no clear entry point — name one "main.${entry.name.split('.').pop()}" to pick it.`);
+    runnable.find((f) => /^(main|index|app|server)\./i.test(basename(f.name || f.path || ''))) || runnable[0];
+  if (runnable.length > 1 && !/^(main|index|app|server)\./i.test(basename(entry.name || entry.path || ''))) {
+    throw new Error(`Multiple runnable files and no clear entry point — name one "main.<ext>" to pick it.`);
   }
-  const ext = entry.name.split('.').pop().toLowerCase();
+  const entryName = entry.name || entry.path;
+  const ext = basename(entryName).split('.').pop().toLowerCase();
   const [cmd, ...baseArgs] = RUNTIME_BY_EXT[ext];
-  return { needsInstall: false, command: cmd, args: [...baseArgs, entry.name] };
+  return { needsInstall: false, command: cmd, args: [...baseArgs, entryName] };
 }
 
 function appendOutput(state, line) {
@@ -153,8 +130,9 @@ export async function startRun(userId) {
   if (!isExecutionEnabled()) throw new Error('Code execution is disabled in this environment.');
   stopRun(userId); // only one run at a time
 
-  const { dir, files } = await materializeFiles(userId);
-  if (files.length === 0) throw new Error('Nothing to run — the workspace is empty.');
+  const dir = workspaceRoot();
+  const files = await listCodeFiles(dir, { recursive: true });
+  if (files.length === 0) throw new Error(`Nothing to run — the workspace (${dir}) is empty.`);
   const plan = planRun(dir, files);
 
   const state = { proc: null, output: [], startedAt: new Date().toISOString(), status: 'installing', workDir: dir };
@@ -214,19 +192,16 @@ export async function startRun(userId) {
   return { status: state.status, previewUrl: portOpen ? `http://localhost:${PREVIEW_PORT}` : null };
 }
 
-// One-shot shell command for the code agent's run_command tool. Unlike
-// startRun (which picks a single entrypoint and binds a fixed preview port),
-// this executes an arbitrary command the model chose, against the workspace
-// materialized from Firestore, with three layers of protection:
+// One-shot shell command for the code agent's run_command tool — full
+// device access, like Claude Code. Runs the command against the REAL machine
+// with the user's choice of working directory (default: the workspace root).
+// No sandbox materialization and no spend-safety blocklist here: the operator
+// explicitly chose "full trust" for the self-hosted local code panel. Two
+// protective rails remain — a hard timeout kills runaways and a bounded
+// output cap keeps one noisy command from blowing up the agent's context:
 //
-//  1. Spend-safety blocklist (assertSpendSafeShell) — a command mentioning a
-//     billing/ad-spend command or provider is refused before anything spawns.
-//     Same guard a normal terminal user gets, applied to model-chosen shells.
-//  2. Sanitized env (childEnv) — no real secrets leak into the child; it only
-//     gets PATH/HOME/PORT, so a tricky `env` dump finds nothing worth exfil.
-//  3. Hard timeout + output bound — a runaway (`while(true)`, slow build) is
-//     killed and its output truncated, so one bad command can't hang the loop
-//     or blow up context memory.
+//  1. Hard timeout — a runaway (`while(true)`, slow build) is killed.
+//  2. Output bound — truncated so it can't hang the loop or blow up memory.
 //
 // Gated the same as everything else here by isExecutionEnabled(), so it's a
 // no-op that throws on the shared deployment.
@@ -236,10 +211,7 @@ export async function runCommand(userId, opts = {}) {
   if (!command) throw new Error('run_command needs a non-empty command.');
   const timeoutMs = Math.min(Math.max(Number(opts.timeoutMs) || 30000, 1000), 120000);
 
-  assertSpendSafeShell(command);
-
-  const dir = workDirFor(userId);
-  await materializeFiles(userId);
+  const dir = opts.cwd ? resolvePath(String(opts.cwd)) : workspaceRoot();
 
   const MAX_OUTPUT_CHARS = 12000;
   let output = '';

@@ -6,9 +6,9 @@ import { remember, recall, recentMemories, coreMemories, allMemories, vitalsWind
 import { computeVitals } from './vitals.js';
 import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
-import { findUserById, listSkills } from './auth.js';
+import { findUserById, listSkills, mergePreferences } from './auth.js';
 import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
-import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, languageDisplayName } from './codeFiles.js';
+import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, languageDisplayName, workspaceRoot, searchFiles } from './codeFiles.js';
 import { runCommand } from './codeExecution.js';
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
@@ -521,7 +521,16 @@ const COMPANION_TOOL_NAMES = ALL_COMPANION_TOOLS.map((t) => t.name);
 // confirm in companion.js is the other half of this same guarantee.
 async function companionTools(userId, opts = {}) {
   if (!(await companion.isPaired(userId))) return [];
-  return opts.unattended ? ALL_COMPANION_TOOLS.filter((t) => t.name !== 'run_shell_command') : ALL_COMPANION_TOOLS;
+  const user = await findUserById(userId);
+  const p = mergePreferences(user);
+  // Shell is the single most powerful thing the Companion can do, so it is
+  // OFF by default and only exposed when the user turns on the autonomous
+  // "Run shell commands" ability in Settings. Unattended runs never get it
+  // regardless — that's the spend/safety line (see assertSpendSafeShell).
+  if (opts.unattended || p.shellAccess !== true) {
+    return ALL_COMPANION_TOOLS.filter((t) => t.name !== 'run_shell_command');
+  }
+  return ALL_COMPANION_TOOLS;
 }
 
 async function handleCompanionTool(userId, toolUse) {
@@ -745,6 +754,27 @@ function languageLine(user) {
   return `Their set reply language is ${language} — always reply in ${language}, even on a short or casual message and even if they happen to type to you in English, unless they explicitly ask you to switch languages.`;
 }
 
+// Builds the communication-style instruction from the machine-tuning prefs
+// (verbosity / formality / free-form tone). Returns an array of lines (flat
+// via join) so callers can drop it into their system prompt.
+function communicationLines(prefs) {
+  const lines = [];
+  if (prefs?.verbosity === 'concise') {
+    lines.push('Be concise: keep replies short and get to the point fast. No padding, no restating what was asked.');
+  } else if (prefs?.verbosity === 'detailed') {
+    lines.push('Be detailed: give thorough, complete replies with the reasoning and context included, not just a one-line answer.');
+  }
+  if (prefs?.formality === 'professional') {
+    lines.push('Speak professionally — measured, well-structured, polished. Minimal slang and casual fillers.');
+  } else {
+    lines.push('Speak warmly and naturally, the way a real person in your actual relationship would — not like a customer-service bot.');
+  }
+  if (prefs?.tone && prefs.tone.trim()) {
+    lines.push(`Extra style instruction from them: ${prefs.tone.trim()}`);
+  }
+  return lines;
+}
+
 async function loadProjectRules(userId) {
   try {
     return await companion.sendCommand(userId, 'read_file', { path: '.neurovance-rules' });
@@ -916,14 +946,17 @@ const MAX_INPUT_TOKENS = {
 // produced none, so callers can check truthiness without an extra null check.
 // `budget` names which cap set applies: 'deep' (large autonomy budget) or
 // 'normal'. The caps are enforced in the loop body below.
-async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId, priorMessages = [], thinking = undefined, budget = 'normal') {
+async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId, priorMessages = [], thinking = undefined, budget = 'normal', prefs = null) {
   const messages = [...priorMessages, { role: 'user', content: initialMessage }];
   const thinkingParts = [];
   let usage = { input_tokens: 0, output_tokens: 0 };
   let reasoningState = 'PLANNING';
   let failureCount = 0;
   let totalIterations = 0;
-  const capIterations = budget === 'deep' ? MAX_ITERATIONS.deep : MAX_ITERATIONS.normal;
+  const hardCap = budget === 'deep' ? MAX_ITERATIONS.deep : MAX_ITERATIONS.normal;
+  // The user's own "max iterations" knob tightens the loop from the hard
+  // ceiling downward, but never raises it above the safety cap.
+  const capIterations = prefs?.maxIterations ? Math.min(prefs.maxIterations, hardCap) : hardCap;
   const capInputTokens = budget === 'deep' ? MAX_INPUT_TOKENS.deep : MAX_INPUT_TOKENS.normal;
 
   // eslint-disable-next-line no-constant-condition
@@ -963,6 +996,11 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
       tools,
       messages,
       ...(thinking ? { thinking } : {}),
+      // Only applied when extended thinking is off — Anthropic requires
+      // temperature 1.0 during thinking, so honoring the user's temperature
+      // knob at that time would be an API error. When thinking is on, the
+      // effort level is the tuning; temperature is effectively fixed at 1.
+      ...(!thinking && prefs ? { temperature: prefs.temperature, top_p: prefs.topP } : {}),
     });
     if (response.usage) {
       usage.input_tokens += response.usage.input_tokens || 0;
@@ -1005,6 +1043,12 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
 
     const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
       if (toolUse.name === 'remember') {
+        // "Auto-memory" off in Settings turns the remember tool into a no-op
+        // (with a gentle reply) instead of writing new memories. It's read
+        // off the user's preferences each run, so toggling it applies live.
+        if (prefs && prefs.autoMemory === false) {
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Auto-memory is off, so I did not save this to long-term memory. Turn it back on in Settings to have me remember things again.' };
+        }
         const { content, tags, importance } = toolUse.input;
         const entry = await remember(userId, content, tags, importance);
         return { type: 'tool_result', tool_use_id: toolUse.id, content: `Saved as memory #${entry.id}.` };
@@ -1079,18 +1123,21 @@ async function runLoop(userId, system, initialMessage, tools, maxTokens, modelId
 }
 
 export async function runTask(userId, user, task, history = [], opts = {}) {
+  const prefs = mergePreferences(user);
   const [extraTools, connectorTools, system] = await Promise.all([
     companionTools(userId, opts),
     discoverAllConnectorTools(userId),
     buildTaskSystemPrompt(userId, user, task, opts),
   ]);
-  const tools = [MEMORY_TOOL, SEARCH_TOOL, FETCH_WEBPAGE_TOOL, VERIFY_TOOL, ...extraTools, ...connectorTools];
+  const comms = communicationLines(prefs).join('\n');
+  const fullSystem = comms ? `${system}\n\n${comms}` : system;
+  const tools = [MEMORY_TOOL, SEARCH_TOOL, ...(prefs.webFetch ? [FETCH_WEBPAGE_TOOL] : []), VERIFY_TOOL, ...extraTools, ...connectorTools];
   const deep = opts.mode === 'deep';
-  const baseMax = deep ? 4096 : 1024;
+  const baseMax = deep ? 4096 : (prefs.maxTokens || 1024);
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, baseMax);
   const { text, usage } = await runLoop(
-    userId, system, task, tools, maxTokens, resolveModel(user?.model), history, thinking,
-    deep ? 'deep' : 'normal'
+    userId, fullSystem, task, tools, maxTokens, resolveModel(prefs.model), history, thinking,
+    deep ? 'deep' : 'normal', prefs
   );
   return { result: text, usage }; // task mode's own contract is now an object — thinking display is a chat-only feature for now
 }
@@ -1262,87 +1309,115 @@ export async function correctMemory(userId, memoryId, correctionText) {
 // garbage). Defaults to 'voice' so any caller that doesn't pass mode keeps
 // the exact behavior it always had.
 export async function chatReply(userId, user, message, history = [], mode = 'voice') {
+  const prefs = mergePreferences(user);
   const [system, extraTools, connectorTools] = await Promise.all([
     buildChatSystemPrompt(userId, user, message, mode),
     companionTools(userId),
     discoverAllConnectorTools(userId),
   ]);
-  const baseMaxTokens = mode === 'voice' ? 400 : 1536;
+  const comms = communicationLines(prefs).join('\n');
+  const fullSystem = comms ? `${system}\n\n${comms}` : system;
+  const baseMaxTokens = mode === 'voice' ? 400 : (prefs.maxTokens || 1536);
   const { thinking, maxTokens } = resolveThinking(user?.effortLevel, baseMaxTokens);
-  const { text, thinking: thinkingText, usage } = await runLoop(userId, system, message, [MEMORY_TOOL, FETCH_WEBPAGE_TOOL, ...extraTools, ...connectorTools], maxTokens, resolveModel(user?.model), history, thinking);
+  const { text, thinking: thinkingText, usage } = await runLoop(
+    userId, fullSystem, message,
+    [MEMORY_TOOL, ...(prefs.webFetch ? [FETCH_WEBPAGE_TOOL] : []), ...extraTools, ...connectorTools],
+    maxTokens, resolveModel(prefs.model), history, thinking, 'normal', prefs
+  );
   return { reply: text, thinking: thinkingText, usage };
 }
 
 // ---------- Code editor assistant ----------
 // A separate, self-contained tool loop rather than reusing runLoop — the
-// tool set (read/write/delete a virtual file by name) and the "which files
-// changed" bookkeeping are specific enough to this that folding it into
-// runLoop's generic loop would mean threading file-tracking state through
-// code every other caller (chat, task) doesn't need. Full-file overwrite
-// (write_file replaces the whole content) rather than a find/replace edit
-// tool — less surgical than real Claude Code's edit tool, but there's
-// nothing to get subtly wrong matching whitespace/context in a str_replace
-// against content the model may be misremembering; simpler and more
-// reliable for a first version.
+// tool set (read/write/edit/delete REAL files on the device, plus run
+// commands) and the "which files changed" bookkeeping are specific enough
+// that folding it into runLoop's generic loop would mean threading
+// file-tracking state through code every other caller (chat, task) doesn't
+// need. Full device access: every path is real, absolute paths reach
+// anywhere, relative paths resolve from the workspace root (CODE_WORKSPACE_DIR,
+// default ~), and run_command executes against the real machine with the
+// real filesystem.
 const CODE_TOOLS = [
   {
     name: 'list_files',
-    description: 'List every file in the workspace by name and language (not their contents — use read_file for that).',
-    input_schema: { type: 'object', properties: {} },
+    description:
+      'List files in a directory (default: the workspace root). Returns each file\'s path, language and size — not contents (use read_file for that). Pass recursive:true to walk up to a few levels deep. Use this to orient yourself in the workspace before working.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Directory to list. Relative to workspace root, or absolute. Omit for the workspace root.' },
+        recursive: { type: 'boolean', description: 'Walk into subdirectories (shallow). Default false.' },
+      },
+    },
+  },
+  {
+    name: 'search_files',
+    description:
+      'Find files or search file contents anywhere on the device. Pass a filename/glob pattern (e.g. "**/*.py", "package.json") to search by name, or a query string to search inside file contents. Directory scope is the workspace root by default; pass an absolute path to scope elsewhere. Returns up to 50 matches with paths and line numbers.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: 'Glob/path pattern to match filenames, or a text query to search contents.' },
+        dir: { type: 'string', description: 'Root to search under. Relative to workspace or absolute. Defaults to workspace root.' },
+        query: { type: 'string', description: 'If set, search file CONTENTS for this substring instead of matching filenames.' },
+      },
+    },
   },
   {
     name: 'read_file',
-    description: 'Read a file\'s full current content. Always do this before editing a file you have not already read in this conversation — never guess at existing content.',
+    description:
+      'Read a real file\'s full content. Always do this before editing a file you have not already read in this conversation — never guess at existing content. Path can be absolute or relative to the workspace root.',
     input_schema: {
       type: 'object',
-      properties: { name: { type: 'string', description: 'Exact file name, e.g. "index.js".' } },
-      required: ['name'],
+      properties: { path: { type: 'string', description: 'File path, e.g. "src/app.js", "~/code/app.js", or absolute.' } },
+      required: ['path'],
     },
   },
   {
     name: 'edit_file',
     description:
-      'Make a precise edit to an existing file by replacing one exact snippet with another. Strongly preferred over write_file for ANY change to an existing file: you only send the lines that change, so it is far faster and cannot accidentally drop code. old_string must match the file text exactly (same indentation and whitespace) and must be unique in the file unless replace_all is true — include a few surrounding lines to make it unique. You may call edit_file several times in one turn for several separate changes.',
+      'Make a precise edit to an existing real file by replacing one exact snippet with another. Strongly preferred over write_file for ANY change to an existing file: you only send the lines that change, so it is far faster and cannot accidentally drop code. old_string must match the file text exactly (same indentation and whitespace) and must be unique in the file unless replace_all is true — include a few surrounding lines to make it unique. You may call edit_file several times in one turn for several separate changes.',
     input_schema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Exact file name, e.g. "index.js".' },
+        path: { type: 'string', description: 'File path, relative to workspace root or absolute.' },
         old_string: { type: 'string', description: 'The exact existing text to replace. Must be unique in the file (or set replace_all).' },
         new_string: { type: 'string', description: 'The replacement text.' },
         replace_all: { type: 'boolean', description: 'Replace every occurrence instead of requiring a unique match. Default false.' },
       },
-      required: ['name', 'old_string', 'new_string'],
+      required: ['path', 'old_string', 'new_string'],
     },
   },
   {
     name: 'write_file',
-    description: 'Create a new file, or completely replace an existing one. Use this for NEW files, or when nearly the whole file changes. For any smaller change to an existing file use edit_file instead. content replaces the entire file — include everything that should remain.',
+    description: 'Create a new real file (or completely replace an existing one) at any path. Parent directories are created automatically. Use this for NEW files, or when nearly the whole file changes. For any smaller change to an existing file use edit_file instead. content replaces the entire file — include everything that should remain.',
     input_schema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Exact file name, e.g. "index.js". Creates the file if it does not exist yet.' },
+        path: { type: 'string', description: 'File path where the file should live, e.g. "src/index.js" or an absolute path.' },
         content: { type: 'string', description: 'The complete new content of the file.' },
       },
-      required: ['name', 'content'],
+      required: ['path', 'content'],
     },
   },
   {
     name: 'delete_file',
-    description: 'Delete a file. Only call this if they explicitly asked to remove it.',
+    description: 'Delete a real file (or an empty directory). Only call this if they explicitly asked to remove it.',
     input_schema: {
       type: 'object',
-      properties: { name: { type: 'string' } },
-      required: ['name'],
+      properties: { path: { type: 'string', description: 'File or directory path to delete.' } },
+      required: ['path'],
     },
   },
   {
     name: 'run_command',
     description:
-      'Run a shell command inside the workspace and return its output. Use this to EXECUTE the code you wrote — run your script, run tests, run a linter, install a dependency — so you can verify your work actually runs and fix any errors it reports, rather than just writing code that looks right. The command runs in a fresh copy of the workspace materialized from your saved files, with a sanitized environment. Output is capped at ~12k chars and the command is hard-killed after a timeout (default 30s, max 120s — pass timeoutMs for slow operations like npm install). A non-zero exit is fine — read the error output and fix the code. Prefer this over narrating that "the code should work": run it and prove it.',
+      'Run a real shell command on the device and return its output — full terminal access like Claude Code. Use this to EXECUTE the code you wrote — run scripts, run tests, run a linter, install dependencies, run git — so you can verify your work actually runs and fix any errors it reports, rather than just writing code that looks right. The command runs with the real machine, real files, and real environment, in the working directory you give (cwd, default the workspace root). Output is capped at ~12k chars and the command is hard-killed after a timeout (default 30s, max 120s — pass timeoutMs for slow operations like npm install). A non-zero exit is fine — read the error output and fix the code. Prefer this over narrating that "the code should work": run it and prove it.',
     input_schema: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: 'The full shell command to run, e.g. "node index.js" or "npm test".' },
+        command: { type: 'string', description: 'The full shell command to run, e.g. "node src/index.js" or "npm test" or "git status".' },
+        cwd: { type: 'string', description: 'Working directory to run in. Relative to workspace or absolute. Defaults to workspace root.' },
         timeoutMs: { type: 'number', description: 'Optional timeout in ms (1000–120000, default 30000).' },
       },
       required: ['command'],
@@ -1355,29 +1430,31 @@ const CODE_TOOLS = [
 const ACTIVE_FILE_INLINE_MAX_CHARS = 24_000;
 
 async function buildCodeSystemPrompt(userId, activeFileName) {
-  const files = await listCodeFiles(userId);
+  const base = workspaceRoot();
+  const files = await listCodeFiles(base, { recursive: true });
   const fileList = files.length
-    ? files.map((f) => `- ${f.name} (${languageDisplayName(f.language)}, ${(f.content || '').length} chars)`).join('\n')
-    : '(workspace is empty — no files yet)';
+    ? files.slice(0, 60).map((f) => `- ${f.name} (${languageDisplayName(f.language)}, ${f.size ?? 0} bytes)`).join('\n') + (files.length > 60 ? `\n  … and ${files.length - 60} more (use search_files to find specific paths)` : '')
+    : `(workspace root ${base} appears empty — check the path, or use search_files / list_files)` + `\n\nWorkspace root: ${base}`;
 
   // Inline the file they're looking at. The most common request by far is
   // "change something in this file", and without this every such request
   // costs a full extra model round trip (read_file, wait, then edit). With
   // the content already in context the model can edit_file immediately —
   // one less model call per edit is the biggest latency win in this panel.
-  const active = activeFileName ? files.find((f) => f.name === activeFileName) : null;
-  let activeLine = '';
+  const active = activeFileName ? await findCodeFileByName(userId, activeFileName).catch(() => null) : null;
+  let activeLine = `Workspace root: ${base}`;
   if (active && (active.content || '').length <= ACTIVE_FILE_INLINE_MAX_CHARS) {
-    activeLine = `They are currently looking at "${active.name}" in the editor. Its full, current content is below — edit it directly with edit_file; do NOT call read_file on it first.\n<file name="${active.name}">\n${active.content || ''}\n</file>`;
+    activeLine = `Workspace root: ${base}\n\nThey are currently looking at "${active.name}" in the editor. Its full, current content is below — edit it directly with edit_file; do NOT call read_file on it first.\n<file path="${active.name}">\n${active.content || ''}\n</file>`;
   } else if (activeFileName) {
-    activeLine = `They are currently looking at "${activeFileName}" in the editor (too large to inline — read_file it before editing).`;
+    activeLine = `Workspace root: ${base}\n\nThey are currently looking at "${activeFileName}" in the editor. (Too large to inline, or not found — read_file it before editing.)`;
   }
 
   return [
-    'You are the coding assistant embedded in Neurovance\'s code editor — a real pair-programmer with actual read/write access to the user\'s workspace, not a chat that talks about code in the abstract.',
-    'You have no execution tool yourself — you can only read, edit, write, and delete files, not run them. But the user has a real Run button that actually executes what you write: it materializes every file to real disk and either runs "npm run dev"/"npm start" (if package.json exists — make sure it has one of those two scripts) or runs the single entry file directly (name it main.<ext>, index.<ext>, app.<ext>, or server.<ext> if there is more than one runnable file, so it is unambiguous which one runs).',
-    'Any server you write must bind to the port from the PORT environment variable, defaulting to 3999 if it is unset — the preview always opens http://localhost:3999, so a server that ignores $PORT and hardcodes its own will never show up there. Example: Node/Express `const port = process.env.PORT || 3999;` — Python/Flask `port=int(os.environ.get("PORT", 3999))` — same idea in any other language.',
-    `Current files:\n${fileList}`,
+    'You are the coding assistant embedded in Neurovance\'s code editor — a real pair-programmer with full read/write/execute access to the user\'s actual device and filesystem, not a chat that talks about code in the abstract.',
+    'You can read, edit, write, and delete REAL files anywhere on the machine, list directories, search file contents, and run real shell commands with run_command (git, npm, running your code, tests, etc.). Relative paths resolve from the workspace root; absolute paths reach anywhere. You work directly on the user\'s real files — make changes in place, then VERIFY by running.',
+    'Verify your work: after writing or editing code, run it with run_command to prove it works, and fix anything it reports. Prefer proving over asserting the code is right.',
+    'Any server you write must bind to a port you choose and are told about; run_command reports output so you can see it binding. The preview opens at the reported URL, and the Run button runs the workspace entrypoint (npm run dev/start if package.json exists, else the single runnable entry file).',
+    `Current files in workspace root: ${fileList}`,
     activeLine,
     'Editing rules: prefer edit_file for every change to an existing file — send only the changed snippet with enough surrounding lines to be unique. Use write_file only for brand-new files or a near-total rewrite. Before editing a file whose content you have not seen in this conversation (and that is not shown above), read_file it first — never guess at existing content.',
     // The single most common complaint about this panel: the model would
@@ -1385,7 +1462,7 @@ async function buildCodeSystemPrompt(userId, activeFileName) {
     // Bias hard toward acting on a sensible assumption; when a question is
     // truly unavoidable, it is exactly one, short, and then it stops.
     'Clarifying questions: almost never needed. If the request is ambiguous in a way that would genuinely change what you build, ask exactly ONE short, specific question and stop — never a list of questions, never a menu of options, never "a few things to confirm". Otherwise make the most reasonable assumption, state it in one short line, and just do it.',
-    'Work fast: the file list is already above, so do not call list_files. Do not re-read a file you already have. Do not narrate what you are about to do — make the change, then report it.',
+    'Work fast: do not call list_files unless you genuinely need orientation; the file listing is above and search_files is cheaper than guessing. Do not re-read a file you already have. Do not narrate what you are about to do — make the change, then report it.',
     'Use a serious, direct, professional tone. No greetings, encouragement, emojis, conversational filler, or playful language.',
     'After you are done, respond with a concise operational summary: one sentence when possible, never more than two short sentences. State changed files and any important limitation. Do not repeat file content, explain routine implementation details, or add optional next steps unless the user asked for them.',
   ].filter(Boolean).join('\n\n');
@@ -1395,13 +1472,15 @@ async function buildCodeSystemPrompt(userId, activeFileName) {
 // user watches the work happen ("Editing app.js") instead of staring at a
 // disabled input until the whole loop finishes.
 function codeToolLabel(toolUse) {
-  const n = toolUse.input?.name || '';
+  const n = toolUse.input?.path || toolUse.input?.name || toolUse.input?.pattern || '';
   switch (toolUse.name) {
     case 'list_files': return 'Listing files';
+    case 'search_files': return `Searching ${n}`;
     case 'read_file': return `Reading ${n}`;
     case 'edit_file': return `Editing ${n}`;
     case 'write_file': return `Writing ${n}`;
     case 'delete_file': return `Deleting ${n}`;
+    case 'run_command': return 'Running command';
     default: return toolUse.name;
   }
 }
@@ -1474,33 +1553,45 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
     const toolResults = await Promise.all(toolUses.map(async (toolUse) => {
       try {
         if (toolUse.name === 'list_files') {
-          const files = await listCodeFiles(userId);
-          const listing = files.map((f) => `${f.name} (${languageDisplayName(f.language)})`).join('\n') || '(empty)';
+          const p = toolUse.input.path;
+          const files = await listCodeFiles(p || undefined, { recursive: !!toolUse.input.recursive });
+          const listing = files.map((f) => `${f.name} (${languageDisplayName(f.language)}, ${f.size ?? 0}B)`).join('\n') || '(no files)';
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: listing };
+        }
+        if (toolUse.name === 'search_files') {
+          const res = await searchFiles({
+            pattern: toolUse.input.pattern,
+            query: toolUse.input.query,
+            dir: toolUse.input.dir,
+          });
+          const listing = res.map((m) => `${m.path}${m.line ? ':' + m.line : ''}`).join('\n') || '(no matches)';
           return { type: 'tool_result', tool_use_id: toolUse.id, content: listing };
         }
         if (toolUse.name === 'read_file') {
-          const file = await findCodeFileByName(userId, toolUse.input.name);
-          if (!file) return { type: 'tool_result', tool_use_id: toolUse.id, content: `No file named "${toolUse.input.name}".`, is_error: true };
+          const file = await findCodeFileByName(userId, toolUse.input.path);
+          if (!file) return { type: 'tool_result', tool_use_id: toolUse.id, content: `No file at "${toolUse.input.path}".`, is_error: true };
           return { type: 'tool_result', tool_use_id: toolUse.id, content: file.content || '(empty file)' };
         }
         if (toolUse.name === 'edit_file') {
-          const { name, old_string, new_string, replace_all } = toolUse.input;
-          const { occurrences } = await editCodeFile(userId, name, old_string, new_string, !!replace_all);
-          changedFiles.add(name);
-          return { type: 'tool_result', tool_use_id: toolUse.id, content: occurrences === 1 ? `Edited ${name}.` : `Edited ${name} (${occurrences} replacements).` };
+          const { path, old_string, new_string, replace_all } = toolUse.input;
+          const { occurrences } = await editCodeFile(userId, path, old_string, new_string, !!replace_all);
+          changedFiles.add(path);
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: occurrences === 1 ? `Edited ${path}.` : `Edited ${path} (${occurrences} replacements).` };
         }
         if (toolUse.name === 'write_file') {
-          const { created } = await writeCodeFile(userId, toolUse.input.name, toolUse.input.content);
-          changedFiles.add(toolUse.input.name);
-          return { type: 'tool_result', tool_use_id: toolUse.id, content: created ? `Created ${toolUse.input.name}.` : `Updated ${toolUse.input.name}.` };
+          const { path, content } = toolUse.input;
+          const { created } = await writeCodeFile(userId, path, content);
+          changedFiles.add(path);
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: created ? `Created ${path}.` : `Updated ${path}.` };
         }
         if (toolUse.name === 'delete_file') {
-          const existed = await deleteCodeFileByName(userId, toolUse.input.name);
-          if (existed) changedFiles.add(toolUse.input.name);
-          return { type: 'tool_result', tool_use_id: toolUse.id, content: existed ? `Deleted ${toolUse.input.name}.` : `No file named "${toolUse.input.name}".` };
+          const path = toolUse.input.path;
+          const existed = await deleteCodeFileByName(userId, path);
+          if (existed) changedFiles.add(path);
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: existed ? `Deleted ${path}.` : `No file at "${path}".` };
         }
         if (toolUse.name === 'run_command') {
-          const r = await runCommand(userId, { command: toolUse.input.command, timeoutMs: toolUse.input.timeoutMs });
+          const r = await runCommand(userId, { command: toolUse.input.command, timeoutMs: toolUse.input.timeoutMs, cwd: toolUse.input.cwd });
           const head = r.ok ? 'Command succeeded.' : (r.timedOut ? 'Command timed out.' : 'Command exited with error.');
           return { type: 'tool_result', tool_use_id: toolUse.id, content: `${head}\n${r.output}` };
         }
