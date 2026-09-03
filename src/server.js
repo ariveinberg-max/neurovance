@@ -358,13 +358,22 @@ async function handleOAuthCallback(req, res, provider) {
       const headers = { Authorization: `Bearer ${tokenData.access_token}`, 'User-Agent': 'neurovance' };
       const profileRes = await fetch('https://api.github.com/user', { headers });
       const p = await profileRes.json();
-      let email = p.email;
-      if (!email) {
-        // GitHub only includes email on /user if it's public — fall back to
-        // the emails endpoint and take the primary verified one.
-        const emailsRes = await fetch('https://api.github.com/user/emails', { headers });
-        const emails = await emailsRes.json();
-        email = Array.isArray(emails) ? (emails.find((e) => e.primary)?.email || emails[0]?.email) : null;
+      // GitHub's /user `email` field is NOT asserted as verified — it's just
+      // the account's public email if set. Account-linking by email below must
+      // only ever match a GitHub identity to an existing account when GitHub
+      // explicitly confirms the address is verified (verified===true on
+      // /user/emails). Otherwise a GitHub account registered with an
+      // unconfirmed (but primary) address could be pointed at a victim's
+      // Neurovance email and silently take over their account via the
+      // email-matching link in startOAuthSignup. So: ignore p.email entirely
+      // and pull only verified addresses from /user/emails.
+      let email = null;
+      const emailsRes = await fetch('https://api.github.com/user/emails', { headers });
+      const emails = await emailsRes.json();
+      if (Array.isArray(emails)) {
+        const verifiedEmails = emails.filter((e) => e.verified === true);
+        const primary = verifiedEmails.find((e) => e.primary);
+        email = primary?.email || verifiedEmails[0]?.email || null;
       }
       profile = { providerId: String(p.id), email };
     } else {
@@ -781,7 +790,7 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { reply });
     } catch (e) {
       console.error('API v1 chat error:', e);
-      return sendJson(res, 500, { error: 'Chat failed: ' + e.message });
+      return sendJson(res, 500, { error: 'Something went wrong while replying — try again.' });
     }
   }
 
@@ -1227,7 +1236,7 @@ async function handleRequest(req, res) {
         return sendJson(res, 200, { ok: true, reply, changedFiles });
       } catch (e) {
         console.error('Code prompt error:', e);
-        return sendJson(res, 500, { error: 'Prompt failed: ' + e.message });
+        return sendJson(res, 500, { error: 'Something went wrong while processing your prompt — try again.' });
       }
     }
 
@@ -1414,7 +1423,7 @@ async function handleRequest(req, res) {
         return sendJson(res, 200, { nodes });
       } catch (e) {
         console.error('Correct-memory error:', e);
-        return sendJson(res, 500, { error: 'Correction failed: ' + e.message });
+        return sendJson(res, 500, { error: 'Could not apply that correction — try again.' });
       }
     }
 
@@ -1512,7 +1521,7 @@ async function handleRequest(req, res) {
         return sendJson(res, 200, { nodes });
       } catch (e) {
         console.error('Extract error:', e);
-        return sendJson(res, 500, { error: 'Extraction failed: ' + e.message });
+        return sendJson(res, 500, { error: 'Could not extract memories — try again.' });
       }
     }
 
@@ -1539,7 +1548,7 @@ async function handleRequest(req, res) {
           },
         });
       } catch (e) {
-        return sendJson(res, 500, { error: 'Save failed: ' + e.message });
+        return sendJson(res, 500, { error: 'Could not save that memory — try again.' });
       }
     }
 
@@ -1565,7 +1574,7 @@ async function handleRequest(req, res) {
         return sendJson(res, 200, { result });
       } catch (e) {
         console.error('Task error:', e);
-        return sendJson(res, 500, { error: 'Task failed: ' + e.message });
+        return sendJson(res, 500, { error: 'The task failed — try again or simplify it.' });
       }
     }
 
@@ -1584,10 +1593,10 @@ async function handleRequest(req, res) {
         const { reply, thinking, usage: tokensUsed } = await chatReply(user.id, effectiveUser, message.trim(), sanitizeHistory(history, usage.suggestDownscale ? 6 : 12), mode === 'text' ? 'text' : 'voice');
         await auth.incrementTokenUsage(user.id, tokensUsed.input_tokens + tokensUsed.output_tokens);
         return sendJson(res, 200, thinking ? { reply, thinking } : { reply });
-      } catch (e) {
-        console.error('Chat error:', e);
-        return sendJson(res, 500, { error: 'Chat failed: ' + e.message });
-      }
+} catch (e) {
+      console.error('Chat error:', e);
+      return sendJson(res, 500, { error: 'Something went wrong while replying — try again.' });
+    }
     }
 
     return sendJson(res, 404, { error: 'Not found' });
