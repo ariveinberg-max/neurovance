@@ -315,6 +315,7 @@ export async function searchFiles({ pattern, query, dir, limit = 50, maxDepth = 
           if (matcher.test(full) || matcher.test(relFromRoot) || matcher.test(ent.name)) hit = true;
         }
         let lineNo = -1;
+        let lineText = '';
         if (query && !hit && likelyText(ent.name)) {
           try {
             const fd = await fsp.open(full, 'r');
@@ -327,12 +328,13 @@ export async function searchFiles({ pattern, query, dir, limit = 50, maxDepth = 
               if (idx >= 0) {
                 hit = true;
                 lineNo = text.slice(0, idx).split('\n').length;
+                lineText = (text.split('\n')[lineNo - 1] || '').trim();
               }
             } finally { await fd.close(); }
           } catch { /* unreadable/binary */ }
         }
         if (hit) {
-          matches.push({ path: full, name: full, ...(lineNo > 0 ? { line: lineNo } : {}) });
+          matches.push({ path: full, name: full, ...(lineNo > 0 ? { line: lineNo } : {}), ...(lineText ? { lineText } : {}) });
         }
       }
     }

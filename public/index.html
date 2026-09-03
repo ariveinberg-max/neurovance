@@ -555,6 +555,23 @@
     transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
   #code-new-file-btn:hover { background: rgba(var(--overlay-rgb),0.08); color: var(--text-bright); border-color: rgba(var(--overlay-rgb),0.2); }
+  #code-search-box { padding: 0 10px 8px; }
+  #code-search-input {
+    width: 100%; box-sizing: border-box; padding: 7px 10px; border-radius: 8px;
+    background: rgba(var(--overlay-rgb),0.06); border: 1px solid rgba(var(--overlay-rgb),0.12);
+    color: var(--text-primary); font-family: 'Share Tech Mono', monospace; font-size: 12px; outline: none;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+  #code-search-input:focus { border-color: rgba(112,220,141,0.5); box-shadow: 0 0 0 3px rgba(112,220,141,0.12); }
+  #code-search-input::placeholder { color: var(--text-faint); }
+  #code-search-results { overflow-y: auto; max-height: 260px; border-bottom: 1px solid rgba(var(--overlay-rgb),0.07); }
+  .code-search-result { display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+    padding: 6px 12px; border-radius: 8px; margin: 2px 6px; font-family: 'Share Tech Mono', monospace; }
+  .code-search-result:hover { background: rgba(var(--overlay-rgb),0.06); }
+  .code-search-result-path { font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .code-search-result-line { font-size: 10px; color: var(--text-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .code-search-result-meta { font-size: 10px; color: var(--text-faint); padding: 8px 12px 4px; font-family: 'Share Tech Mono', monospace; }
+  #code-search-empty { font-size: 10px; color: var(--text-faint); padding: 10px 12px; }
   #code-file-list { flex: 1; padding: 4px 10px 12px; }
   .code-file-row {
     position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 10px;
@@ -2087,6 +2104,10 @@
         <span>Explorer</span>
         <button id="code-new-file-btn" title="New file">+</button>
       </div>
+      <div id="code-search-box">
+        <input id="code-search-input" type="text" placeholder="Search files (⌘K)…" autocomplete="off" spellcheck="false" />
+      </div>
+      <div id="code-search-results" hidden></div>
       <div id="code-file-list"></div>
     </div>
     <div id="code-editor-area">
@@ -3747,6 +3768,8 @@ function initCodePanel() {
   const closeBtn = document.getElementById('code-panel-close');
   const fullscreenBtn = document.getElementById('code-panel-fullscreen');
   const fileListEl = document.getElementById('code-file-list');
+  const searchInput = document.getElementById('code-search-input');
+  const searchResults = document.getElementById('code-search-results');
   const newFileBtn = document.getElementById('code-new-file-btn');
   const editorMount = document.getElementById('code-editor-mount');
   const emptyState = document.getElementById('code-empty-state');
@@ -3918,6 +3941,81 @@ function initCodePanel() {
       <span class="code-file-row-name" title="${escapeHtml(f.name)}">${escapeHtml(label)}</span>
       <button class="code-file-row-delete" data-delete-id="${escapeHtml(f.id)}" title="Delete">✕</button>
     </div>`;
+  }
+
+  // Whole-workspace content search from the Explorer. Results are clickable
+  // and jump straight to the matching line of the file.
+  let searchTimer = null;
+  async function runSearch() {
+    const q = searchInput.value.trim();
+    if (!q) { searchResults.hidden = true; return; }
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/code/files/search', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q }),
+        });
+        const data = await res.json();
+        const results = data.results || [];
+        searchResults.hidden = false;
+        if (!results.length) {
+          searchResults.innerHTML = '<div id="code-search-empty">No matches for “' + escapeHtml(q) + '”.</div>';
+          return;
+        }
+        searchResults.innerHTML = '<div class="code-search-result-meta">' + results.length + ' match' + (results.length === 1 ? '' : 'es') + '</div>' +
+          results.map((r) => {
+            const label = (r.name || r.path || '').split('/').pop().split('\\').pop();
+            return `<button class="code-search-result" data-path="${escapeHtml(r.path || r.name)}" data-line="${r.line || ''}" type="button">
+              <div class="code-search-result-path">${escapeHtml(r.path || r.name)}${r.line ? ':' + r.line : ''}</div>
+              <div class="code-search-result-line">${escapeHtml(r.lineText || '')}</div>
+            </button>`;
+          }).join('');
+        searchResults.querySelectorAll('.code-search-result').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const path = btn.dataset.path;
+            const line = parseInt(btn.dataset.line || '0', 10);
+            const file = files.find((f) => f.name === path) || files.find((f) => f.id === path);
+            if (file) openFileAt(file.id, file.name, line);
+            else {
+              try {
+                const g = await fetch('/api/code/files/get', {
+                  method: 'POST', credentials: 'same-origin',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ path }),
+                });
+                const gd = await g.json();
+                if (gd.file) openFileAt(gd.file.id, gd.file.name, line);
+              } catch {}
+            }
+          });
+        });
+        fileListEl.hidden = true;
+      } catch (e) {
+        searchResults.hidden = true;
+        fileListEl.hidden = false;
+      }
+    }, 220);
+  }
+  searchInput.addEventListener('input', () => {
+    if (searchInput.value.trim()) runSearch();
+    else { searchResults.hidden = true; fileListEl.hidden = false; }
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { searchInput.value = ''; searchResults.hidden = true; fileListEl.hidden = false; searchInput.blur(); }
+    else if (e.key === 'Enter') { e.preventDefault(); runSearch(); }
+  });
+
+  function openFileAt(id, name, line) {
+    openFile(id, name).then(() => {
+      if (cm) {
+        const target = Math.max(0, (line || 1) - 1);
+        cm.setCursor({ line: target, ch: 0 });
+        cm.scrollIntoView({ line: target, ch: 0 }, 80);
+        cm.focus();
+      }
+    });
   }
 
   async function openFile(id, name) {
@@ -4148,6 +4246,21 @@ function initCodePanel() {
     if (e.key === 'Enter') { e.preventDefault(); submitPrompt(); }
   });
   promptSend.addEventListener('click', submitPrompt);
+
+  // Keyboard shortcuts — scoped to this panel's script. Cmd/Ctrl-S saves the
+  // open file, Cmd/Ctrl-Enter sends the prompt like the send button, and
+  // Cmd/Ctrl-R focuses the prompt box (match the "find in file" feel) — the
+  // browser's native Save/Refresh are suppressed only while this panel's
+  // code is live, which is exactly what we want.
+  document.addEventListener('keydown', (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+    const k = e.key.toLowerCase();
+    if (k === 's') { e.preventDefault(); if (activeFileId) saveActiveFile(); }
+    else if (k === 'enter') { e.preventDefault(); if (!promptInput.disabled) submitPrompt(); }
+    else if (k === 'r') { e.preventDefault(); promptInput.focus(); }
+    else if (k === 'k') { e.preventDefault(); searchInput.focus(); }
+  });
 
   // Empty-state shortcuts: "New file" and "Ask the agent" hand you right to
   // the controlling affordance instead of making you hunt for it.

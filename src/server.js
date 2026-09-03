@@ -1268,6 +1268,20 @@ async function handleRequest(req, res) {
       }
     }
 
+    // Whole-workspace search across real files. Mirrors the agent's search_files
+    // tool so the panel can find things too. q is matched as content (simple
+    // substring, case-insensitive); glob (optional) restricts by path pattern.
+    if (req.url === '/api/code/files/search' && req.method === 'POST') {
+      try {
+        const { q, glob, dir } = await readJsonBody(req);
+        if (typeof q !== 'string' || !q.trim()) return sendJson(res, 400, { error: 'q must be a non-empty string' });
+        const results = await codeFiles.searchFiles({ query: q.trim(), pattern: glob, dir, limit: 200 });
+        return sendJson(res, 200, { ok: true, results });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
+
     if (req.url === '/api/code/prompt' && req.method === 'POST') {
       // Streams progress as newline-delimited JSON. The code agent's loop is
       // several full model round trips (think → edit → summarize), and a
