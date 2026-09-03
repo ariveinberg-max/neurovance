@@ -491,6 +491,11 @@
   #code-panel-titles { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
   #code-panel-title { font-family: 'Sora', sans-serif; font-weight: 600; font-size: 14px; color: var(--text-bright); }
   #code-panel-subtitle { font-family: 'Share Tech Mono', monospace; font-size: 9.5px; color: var(--text-faint); letter-spacing: 0.5px; white-space: nowrap; }
+  #code-provider-chip { display: none; align-self: center; font-family: 'Share Tech Mono', monospace; font-size: 9px;
+    border-radius: 999px; padding: 2px 8px; color: var(--accent-green); background: rgba(112,220,141,0.1);
+    border: 1px solid rgba(112,220,141,0.25); white-space: nowrap; }
+  #code-provider-chip.show { display: inline-flex; }
+  #code-provider-chip.free { color: #7ee787; }
 
   /* Every element in this panel toggled via the `hidden` attribute (Stop
      button, preview panel) also has its own `display: flex` rule for when
@@ -2079,7 +2084,8 @@
       <div id="code-panel-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></svg></div>
       <div id="code-panel-titles">
         <div id="code-panel-title">Code workspace</div>
-        <div id="code-panel-subtitle">a sandbox just for you</div>
+        <div id="code-panel-subtitle">full access on your real files</div>
+        <div id="code-provider-chip" hidden></div>
       </div>
     </div>
     <div id="code-run-controls">
@@ -2659,13 +2665,27 @@ function initGraph(data) {
   setTimeout(fitGraphToContainer, 300);
   setTimeout(() => { fitGraphToContainer(); Graph.zoomToFit(600, 170); }, 1200);
 
-  const RADIUS = 40 + Math.cbrt(data.nodes.length) * 45;
-  function sphereForce(radius) {
+  // ---- Memory-driven shape (NOT memories pinned on a fixed sphere) ----
+  // Deliberately no "sphereForce" stamping every node onto a shell surface.
+  // Instead the memories cluster by their shared-tag links (meaning), the
+  // whole cloud is held together by a soft containment ball, and the
+  // wireframe shell below is DERIVED from where the memories actually sit —
+  // the brain is shaped around the memories, never the other way around.
+
+  let adaptRadius = 55 + Math.cbrt(data.nodes.length) * 45;
+
+  // Soft containment: keep the cloud cohesive inside a ball, but interior
+  // memories are completely free to cluster by content. The edge is only
+  // gently reined in (not pinned) so the layout reads as connected thought
+  // rather than a constellation sprayed across a globe.
+  function adaptiveSphere(radiusFn) {
     let nodes = [];
     function force(alpha) {
       for (const n of nodes) {
         const r = Math.hypot(n.x, n.y, n.z) || 0.01;
-        const k = (radius - r) * alpha * 0.12;
+        const R = radiusFn();
+        if (r < R * 0.5) continue;          // interior: let meaning decide
+        const k = (R - r) * alpha * 0.06;
         n.vx += (n.x / r) * k;
         n.vy += (n.y / r) * k;
         n.vz += (n.z / r) * k;
@@ -2674,13 +2694,43 @@ function initGraph(data) {
     force.initialize = (ns) => { nodes = ns; };
     return force;
   }
-  Graph.d3Force('sphere', sphereForce(RADIUS));
+  Graph.d3Force('sphere', adaptiveSphere(() => adaptRadius));
 
+  // Tune the bundled forces so tag-connected memories pull into readable
+  // clusters: tighter distance for more shared tags, gentle center gravity.
   try {
-    const shellGeo = new THREE.IcosahedronGeometry(RADIUS * 1.22, 2);
-    shellMaterial = new THREE.MeshBasicMaterial({ color: shellColorFor(document.documentElement.dataset.theme || 'dark'), wireframe: true, transparent: true, opacity: 0.22 });
-    Graph.scene().add(new THREE.Mesh(shellGeo, shellMaterial));
-  } catch (e) { console.warn('Shell skipped:', e); }
+    const charge = Graph.d3Force('charge');
+    if (charge) charge.strength(-42).distanceMax(Math.max(280, adaptRadius * 2.2));
+    const link = Graph.d3Force('link');
+    if (link) link.distance((l) => Math.max(20, 62 / Math.max(1, l.value))).strength((l) => Math.min(0.5, 0.22 * l.value));
+    const center = Graph.d3Force('center');
+    if (center) center.strength(0.05);
+  } catch (e) { console.warn('Force tuning skipped:', e); }
+
+  // The shell is computed from the memories themselves — we find the centroid
+  // and the furthest node, then scale the wireframe to hug that real cloud so
+  // it resizes as thoughts/memories grow instead of staying a fixed ball.
+  const shellGeo = new THREE.IcosahedronGeometry(1, 2);
+  shellMaterial = new THREE.MeshBasicMaterial({ color: shellColorFor(document.documentElement.dataset.theme || 'dark'), wireframe: true, transparent: true, opacity: 0.22 });
+  const shellMesh = new THREE.Mesh(shellGeo, shellMaterial);
+  Graph.scene().add(shellMesh);
+
+  function refreshShell() {
+    if (!allNodes.length) return;
+    let cx = 0, cy = 0, cz = 0;
+    allNodes.forEach((n) => { cx += n.x; cy += n.y; cz += n.z; });
+    cx /= allNodes.length; cy /= allNodes.length; cz /= allNodes.length;
+    let maxR = 40;
+    allNodes.forEach((n) => { maxR = Math.max(maxR, Math.hypot(n.x - cx, n.y - cy, n.z - cz)); });
+    const R = maxR + 26;                              // a little breathing room
+    adaptRadius = R;
+    const scale = R / 100;
+    shellMesh.scale.set(scale, scale, scale);
+    shellMesh.position.set(cx, cy, cz);
+  }
+  refreshShell();
+  // Re-shape as the layout settles and as new memories fly in from thoughts.
+  setInterval(refreshShell, 2500);
 
   Graph.controls().autoRotate = true;
   Graph.controls().autoRotateSpeed = 0.5;
@@ -4405,11 +4455,29 @@ function initCodePanel() {
     localStorage.setItem(EDITOR_THEME_KEY, themeSelect.value);
   });
 
+  async function loadProviderStatus() {
+    try {
+      const res = await fetch('/api/provider', { credentials: 'same-origin' });
+      const data = await res.json();
+      const chip = document.getElementById('code-provider-chip');
+      if (!data.ok) return;
+      if (data.active) {
+        chip.textContent = `${data.active.free ? 'free · ' : ''}${data.active.name}${data.active.host ? ' · ' + data.active.host : ''}`;
+        chip.classList.add('free', 'show');
+      } else {
+        chip.textContent = 'claude · api.anthropic.com';
+        chip.classList.remove('free');
+        chip.classList.add('show');
+      }
+    } catch (e) {}
+  }
+
   function openPanel() {
     closeOtherOverlays('code-backdrop');
     backdrop.classList.add('open');
     ensureEditor();
     refreshFileList();
+    loadProviderStatus();
     setTimeout(() => { if (cm) cm.refresh(); promptInput.focus(); }, 30);
     // The run itself is a real background process on the server — it keeps
     // going whether or not the panel is open to watch it. Re-check on open

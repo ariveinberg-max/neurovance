@@ -6,6 +6,7 @@ import { dirname, join, extname } from 'path';
 import { randomBytes } from 'crypto';
 import { allMemories, remember } from './memory.js';
 import { chatReply, getLastRecall, extractMemories, correctMemory, runTask, codeAgentPrompt } from './agent.js';
+import { getActiveProviders, pickProvider } from './providers.js';
 import * as codeFiles from './codeFiles.js';
 import * as codeExecution from './codeExecution.js';
 import * as pendingNotes from './pending-notes.js';
@@ -1280,6 +1281,21 @@ async function handleRequest(req, res) {
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }
+    }
+
+    // Which LLM provider the model calls are currently routed to (for the panel
+    // status line). Never exposes the API key.
+    if (req.url === '/api/provider' && req.method === 'GET') {
+      const active = pickProvider();
+      const all = getActiveProviders().map((p) => ({ name: p.name, mode: p.mode, kind: p.kind, free: p.free, host: (() => { try { return new URL(p.baseURL).host; } catch { return ''; } })() }));
+      return sendJson(res, 200, {
+        ok: true,
+        active: active
+          ? { name: active.name, mode: active.mode, kind: active.kind, free: active.free, host: (() => { try { return new URL(active.baseURL).host; } catch { return ''; } })() }
+          : null,
+        available: all,
+        fallback: true, // server Anthropic key is used when active is null
+      });
     }
 
     if (req.url === '/api/code/prompt' && req.method === 'POST') {
