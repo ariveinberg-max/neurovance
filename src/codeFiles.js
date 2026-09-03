@@ -125,6 +125,7 @@ export async function listCodeFiles(dir, { recursive = false } = {}) {
       throw new Error(`Cannot read directory "${d}": ${e.message}`);
     }
     for (const ent of entries) {
+      if (ent.name.startsWith('.')) continue; // hide dotfiles/dirs incl. .agent-snapshots
       const full = resolve(d, ent.name);
       if (ent.isDirectory()) {
         if (recursive && depth < maxDepth) await walk(full, depth + 1, maxDepth);
@@ -183,6 +184,7 @@ export async function findCodeFileByName(_userId, pathOrName) {
 export async function writeCodeFile(_userId, pathOrName, content = '') {
   const p = resolvePath(String(pathOrName));
   const existed = await exists(p);
+  if (existed) await saveSnapshot(p);
   await fsp.mkdir(dirname(p), { recursive: true });
   await fsp.writeFile(p, String(content ?? ''), 'utf8');
   const st = await fsp.stat(p);
@@ -199,6 +201,76 @@ export async function writeCodeFile(_userId, pathOrName, content = '') {
 
 export async function createCodeFile(_userId, { name, content = '' }) {
   return writeCodeFile(_userId, name, content);
+}
+
+// Append a chunk of text to the end of a file (creating it if missing). Best
+// for growing files in steps — validating each piece as you go — instead of
+// rewriting the whole file every time.
+export async function appendToFile(_userId, pathOrName, content = '') {
+  const p = resolvePath(String(pathOrName));
+  await fsp.mkdir(dirname(p), { recursive: true });
+  const text = String(content ?? '');
+  if (text.length > 0) await fsp.appendFile(p, text.endsWith('\n') ? text : text + '\n', 'utf8');
+  return getFileByPath(p);
+}
+
+// Truncate a file to the given number of lines (everything after line N is
+// dropped) — useful to rewrite/regrow a large file in sections the model can
+// actually keep in context, rather than one massive write_file.
+// Returns { file, previousLines }.
+export async function truncateToLineCount(_userId, pathOrName, lines) {
+  const p = resolvePath(String(pathOrName));
+  const existing = await getFileByPath(p);
+  if (!existing) throw new Error(`No file at "${p}".`);
+  const n = Math.max(1, parseInt(lines, 10) || 1);
+  const all = (existing.content || '').split('\n');
+  const keep = all.slice(0, n);
+  await saveSnapshot(p);
+  await fsp.writeFile(p, keep.join('\n') + (keep.length ? '\n' : ''), 'utf8');
+  return { file: await getFileByPath(p), previousLines: all.length };
+}
+
+// ---------------------------------------------------------------------------
+// Undo / checkpoints. Every destructive file operation (edit, overwrite,
+// truncate, delete) drops a copy of the file first into a hidden per-root
+// .agent-snapshots/ dir, so the whole-feature stays auditable and reversible
+// even with unrestricted access. restoreFileSnapshot returns a file to its
+// latest saved state.
+// ---------------------------------------------------------------------------
+
+function snapshotDir() {
+  return join(workspaceRoot(), '.agent-snapshots');
+}
+
+function snapshotKeyFor(p) {
+  // Encode the absolute path into a flat filename so any path is a valid file.
+  return `${p.replace(/[^a-z0-9_-]/gi, '_')}.snap`;
+}
+
+async function saveSnapshot(p) {
+  try {
+    const exist = await exists(p);
+    if (!exist) return;
+    const st = await fsp.stat(p);
+    if (!st.isFile() || st.size > 8 * 1024 * 1024) return; // skip dirs + huge files
+    const body = await readText(p);
+    const dir = snapshotDir();
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(join(dir, snapshotKeyFor(p)), body, 'utf8');
+  } catch { /* snapshots are best-effort; never break the real op */ }
+}
+
+// Restore the latest snapshot of a file (overwrites current content). Returns
+// { restored, message }. Returns restored:false if no snapshot exists.
+export async function restoreFileSnapshot(_userId, pathOrName) {
+  const p = resolvePath(String(pathOrName));
+  const snap = join(snapshotDir(), snapshotKeyFor(p));
+  if (!(await exists(snap))) return { restored: false, message: `No saved snapshot for "${basename(p)}".` };
+  const body = await readText(snap);
+  await fsp.mkdir(dirname(p), { recursive: true });
+  await fsp.writeFile(p, body, 'utf8');
+  const file = await getFileByPath(p);
+  return { restored: true, message: `Restored "${basename(p)}" from its last checkpoint (${(await fsp.stat(snap)).size} bytes).`, file };
 }
 
 export async function editCodeFile(_userId, pathOrName, oldString, newString, replaceAll = false) {
@@ -218,6 +290,7 @@ export async function editCodeFile(_userId, pathOrName, oldString, newString, re
     throw new Error(`old_string matches ${occurrences} places in "${basename(p)}". Include more surrounding lines so it is unique, or pass replace_all: true.`);
   }
   const updated = replaceAll ? content.split(oldString).join(newString) : content.replace(oldString, () => newString);
+  await saveSnapshot(p);
   await fsp.writeFile(p, updated, 'utf8');
   const st = await fsp.stat(p);
   const file = { ...existing, content: updated, updatedAt: st.mtime.toISOString() };
@@ -238,7 +311,7 @@ export async function deleteCodeFile(_userId, pathOrName) {
   const p = resolvePath(String(pathOrName));
   const st = await fsp.lstat(p);
   if (st.isDirectory()) await fsp.rm(p, { recursive: true });
-  else await fsp.unlink(p);
+  else { await saveSnapshot(p); await fsp.unlink(p); }
 }
 
 export async function deleteCodeFileByName(_userId, pathOrName) {

@@ -7,7 +7,7 @@ import * as companion from './companion.js';
 import * as pendingNotes from './pending-notes.js';
 import { findUserById, listSkills, mergePreferences } from './auth.js';
 import { discoverAllConnectorTools, invokeConnectorTool, isConnectorToolName } from './connectors.js';
-import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, languageDisplayName, workspaceRoot, searchFiles, diffLines } from './codeFiles.js';
+import { listCodeFiles, findCodeFileByName, writeCodeFile, editCodeFile, deleteCodeFileByName, appendToFile, truncateToLineCount, restoreFileSnapshot, languageDisplayName, workspaceRoot, searchFiles, diffLines } from './codeFiles.js';
 import { runCommand } from './codeExecution.js';
 import { client } from './providers.js';
 
@@ -1417,6 +1417,42 @@ const CODE_TOOLS = [
     },
   },
   {
+    name: 'append_to_file',
+    description:
+      'Append a chunk of text to the END of a real file, creating it if it does not exist (parent dirs are created automatically). Cost-efficient for growing a file in steps — append a section, run/validate it, append the next — rather than rewriting the whole file via write_file. A trailing newline is added if you omit one. Returns the file\'s current size.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File path, relative to workspace root or absolute.' },
+        content: { type: 'string', description: 'The text to append to the end of the file.' },
+      },
+      required: ['path', 'content'],
+    },
+  },
+  {
+    name: 'truncate_file',
+    description:
+      'Drop everything after line N of a real file, keeping the first N lines. Pairs with append_to_file to rebuild a large file in sections the model can keep in context, or to clear the tail of a log/generated file. The dropped lines are saved to a checkpoint, so they are not lost — use restore_file to bring the whole file back.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File path, relative to workspace root or absolute.' },
+        lines: { type: 'number', description: 'Keep only the first this many lines (>= 1). Default 1.' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'restore_file',
+    description:
+      'Undo the latest change to a real file by restoring it from its last checkpoint. Every edit, overwrite, truncate or delete automatically saves a copy first, so you can roll a file back if a change went wrong. Overwrites the file\'s current content with the saved version.',
+    input_schema: {
+      type: 'object',
+      properties: { path: { type: 'string', description: 'File path, relative to workspace root or absolute.' } },
+      required: ['path'],
+    },
+  },
+  {
     name: 'run_command',
     description:
       'Run a real shell command on the device and return its output — full terminal access like Claude Code. Use this to EXECUTE the code you wrote — run scripts, run tests, run a linter, install dependencies, run git — so you can verify your work actually runs and fix any errors it reports, rather than just writing code that looks right. The command runs with the real machine, real files, and real environment, in the working directory you give (cwd, default the workspace root). Output is capped at ~12k chars and the command is hard-killed after a timeout (default 30s, max 120s — pass timeoutMs for slow operations like npm install). A non-zero exit is fine — read the error output and fix the code. Prefer this over narrating that "the code should work": run it and prove it.',
@@ -1487,6 +1523,9 @@ function codeToolLabel(toolUse) {
     case 'edit_file': return `Editing ${n}`;
     case 'write_file': return `Writing ${n}`;
     case 'delete_file': return `Deleting ${n}`;
+    case 'append_to_file': return `Appending to ${n}`;
+    case 'truncate_file': return `Truncating ${n}`;
+    case 'restore_file': return `Restoring ${n}`;
     case 'run_command': {
       const cmd = (toolUse.input?.command || '').trim();
       const shown = cmd.length > 80 ? cmd.slice(0, 77) + '…' : cmd;
@@ -1615,6 +1654,38 @@ export async function codeAgentPrompt(userId, user, prompt, activeFileName, hist
           const existed = await deleteCodeFileByName(userId, path);
           if (existed) changedFiles.add(path);
           return { type: 'tool_result', tool_use_id: toolUse.id, content: existed ? `Deleted ${path}.` : `No file at "${path}".` };
+        }
+        if (toolUse.name === 'append_to_file') {
+          const { path, content } = toolUse.input;
+          const before = await findCodeFileByName(userId, path);
+          const after = await appendToFile(userId, path, content);
+          changedFiles.add(path);
+          try {
+            emit({ type: 'diff', path, delta: diffLines(before?.content ?? '', after?.content ?? '') });
+          } catch (e) { /* cosmetic */ }
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: `Appended ${String(content ?? '').length} chars to ${path}.` };
+        }
+        if (toolUse.name === 'truncate_file') {
+          const { path, lines } = toolUse.input;
+          const before = await findCodeFileByName(userId, path);
+          const { file, previousLines } = await truncateToLineCount(userId, path, lines);
+          changedFiles.add(path);
+          try {
+            emit({ type: 'diff', path, delta: diffLines(before?.content ?? '', file?.content ?? '') });
+          } catch (e) { /* cosmetic */ }
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: `Kept first ${(file?.content || '').split('\n').length} line(s) of ${path} (removed ${previousLines - (file?.content || '').split('\n').length} lines).` };
+        }
+        if (toolUse.name === 'restore_file') {
+          const { path } = toolUse.input;
+          const before = await findCodeFileByName(userId, path);
+          const { restored, message } = await restoreFileSnapshot(userId, path);
+          if (!restored) return { type: 'tool_result', tool_use_id: toolUse.id, content: message, is_error: true };
+          changedFiles.add(path);
+          try {
+            const after = await findCodeFileByName(userId, path);
+            emit({ type: 'diff', path, delta: diffLines(before?.content ?? '', after?.content ?? '') });
+          } catch (e) { /* cosmetic */ }
+          return { type: 'tool_result', tool_use_id: toolUse.id, content: message };
         }
         if (toolUse.name === 'run_command') {
           const r = await runCommand(userId, { command: toolUse.input.command, timeoutMs: toolUse.input.timeoutMs, cwd: toolUse.input.cwd });
