@@ -486,6 +486,72 @@ export async function finishSignup({ email, verifiedToken, username, displayName
   return user;
 }
 
+// ---------- Invite: waitlist entry -> real account ----------
+// This is the missing handoff from the marketing site's actual flow: a person
+// joins the waitlist (a `waitlist` doc), and now the admin invites them, which
+// provisions a real `users` account so they can actually sign in, pair the
+// Companion, and install the extension. It refuses emails that are already a
+// user or already invited (so an invite can't overwrite a live account), and
+// the temporary password is generated fresh, returned to the caller ONCE so it
+// can be mailed, and never stored — the first thing the new user should do is
+// change it, but they can't be locked out before that.
+
+const INVITE_USERNAME_BASE = 'member';
+async function uniqueInviteUsername() {
+  // Keep trying short suffixes until one isn't taken — the base name is a
+  // realistic 6 chars and collisions are rare, so this terminates almost
+  // immediately in practice.
+  for (let i = 0; i < 100; i++) {
+    const candidate = i === 0 ? INVITE_USERNAME_BASE : `${INVITE_USERNAME_BASE}${Math.floor(Math.random() * 900 + 100)}`;
+    if (!(await findUserByUsername(candidate))) return candidate;
+  }
+  throw new Error('Could not allocate a username.');
+}
+
+function generateTemporaryPassword() {
+  return `nv-${randomBytes(9).toString('base64url')}`; // ~12 chars, URL-safe
+}
+
+export async function inviteFromWaitlist({ email, displayName, aiName }) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    throw new Error('That is not a valid email address.');
+  }
+  if (await findUserByEmail(normalizedEmail)) {
+    throw new Error('That email already has an account.');
+  }
+  const existingInvite = await getDoc('invites', normalizedEmail);
+  if (existingInvite) {
+    throw new Error('That email was already invited.');
+  }
+
+  const username = await uniqueInviteUsername();
+  const temporaryPassword = generateTemporaryPassword();
+  const user = {
+    id: randomUUID(),
+    username,
+    email: normalizedEmail,
+    passwordHash: hashPassword(temporaryPassword),
+    displayName: sanitizeDisplayName(displayName || 'Member'),
+    aiName: sanitizeDisplayName(aiName || 'Superself'),
+    plan: DEFAULT_PLAN,
+    model: 'pulse',
+    createdAt: new Date().toISOString(),
+    invitedAt: new Date().toISOString(),
+    mustChangePassword: true,
+  };
+  await saveUser(user);
+  // Mark the waitlist entry invited so the admin UI can show it, and record
+  // the invite (without the password) so a re-invite is refused.
+  await setDoc('invites', normalizedEmail, { userId: user.id, username, invitedAt: user.invitedAt });
+  await setDoc('waitlist', normalizedEmail, {
+    invited: true,
+    invitedAt: user.invitedAt,
+  });
+
+  return { user, temporaryPassword };
+}
+
 // ---------- Forgot password — same code-then-token shape as signup
 // verification above, in its own collection so an in-progress reset can
 // never collide with an in-progress signup for the same email. ----------

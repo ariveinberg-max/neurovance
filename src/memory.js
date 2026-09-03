@@ -124,8 +124,21 @@ export async function recentMemories(userId, limit = 5) {
 // turn and every agent-loop iteration — reading the entire store for that was
 // the single most expensive repeated query in the app. The newest slice
 // covers every window vitals actually looks at.
+//
+// Cached on its own timer rather than through db.js: that cache is
+// invalidated by every write, and an agent run writes memories constantly, so
+// vitals would re-read on nearly every loop iteration. Vitals drive a mood
+// string and a pivot heuristic — half a minute of staleness is invisible, and
+// the windows they measure are 5 minutes at the finest.
+const VITALS_TTL_MS = 30_000;
+const vitalsCache = new Map(); // userId -> { data, expiresAt }
+
 export async function vitalsWindow(userId, limit = 200) {
-  return recentMemories(userId, limit);
+  const hit = vitalsCache.get(userId);
+  if (hit && hit.expiresAt > Date.now() && hit.limit >= limit) return hit.data;
+  const data = await recentMemories(userId, limit);
+  vitalsCache.set(userId, { data, limit, expiresAt: Date.now() + VITALS_TTL_MS });
+  return data;
 }
 
 // Core identity facts that should ground every conversation regardless of

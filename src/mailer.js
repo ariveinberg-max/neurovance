@@ -142,3 +142,61 @@ export async function sendWaitlistNotification(email) {
     html: `<p><strong>${email}</strong> joined the Neurovance waitlist.</p>`,
   });
 }
+
+// The "you're in" handoff that completes the waitlist -> account -> download
+// path. Carries the new user's username and a one-time temporary password
+// (never stored server-side, so this email is the only place it exists), plus
+// where to sign in and how to get the Companion and extension. Values are
+// escaped because this is an HTML email built from runtime strings.
+export async function sendInviteEmail({ email, username, temporaryPassword, appOrigin }) {
+  const t = getTransporter();
+  const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const bodyHtml = `
+    <div style="font-size:11px;letter-spacing:1.5px;color:#6b6c74;text-transform:uppercase;margin-bottom:14px;">You're in.</div>
+    <p style="margin:0 0 16px;">Your Superself is ready. Here's everything you need to start.</p>
+    <p style="margin:0 0 6px;"><strong style="color:#f2f3f5;">Sign in</strong> at <a href="${esc(appOrigin)}" style="color:#7aa2ff;">${esc(appOrigin)}</a></p>
+    <p style="margin:0 0 6px;">Username: <strong style="color:#f2f3f5;">${esc(username)}</strong></p>
+    <p style="margin:0 0 6px;">One-time password: <strong style="color:#f2f3f5;">${esc(temporaryPassword)}</strong></p>
+    <p style="margin:0 0 16px;">You'll be asked to set your own password the first time you sign in.</p>
+    <p style="margin:0 0 6px;">Then download the <strong style="color:#f2f3f5;">Companion app</strong> and the <strong style="color:#f2f3f5;">browser extension</strong> and pair them to unlock everything.</p>
+  `;
+  const bodyText = [
+    "You're in. Your Superself is ready.",
+    '',
+    `Sign in at ${appOrigin}`,
+    `Username: ${username}`,
+    `One-time password: ${temporaryPassword}`,
+    "You'll be asked to set your own password the first time you sign in.",
+    'Then download the Companion app and browser extension and pair them.',
+  ].join('\n');
+  if (!t) {
+    console.log(`[mailer] GMAIL credentials not set — invite for ${email}: username=${username} temporaryPassword=${temporaryPassword}`);
+    return;
+  }
+  await t.sendMail({
+    from: process.env.GMAIL_SEND_AS || `"Neurovance" <${process.env.GMAIL_USER}>`,
+    to: email,
+    subject: "You're in — your Superself is ready",
+    text: bodyText,
+    html: `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#08090a; padding:40px 0;">
+        <tr><td align="center">
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#000000; border:1px solid #1c1d21;">
+            <tr><td align="center" style="padding:40px 24px 8px;">
+              <img src="cid:neurovance-logo" width="220" alt="Neurovance" style="display:block; max-width:220px;" />
+            </td></tr>
+            <tr><td style="padding:24px 36px 40px; font-family:-apple-system,Helvetica,Arial,sans-serif; font-size:14px; line-height:1.7; color:#c9cad0;">
+              ${bodyHtml}
+            </td></tr>
+            <tr><td align="center" style="padding:0 24px 32px; font-family:-apple-system,Helvetica,Arial,sans-serif; font-size:11px; color:#4a4b50;">
+              You joined the Neurovance waitlist. Reply if you'd rather not hear from us again.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    `,
+    attachments: [
+      { filename: 'neurovance-lockup.png', path: LOGO_PATH, cid: 'neurovance-logo' },
+    ],
+  });
+}

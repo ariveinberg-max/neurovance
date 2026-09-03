@@ -16,7 +16,7 @@ import * as connections from './connections.js';
 import * as connectors from './connectors.js';
 import * as scheduler from './scheduler.js';
 import { getAllDocs, getDoc, setDoc } from './db.js';
-import { sendVerificationCode, sendWaitlistNotification, sendBroadcast, sendFeedbackNotification } from './mailer.js';
+  import { sendVerificationCode, sendWaitlistNotification, sendBroadcast, sendFeedbackNotification, sendInviteEmail } from './mailer.js';
 import * as billing from './stripe.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -463,13 +463,15 @@ async function handleRequest(req, res) {
   // deployed independently from this app server), so these two routes need
   // the same cross-origin allowance as the public waitlist route below. ----------
 
-  if ((req.url === '/api/admin/waitlist' || req.url === '/api/admin/waitlist/broadcast') && req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': WAITLIST_CORS_ORIGIN,
-      'Access-Control-Allow-Methods': 'GET, POST',
-      'Access-Control-Allow-Headers': 'Content-Type, x-admin-key',
-    });
-    return res.end();
+  if (req.url === '/api/admin/waitlist' || req.url === '/api/admin/waitlist/broadcast' || req.url === '/api/admin/waitlist/invite') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': WAITLIST_CORS_ORIGIN,
+        'Access-Control-Allow-Methods': 'GET, POST',
+        'Access-Control-Allow-Headers': 'Content-Type, x-admin-key',
+      });
+      return res.end();
+    }
   }
 
   if (req.url === '/api/admin/waitlist' && req.method === 'GET') {
@@ -513,6 +515,34 @@ async function handleRequest(req, res) {
       sendJson(res, 400, { error: 'Something went wrong.' });
     }
     return;
+  }
+
+  // ---------- Waitlist invite: provisions a real account from a waitlist
+  // entry, closes the site's waitlist -> account -> download handoff. Owner-
+  // only, same shared-secret header as the other admin routes. Emails the
+  // one-time password (never stored server-side) so the new user can sign in.
+  if (req.url === '/api/admin/waitlist/invite' && req.method === 'POST') {
+    res.setHeader('Access-Control-Allow-Origin', WAITLIST_CORS_ORIGIN);
+    if (!process.env.ADMIN_KEY || req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
+      return sendJson(res, 401, { error: 'Unauthorized.' });
+    }
+    try {
+      const { email, displayName, aiName } = await readJsonBody(req);
+      if (!email?.trim()) {
+        return sendJson(res, 400, { error: 'An email address is required.' });
+      }
+      const { user, temporaryPassword } = await auth.inviteFromWaitlist({ email, displayName, aiName });
+      const appOrigin = process.env.APP_ORIGIN || `http://localhost:${PORT}`;
+      await sendInviteEmail({
+        email: user.email,
+        username: user.username,
+        temporaryPassword,
+        appOrigin,
+      });
+      return sendJson(res, 200, { ok: true, userId: user.id, username: user.username, email: user.email });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
   }
 
   // ---------- Signup: email + password -> emailed code -> pick username ----------
