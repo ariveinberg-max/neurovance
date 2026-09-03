@@ -13,8 +13,60 @@
 // enough (once per turn a connector's tools are actually needed) that the
 // extra round trip isn't a real cost.
 
+import { lookup } from 'dns/promises';
+import { isIP } from 'net';
+
 const PROTOCOL_VERSION = '2024-11-05';
 const REQUEST_TIMEOUT_MS = 10000;
+
+// Connector URLs are validated against loopback/private/link-local at add
+// time (assertSafeConnectorUrl in connectors.js), but the live fetch below
+// re-resolves DNS on every connection. A hostname that resolved public at
+// add time can be DNS-rebound to an internal/cloud-metadata address later,
+// so the server would POST to the attacker's attacker-controlled connector
+// from its own network position. Re-check the resolved address right before
+// each fetch to shrink that rebinding window to ~the DNS TTL. Mirror the
+// add-time policy, plus the 100.64/10 CGNAT range the add-time check omits.
+function isPrivateOrLoopbackIp(ip) {
+  const version = isIP(ip);
+  if (version === 4) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 127 || a === 0 || a === 10) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata
+    return false;
+  }
+  if (version === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === '::1') return true;
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local
+    if (lower.startsWith('fe80')) return true; // link-local
+    return false;
+  }
+  return true; // couldn't classify — refuse rather than guess
+}
+
+async function assertSafeCallUrl(connector) {
+  if (!/^https:\/\//i.test(connector.url || '')) throw new Error('Connector URL must be https://.');
+  let hostname;
+  try {
+    hostname = new URL(connector.url).hostname;
+  } catch {
+    throw new Error('That connector URL is not valid.');
+  }
+  if (!hostname || hostname === 'localhost') throw new Error('That connector URL is not a public address.');
+  let addresses;
+  try {
+    addresses = await lookup(hostname, { all: true });
+  } catch {
+    throw new Error('Could not resolve that connector URL.');
+  }
+  if (!addresses || addresses.length === 0 || addresses.some((a) => isPrivateOrLoopbackIp(a.address))) {
+    throw new Error('That connector URL points at an internal address.');
+  }
+}
 
 function headersFor(connector, sessionId) {
   const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
@@ -50,6 +102,7 @@ async function rpcCall(connector, method, params, id, sessionId) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
+    await assertSafeCallUrl(connector);
     const res = await fetch(connector.url, {
       method: 'POST',
       headers: headersFor(connector, sessionId),
