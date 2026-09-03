@@ -42,7 +42,8 @@ function isPrivateOrLoopbackIp(ip) {
     const lower = ip.toLowerCase();
     if (lower === '::1') return true;
     if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local
-    if (lower.startsWith('fe80')) return true; // link-local
+    // Link-local is fe80::/10 — the first hex group spans fe8 through feb.
+    if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true;
     return false;
   }
   return true; // couldn't classify — refuse rather than guess
