@@ -2684,15 +2684,14 @@ function initGraph(data) {
     .nodeColor((n) => (n.id === selectedId ? '#ffffff' : n.color))
     .nodeVal((n) => n.val)
     .nodeResolution(28)
-    // Soft glassy bubbles, sized by memory importance. The old icosahedron
-    // was a fixed radius of 1 unit in a scene spanning hundreds of units —
-    // at any distance it read as a sparkling point, not a bubble. Bigger
-    // smooth spheres with normal (non-additive) blending read as bubbles
-    // sitting in space instead of blinking stars.
+    // Small solid dots, sized a touch by memory importance. Big translucent
+    // spheres packed close together optically merge into one blended blob —
+    // that's the "blue sphere" this was showing. Opaque dots stay distinct
+    // from each other no matter how tightly the web clusters them.
     .nodeThreeObject((n) => {
-      const r = 2.6 + Math.min(6, Math.sqrt(Math.max(n.val || 1, 1))) * 1.7;
-      const geo = new THREE.SphereGeometry(r, 20, 16);
-      const mat = new THREE.MeshBasicMaterial({ color: n.color || '#7dd3fc', transparent: true, opacity: 0.55, depthWrite: false });
+      const r = 1.6 + Math.min(2.4, Math.sqrt(Math.max(n.val || 1, 1))) * 0.6;
+      const geo = new THREE.SphereGeometry(r, 12, 10);
+      const mat = new THREE.MeshBasicMaterial({ color: n.color || '#7dd3fc' });
       const mesh = new THREE.Mesh(geo, mat);
       if (!mesh.userData) mesh.userData = {};
       mesh.userData.neuralNode = true;
