@@ -2659,9 +2659,12 @@ function buildNeuralLinks(nodes, serverLinks) {
     }
     ranked.sort((x, y) => y.score - x.score);
     const determined = links.filter((l) => String(l.source) === String(a.id) || String(l.target) === String(a.id)).length;
-    // guarantee at least 3 connections per node (web, not a tree)
-    let wanted = 3;
-    if (determined > 0) wanted = Math.max(1, 3 - determined);
+    // Guarantee at least 1 connection per node (no isolated islands) without
+    // force-adding extra ones — over-connecting is what packed everything
+    // into one dense clump. Sparse, real connections read as a web; forcing
+    // 3 per node reads as a ball.
+    let wanted = 1;
+    if (determined > 0) wanted = 0;
     for (let k = 0; k < wanted && k < ranked.length; k++) {
       const { b, score } = ranked[k];
       const k2 = key(String(a.id), String(b.id));
@@ -2722,51 +2725,41 @@ function initGraph(data) {
   setTimeout(fitGraphToContainer, 300);
   setTimeout(() => { fitGraphToContainer(); Graph.zoomToFit(600, 170); }, 1200);
 
-  // ---- Living constellation, NOT memories pinned on a fixed sphere ----
-  // No sphere-stamping force. The memories spread into a web by meaning and
-  // are held inside a soft adaptive ball; the wireframe shell hugs where they
-  // actually sit. Brains are shaped by their thoughts — so is this one.
+  // ---- Obsidian-style graph, not a ball ----
+  // No containment sphere at all — nothing pulls nodes back toward a radius.
+  // Just charge (repel), link (attract along real connections), and a very
+  // light center pull so it doesn't drift off-camera. That's what makes an
+  // Obsidian graph read as an open web instead of a packed clump: distance
+  // between two nodes is purely a function of how directly they're linked.
 
   let adaptRadius = 60 + Math.cbrt(neuralData.nodes.length) * 42;
 
-  // Soft containment + a touch of perpetual drift so the web always feels
-  // alive: interior nodes are free to cluster, the edge is gently reined in,
-  // and every node carries a tiny slow wander so it never freezes solid.
-  function adaptiveSphere(radiusFn) {
+  // Tiny perpetual wander so it never freezes solid — no radial pull-back,
+  // just drift. Every node carries this regardless of simulation heat.
+  function livingDrift() {
     let nodes = [];
-    function force(alpha) {
+    function force() {
       for (const n of nodes) {
-        // Wander at a fixed rate, NOT scaled by alpha — alpha decays toward
-        // the (nonzero) target below, and jitter that depended on it faded
-        // to a near-frozen sculpture between reheats. This keeps every node
-        // drifting forever, however low the simulation's heat gets.
         n.vx += (Math.random() - 0.5) * 0.02;
         n.vy += (Math.random() - 0.5) * 0.02;
         n.vz += (Math.random() - 0.5) * 0.02;
-        const r = Math.hypot(n.x, n.y, n.z) || 0.01;
-        const R = radiusFn();
-        if (r < R * 0.5) continue;
-        const k = (R - r) * Math.max(alpha, 0.04) * 0.05;
-        n.vx += (n.x / r) * k;
-        n.vy += (n.y / r) * k;
-        n.vz += (n.z / r) * k;
       }
     }
     force.initialize = (ns) => { nodes = ns; };
     return force;
   }
-  Graph.d3Force('sphere', adaptiveSphere(() => adaptRadius));
+  Graph.d3Force('drift', livingDrift());
 
-  // Force tuning: strong repulsion spreads the web into a readable constellation
-  // (no more single block), the link force holds the neural web together at a
-  // comfortable spacing, and a light center gravity keeps it framed.
+  // Force tuning: much stronger repulsion + much longer link distance than
+  // before spreads the web out into open space — individual links become
+  // visible lines between distinguishable dots instead of a dense clump.
   try {
     const charge = Graph.d3Force('charge');
-    if (charge) charge.strength(-110).distanceMax(Math.max(320, adaptRadius * 2.4));
+    if (charge) charge.strength(-260).distanceMax(2000);
     const link = Graph.d3Force('link');
-    if (link) link.distance((l) => (l.neural ? 46 : 34)).iterations(2);
+    if (link) link.distance((l) => (l.neural ? 130 : 90)).iterations(2);
     const center = Graph.d3Force('center');
-    if (center) center.strength(0.035);
+    if (center) center.strength(0.02);
   } catch (e) { console.warn('Force tuning skipped:', e); }
 
   // No shell, no wireframe, no imposed boundary geometry — the memories and
