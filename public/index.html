@@ -2735,7 +2735,7 @@ function initGraph(data) {
     // that's the "blue sphere" this was showing. Opaque dots stay distinct
     // from each other no matter how tightly the web clusters them.
     .nodeThreeObject((n) => {
-      const r = 2.2 + Math.min(3, Math.sqrt(Math.max(n.val || 1, 1))) * 0.8;
+      const r = 1.9 + Math.min(2.6, Math.sqrt(Math.max(n.val || 1, 1))) * 0.7;
       const geo = new THREE.SphereGeometry(r, 12, 10);
       const mat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
       const mesh = new THREE.Mesh(geo, mat);
@@ -2777,7 +2777,7 @@ function initGraph(data) {
     setTimeout(() => {
       const cam = Graph.camera();
       const fitDist = Math.hypot(cam.position.x, cam.position.y, cam.position.z);
-      const lockedDist = fitDist * 1.5;
+      const lockedDist = fitDist * 1.3;
       const scale = lockedDist / fitDist;
       Graph.cameraPosition({ x: cam.position.x * scale, y: cam.position.y * scale, z: cam.position.z * scale }, undefined, 700);
       const controls = Graph.controls();
@@ -2786,14 +2786,16 @@ function initGraph(data) {
     }, 650);
   }, 1200);
 
-  // ---- Round silhouette, but dots stay individually visible ----
-  // Pulling every node toward the radius constantly (not just outliers)
-  // packed everything so tight the opaque dots overlapped in screen space
-  // and read as one solid blob again — same failure as the very first
-  // "solid sphere" complaint, just from density instead of a drawn shell.
-  // Charge/link now keep real separation between dots; the round force
-  // only reins in outliers past the edge, so it shapes the silhouette
-  // without collapsing the interior spacing.
+  // ---- Round silhouette, dots must stay individually visible ----
+  // In 3D, "close together" and "not a blob" are in direct tension: it's a
+  // FILLED ball viewed with depth — front dots occlude back dots in screen
+  // space no matter how the round force is tuned, so packing tighter always
+  // reads as denser/blobbier, unlike a flat 2D graph. -130/34-46 was still
+  // too tight. Back to the separation level from before the "pack closer"
+  // request (which wasn't blobby), pushed a bit further apart for margin.
+  // The round force still only reins in outliers past the edge — it shapes
+  // the silhouette without collapsing the interior spacing that keeps dots
+  // apart.
 
   let adaptRadius = 60 + Math.cbrt(neuralData.nodes.length) * 42;
 
@@ -2807,7 +2809,7 @@ function initGraph(data) {
         const r = Math.hypot(n.x, n.y, n.z) || 0.01;
         const R = radiusFn();
         if (r < R) continue;
-        const k = (R - r) * Math.max(alpha, 0.06) * 0.06;
+        const k = (R - r) * Math.max(alpha, 0.06) * 0.035;
         n.vx += (n.x / r) * k;
         n.vy += (n.y / r) * k;
         n.vz += (n.z / r) * k;
@@ -2818,16 +2820,13 @@ function initGraph(data) {
   }
   Graph.d3Force('drift', livingRound(() => adaptRadius));
 
-  // Force tuning: moderate repulsion + moderate link distance — enough
-  // separation to tell dots apart, not so much it reads as spread-out
-  // Obsidian-style sparseness.
   try {
     const charge = Graph.d3Force('charge');
-    if (charge) charge.strength(-130).distanceMax(1200);
+    if (charge) charge.strength(-210).distanceMax(1600);
     const link = Graph.d3Force('link');
-    if (link) link.distance((l) => (l.neural ? 46 : 34)).iterations(2);
+    if (link) link.distance((l) => (l.neural ? 95 : 66)).iterations(2);
     const center = Graph.d3Force('center');
-    if (center) center.strength(0.03);
+    if (center) center.strength(0.028);
   } catch (e) { console.warn('Force tuning skipped:', e); }
 
   // No shell, no wireframe, no imposed boundary geometry — the memories and
