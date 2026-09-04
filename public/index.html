@@ -2723,14 +2723,18 @@ function initGraph(data) {
   window.addEventListener('resize', fitGraphToContainer);
   fitGraphToContainer();
   setTimeout(fitGraphToContainer, 300);
-  // Keep the "fit everything" framing as-is, just lock it as the closest
+  // Fit everything first (so we know the cloud's true extent), then push in
+  // close enough that every dot reads clearly, and lock THAT as the closest
   // the camera is allowed to get — scroll only zooms further out from here.
   setTimeout(() => {
     fitGraphToContainer();
     Graph.zoomToFit(600, 170);
     setTimeout(() => {
       const cam = Graph.camera();
-      const lockedDist = Math.hypot(cam.position.x, cam.position.y, cam.position.z);
+      const fitDist = Math.hypot(cam.position.x, cam.position.y, cam.position.z);
+      const lockedDist = fitDist * 0.4;
+      const scale = lockedDist / fitDist;
+      Graph.cameraPosition({ x: cam.position.x * scale, y: cam.position.y * scale, z: cam.position.z * scale }, undefined, 700);
       const controls = Graph.controls();
       controls.minDistance = lockedDist;
       controls.maxDistance = Math.max(4000, lockedDist * 6);
