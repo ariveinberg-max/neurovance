@@ -2692,7 +2692,7 @@ function initGraph(data) {
     // that's the "blue sphere" this was showing. Opaque dots stay distinct
     // from each other no matter how tightly the web clusters them.
     .nodeThreeObject((n) => {
-      const r = 1.6 + Math.min(2.4, Math.sqrt(Math.max(n.val || 1, 1))) * 0.6;
+      const r = 2.2 + Math.min(3, Math.sqrt(Math.max(n.val || 1, 1))) * 0.8;
       const geo = new THREE.SphereGeometry(r, 12, 10);
       const mat = new THREE.MeshBasicMaterial({ color: n.color || '#7dd3fc' });
       const mesh = new THREE.Mesh(geo, mat);
@@ -2723,7 +2723,23 @@ function initGraph(data) {
   window.addEventListener('resize', fitGraphToContainer);
   fitGraphToContainer();
   setTimeout(fitGraphToContainer, 300);
-  setTimeout(() => { fitGraphToContainer(); Graph.zoomToFit(600, 170); }, 1200);
+  // Zoom in past the "fit everything" distance, then lock that in as the
+  // closest the camera is allowed to get — scroll only zooms further out
+  // from here, never back in past this framing.
+  setTimeout(() => {
+    fitGraphToContainer();
+    Graph.zoomToFit(600, 170);
+    setTimeout(() => {
+      const cam = Graph.camera();
+      const dist = Math.hypot(cam.position.x, cam.position.y, cam.position.z);
+      const lockedDist = dist * 0.55;
+      const scale = lockedDist / dist;
+      Graph.cameraPosition({ x: cam.position.x * scale, y: cam.position.y * scale, z: cam.position.z * scale }, undefined, 700);
+      const controls = Graph.controls();
+      controls.minDistance = lockedDist;
+      controls.maxDistance = Math.max(4000, lockedDist * 6);
+    }, 650);
+  }, 1200);
 
   // ---- Obsidian-style graph, not a ball ----
   // No containment sphere at all — nothing pulls nodes back toward a radius.
@@ -2755,11 +2771,11 @@ function initGraph(data) {
   // visible lines between distinguishable dots instead of a dense clump.
   try {
     const charge = Graph.d3Force('charge');
-    if (charge) charge.strength(-260).distanceMax(2000);
+    if (charge) charge.strength(-170).distanceMax(1400);
     const link = Graph.d3Force('link');
-    if (link) link.distance((l) => (l.neural ? 130 : 90)).iterations(2);
+    if (link) link.distance((l) => (l.neural ? 68 : 48)).iterations(2);
     const center = Graph.d3Force('center');
-    if (center) center.strength(0.02);
+    if (center) center.strength(0.025);
   } catch (e) { console.warn('Force tuning skipped:', e); }
 
   // No shell, no wireframe, no imposed boundary geometry — the memories and
@@ -2787,7 +2803,6 @@ function initGraph(data) {
 
   Graph.controls().autoRotate = true;
   Graph.controls().autoRotateSpeed = 0.65;
-  Graph.onEngineStop(() => Graph.zoomToFit(600, 170));
 
   startBreathingLoop();
 }
