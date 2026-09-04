@@ -2777,7 +2777,7 @@ function initGraph(data) {
     setTimeout(() => {
       const cam = Graph.camera();
       const fitDist = Math.hypot(cam.position.x, cam.position.y, cam.position.z);
-      const lockedDist = fitDist * 1.15;
+      const lockedDist = fitDist * 1.5;
       const scale = lockedDist / fitDist;
       Graph.cameraPosition({ x: cam.position.x * scale, y: cam.position.y * scale, z: cam.position.z * scale }, undefined, 700);
       const controls = Graph.controls();
@@ -2786,17 +2786,14 @@ function initGraph(data) {
     }, 650);
   }, 1200);
 
-  // ---- A round web, not a ball ----
-  // Charge (repel) + link (attract along real connections) do the local
-  // structure; a soft, gentle round-up force nudges the overall silhouette
-  // toward a sphere without flattening the internal web into a packed clump
-  // — it only pushes outliers back in, it never pulls neighbors together.
+  // ---- A packed round ball, held together whether linked or not ----
+  // Weak repulsion + short link distances keep everything close regardless
+  // of connection; a firm round-up force actively pulls every node toward
+  // the cloud's radius (not just outliers past it), so unconnected dots get
+  // pulled in by proximity to the group instead of drifting off alone.
 
   let adaptRadius = 60 + Math.cbrt(neuralData.nodes.length) * 42;
 
-  // Perpetual wander (so it never freezes solid) + a light pull-back once a
-  // node drifts past the cloud's natural radius, rounding the outer edge
-  // into roughly a sphere while leaving everything inside it free.
   function livingRound(radiusFn) {
     let nodes = [];
     function force(alpha) {
@@ -2806,8 +2803,7 @@ function initGraph(data) {
         n.vz += (Math.random() - 0.5) * 0.02;
         const r = Math.hypot(n.x, n.y, n.z) || 0.01;
         const R = radiusFn();
-        if (r < R) continue;
-        const k = (R - r) * Math.max(alpha, 0.05) * 0.03;
+        const k = (R - r) * Math.max(alpha, 0.06) * 0.09;
         n.vx += (n.x / r) * k;
         n.vy += (n.y / r) * k;
         n.vz += (n.z / r) * k;
@@ -2818,13 +2814,13 @@ function initGraph(data) {
   }
   Graph.d3Force('drift', livingRound(() => adaptRadius));
 
-  // Force tuning: strong repulsion + generous link distance spreads the web
-  // out into open, evenly-spaced dots instead of a dense clump.
+  // Force tuning: weak repulsion + short link distances pack everything
+  // close together; the round-up force above does the shaping.
   try {
     const charge = Graph.d3Force('charge');
-    if (charge) charge.strength(-190).distanceMax(1400);
+    if (charge) charge.strength(-70).distanceMax(900);
     const link = Graph.d3Force('link');
-    if (link) link.distance((l) => (l.neural ? 80 : 58)).iterations(2);
+    if (link) link.distance((l) => (l.neural ? 32 : 24)).iterations(2);
     const center = Graph.d3Force('center');
     if (center) center.strength(0.04);
   } catch (e) { console.warn('Force tuning skipped:', e); }
