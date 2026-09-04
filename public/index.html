@@ -2723,18 +2723,14 @@ function initGraph(data) {
   window.addEventListener('resize', fitGraphToContainer);
   fitGraphToContainer();
   setTimeout(fitGraphToContainer, 300);
-  // Zoom in past the "fit everything" distance, then lock that in as the
-  // closest the camera is allowed to get — scroll only zooms further out
-  // from here, never back in past this framing.
+  // Keep the "fit everything" framing as-is, just lock it as the closest
+  // the camera is allowed to get — scroll only zooms further out from here.
   setTimeout(() => {
     fitGraphToContainer();
     Graph.zoomToFit(600, 170);
     setTimeout(() => {
       const cam = Graph.camera();
-      const dist = Math.hypot(cam.position.x, cam.position.y, cam.position.z);
-      const lockedDist = dist * 0.55;
-      const scale = lockedDist / dist;
-      Graph.cameraPosition({ x: cam.position.x * scale, y: cam.position.y * scale, z: cam.position.z * scale }, undefined, 700);
+      const lockedDist = Math.hypot(cam.position.x, cam.position.y, cam.position.z);
       const controls = Graph.controls();
       controls.minDistance = lockedDist;
       controls.maxDistance = Math.max(4000, lockedDist * 6);
