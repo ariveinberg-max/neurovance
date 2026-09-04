@@ -2673,6 +2673,49 @@ function buildNeuralLinks(nodes, serverLinks) {
       links.push({ source: a.id, target: b.id, value: Math.max(1, Math.round(score)), neural: true });
     }
   }
+
+  // "Every node has a link" doesn't mean "every node is reachable from every
+  // other node" — two tightly-tagged groups with zero overlap between them
+  // each satisfy that on their own, leaving two separate islands floating
+  // apart. Union-find the actual components, then bridge any extras onto the
+  // main web with their single best-matching cross-cluster pair, so the
+  // whole brain is provably one connected shape, not several.
+  const parent = new Map(nodes.map((n) => [String(n.id), String(n.id)]));
+  function find(x) { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; }
+  function union(a, b) { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); }
+  links.forEach((l) => union(String(l.source), String(l.target)));
+
+  function components() {
+    const map = new Map();
+    nodes.forEach((n) => {
+      const r = find(String(n.id));
+      if (!map.has(r)) map.set(r, []);
+      map.get(r).push(n);
+    });
+    return [...map.values()];
+  }
+
+  let comps = components();
+  let guard = nodes.length; // hard stop — components strictly shrink each pass
+  while (comps.length > 1 && guard-- > 0) {
+    const [A, B] = comps;
+    let best = [A[0], B[0]], bestScore = -Infinity;
+    for (const a of A) {
+      for (const b of B) {
+        const s = prized(a, b);
+        if (s > bestScore) { bestScore = s; best = [a, b]; }
+      }
+    }
+    const [a, b] = best;
+    const k2 = key(String(a.id), String(b.id));
+    if (!seen.has(k2)) {
+      seen.add(k2);
+      links.push({ source: a.id, target: b.id, value: Math.max(1, bestScore), neural: true });
+    }
+    union(String(a.id), String(b.id));
+    comps = components();
+  }
+
   return links;
 }
 
@@ -2724,20 +2767,21 @@ function initGraph(data) {
   fitGraphToContainer();
   setTimeout(fitGraphToContainer, 300);
   // Fit everything first (so we know the cloud's true extent), then push in
-  // close enough that every dot reads clearly, and lock THAT as the closest
-  // the camera is allowed to get — scroll only zooms further out from here.
+  // close enough that every dot reads clearly, and lock THAT starting
+  // distance as the FARTHEST the camera is allowed to go — scroll can only
+  // zoom in closer from here, never back out past this framing.
   setTimeout(() => {
     fitGraphToContainer();
     Graph.zoomToFit(600, 170);
     setTimeout(() => {
       const cam = Graph.camera();
       const fitDist = Math.hypot(cam.position.x, cam.position.y, cam.position.z);
-      const lockedDist = fitDist * 0.4;
+      const lockedDist = fitDist * 0.25;
       const scale = lockedDist / fitDist;
       Graph.cameraPosition({ x: cam.position.x * scale, y: cam.position.y * scale, z: cam.position.z * scale }, undefined, 700);
       const controls = Graph.controls();
-      controls.minDistance = lockedDist;
-      controls.maxDistance = Math.max(4000, lockedDist * 6);
+      controls.maxDistance = lockedDist;
+      controls.minDistance = 4;
     }, 650);
   }, 1200);
 
