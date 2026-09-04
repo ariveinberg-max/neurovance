@@ -2631,124 +2631,20 @@ function handleStripeRedirect() {
   }
 }
 
-// Every memory gets linked into one living neural web — not just the
-// tag-shared pairs the server returns. We add a sparse "nearest-neighbor"
-// layer so every node connects to its closest partners by tag overlap, which
-// guarantees the whole brain is a single connected, weblike constellation
-// instead of disconnected clumps. Returns a fresh link array (server links
-// enriched with the neural layer), deduped by unordered pair.
-function buildNeuralLinks(nodes, serverLinks) {
-  const links = (serverLinks || []).map((l) => ({ source: l.source, target: l.target, value: l.value || 1, neural: false }));
-  const seen = new Set();
-  const key = (a, b) => (a <= b ? `${a}|${b}` : `${b}|${a}`);
-  links.forEach((l) => seen.add(key(String(l.source), String(l.target))));
-
-  const TAG = (n) => (n.tags && n.tags.length ? n.tags : []);
-  const prized = (a, b) => TAG(a).filter((t) => TAG(b).includes(t)).length;
-
-  for (let i = 0; i < nodes.length; i++) {
-    const a = nodes[i];
-    // rank every other node by shared-tag overlap, tie-break stably by index
-    const ranked = [];
-    for (let j = 0; j < nodes.length; j++) {
-      if (i === j) continue;
-      const b = nodes[j];
-      const s = prized(a, b);
-      const tie = (j - i) / 1000; // tiny stable tie-breaker so it's deterministic
-      ranked.push({ b, score: s + tie });
-    }
-    ranked.sort((x, y) => y.score - x.score);
-    const determined = links.filter((l) => String(l.source) === String(a.id) || String(l.target) === String(a.id)).length;
-    // Guarantee at least 1 connection per node (no isolated islands) without
-    // force-adding extra ones — over-connecting is what packed everything
-    // into one dense clump. Sparse, real connections read as a web; forcing
-    // 3 per node reads as a ball.
-    let wanted = 1;
-    if (determined > 0) wanted = 0;
-    for (let k = 0; k < wanted && k < ranked.length; k++) {
-      const { b, score } = ranked[k];
-      const k2 = key(String(a.id), String(b.id));
-      if (seen.has(k2)) continue;
-      seen.add(k2);
-      links.push({ source: a.id, target: b.id, value: Math.max(1, Math.round(score)), neural: true });
-    }
-  }
-
-  // "Every node has a link" doesn't mean "every node is reachable from every
-  // other node" — two tightly-tagged groups with zero overlap between them
-  // each satisfy that on their own, leaving two separate islands floating
-  // apart. Union-find the actual components, then bridge any extras onto the
-  // main web with their single best-matching cross-cluster pair, so the
-  // whole brain is provably one connected shape, not several.
-  const parent = new Map(nodes.map((n) => [String(n.id), String(n.id)]));
-  function find(x) { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; }
-  function union(a, b) { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); }
-  links.forEach((l) => union(String(l.source), String(l.target)));
-
-  function components() {
-    const map = new Map();
-    nodes.forEach((n) => {
-      const r = find(String(n.id));
-      if (!map.has(r)) map.set(r, []);
-      map.get(r).push(n);
-    });
-    return [...map.values()];
-  }
-
-  let comps = components();
-  let guard = nodes.length; // hard stop — components strictly shrink each pass
-  while (comps.length > 1 && guard-- > 0) {
-    const [A, B] = comps;
-    let best = [A[0], B[0]], bestScore = -Infinity;
-    for (const a of A) {
-      for (const b of B) {
-        const s = prized(a, b);
-        if (s > bestScore) { bestScore = s; best = [a, b]; }
-      }
-    }
-    const [a, b] = best;
-    const k2 = key(String(a.id), String(b.id));
-    if (!seen.has(k2)) {
-      seen.add(k2);
-      links.push({ source: a.id, target: b.id, value: Math.max(1, bestScore), neural: true });
-    }
-    union(String(a.id), String(b.id));
-    comps = components();
-  }
-
-  return links;
-}
-
 function initGraph(data) {
-  // Enrich the graph so ALL memories are linked into one neural web before we
-  // hand it to the layout + renderer.
-  const neuralData = { nodes: data.nodes, links: buildNeuralLinks(data.nodes, data.links) };
   Graph = ForceGraph3D()(document.getElementById('graph'))
-    .graphData(neuralData)
+    .graphData(data)
     .backgroundColor(graphBgFor(document.documentElement.dataset.theme || 'dark'))
     .nodeLabel((n) => n.name)
-    .nodeColor(() => '#ffffff')
+    .nodeColor((n) => (n.id === selectedId ? '#ffffff' : n.color))
     .nodeVal((n) => n.val)
-    .nodeResolution(28)
-    // Small solid dots, sized a touch by memory importance. Big translucent
-    // spheres packed close together optically merge into one blended blob —
-    // that's the "blue sphere" this was showing. Opaque dots stay distinct
-    // from each other no matter how tightly the web clusters them.
-    .nodeThreeObject((n) => {
-      const r = 1.9 + Math.min(2.6, Math.sqrt(Math.max(n.val || 1, 1))) * 0.7;
-      const geo = new THREE.SphereGeometry(r, 12, 10);
-      const mat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
-      const mesh = new THREE.Mesh(geo, mat);
-      if (!mesh.userData) mesh.userData = {};
-      mesh.userData.neuralNode = true;
-      return mesh;
-    })
-    .linkColor((l) => (l.neural ? 'rgba(96,200,255,0.30)' : 'rgba(190,120,255,0.55)'))
-    .linkWidth((l) => (l.neural ? 0.6 : Math.min(1.6, l.value * 0.9)))
-    .linkDirectionalParticles(2)
-    .linkDirectionalParticleSpeed(0.014)
-    .linkDirectionalParticleWidth(1.8)
-    .linkDirectionalParticleColor((l) => (l.neural ? '#69d2ff' : '#ff9ef1'))
+    .nodeResolution(24)
+    .linkColor(() => 'rgba(220,220,226,0.55)')
+    .linkWidth((l) => Math.min(l.value, 1.4))
+    .linkDirectionalParticles(1)
+    .linkDirectionalParticleSpeed(0.004)
+    .linkDirectionalParticleWidth(1)
+    .linkDirectionalParticleColor(() => '#d8d8de')
     .nodeOpacity(0.92)
     .showNavInfo(false)
     .onNodeClick((n) => {
@@ -2757,8 +2653,9 @@ function initGraph(data) {
       showSelectedMemory(n);
     });
 
-  // Keep the canvas pinned to its container (some renderer versions snap to
-  // the full window on first resize and cover the data panel below it).
+  // Force the canvas to stay pinned to its actual container size. Some
+  // versions of the renderer snap to the full window on the first resize
+  // event, which visually covers the data panel below it.
   function fitGraphToContainer() {
     const el = document.getElementById('graph');
     Graph.width(el.clientWidth).height(el.clientHeight);
@@ -2766,50 +2663,29 @@ function initGraph(data) {
   window.addEventListener('resize', fitGraphToContainer);
   fitGraphToContainer();
   setTimeout(fitGraphToContainer, 300);
-  // Fit everything first (so we know the cloud's true extent), then push in
-  // close enough to see everything with a little breathing room around the
-  // edges, and lock THAT starting distance as the FARTHEST the camera is
-  // allowed to go — scroll can only zoom in closer from here, never back
-  // out past this framing.
-  setTimeout(() => {
-    fitGraphToContainer();
-    Graph.zoomToFit(600, 170);
-    setTimeout(() => {
-      const cam = Graph.camera();
-      const fitDist = Math.hypot(cam.position.x, cam.position.y, cam.position.z);
-      const lockedDist = fitDist * 1.3;
-      const scale = lockedDist / fitDist;
-      Graph.cameraPosition({ x: cam.position.x * scale, y: cam.position.y * scale, z: cam.position.z * scale }, undefined, 700);
-      const controls = Graph.controls();
-      controls.maxDistance = lockedDist;
-      controls.minDistance = 4;
-    }, 650);
-  }, 1200);
+  setTimeout(() => { fitGraphToContainer(); Graph.zoomToFit(600, 170); }, 1200);
 
-  // ---- Round silhouette, dots must stay individually visible ----
-  // In 3D, "close together" and "not a blob" are in direct tension: it's a
-  // FILLED ball viewed with depth — front dots occlude back dots in screen
-  // space no matter how the round force is tuned, so packing tighter always
-  // reads as denser/blobbier, unlike a flat 2D graph. -130/34-46 was still
-  // too tight. Back to the separation level from before the "pack closer"
-  // request (which wasn't blobby), pushed a bit further apart for margin.
-  // The round force still only reins in outliers past the edge — it shapes
-  // the silhouette without collapsing the interior spacing that keeps dots
-  // apart.
+  // ---- Memory-driven shape (NOT memories pinned on a fixed sphere) ----
+  // Deliberately no "sphereForce" stamping every node onto a shell surface.
+  // Instead the memories cluster by their shared-tag links (meaning), the
+  // whole cloud is held together by a soft containment ball, and the
+  // wireframe shell below is DERIVED from where the memories actually sit —
+  // the brain is shaped around the memories, never the other way around.
 
-  let adaptRadius = 60 + Math.cbrt(neuralData.nodes.length) * 42;
+  let adaptRadius = 55 + Math.cbrt(data.nodes.length) * 45;
 
-  function livingRound(radiusFn) {
+  // Soft containment: keep the cloud cohesive inside a ball, but interior
+  // memories are completely free to cluster by content. The edge is only
+  // gently reined in (not pinned) so the layout reads as connected thought
+  // rather than a constellation sprayed across a globe.
+  function adaptiveSphere(radiusFn) {
     let nodes = [];
     function force(alpha) {
       for (const n of nodes) {
-        n.vx += (Math.random() - 0.5) * 0.02;
-        n.vy += (Math.random() - 0.5) * 0.02;
-        n.vz += (Math.random() - 0.5) * 0.02;
         const r = Math.hypot(n.x, n.y, n.z) || 0.01;
         const R = radiusFn();
-        if (r < R) continue;
-        const k = (R - r) * Math.max(alpha, 0.06) * 0.035;
+        if (r < R * 0.5) continue;          // interior: let meaning decide
+        const k = (R - r) * alpha * 0.06;
         n.vx += (n.x / r) * k;
         n.vy += (n.y / r) * k;
         n.vz += (n.z / r) * k;
@@ -2818,42 +2694,47 @@ function initGraph(data) {
     force.initialize = (ns) => { nodes = ns; };
     return force;
   }
-  Graph.d3Force('drift', livingRound(() => adaptRadius));
+  Graph.d3Force('sphere', adaptiveSphere(() => adaptRadius));
 
+  // Tune the bundled forces so tag-connected memories pull into readable
+  // clusters: tighter distance for more shared tags, gentle center gravity.
   try {
     const charge = Graph.d3Force('charge');
-    if (charge) charge.strength(-210).distanceMax(1600);
+    if (charge) charge.strength(-42).distanceMax(Math.max(280, adaptRadius * 2.2));
     const link = Graph.d3Force('link');
-    if (link) link.distance((l) => (l.neural ? 95 : 66)).iterations(2);
+    if (link) link.distance((l) => Math.max(20, 62 / Math.max(1, l.value))).strength((l) => Math.min(0.5, 0.22 * l.value));
     const center = Graph.d3Force('center');
-    if (center) center.strength(0.028);
+    if (center) center.strength(0.05);
   } catch (e) { console.warn('Force tuning skipped:', e); }
 
-  // No shell, no wireframe, no imposed boundary geometry — the memories and
-  // their links ARE the shape. We still track the cloud's extent (invisibly)
-  // so the soft containment force below has a radius to work with, but
-  // nothing is drawn for it.
-  function refreshExtent() {
+  // The shell is computed from the memories themselves — we find the centroid
+  // and the furthest node, then scale the wireframe to hug that real cloud so
+  // it resizes as thoughts/memories grow instead of staying a fixed ball.
+  const shellGeo = new THREE.IcosahedronGeometry(1, 2);
+  shellMaterial = new THREE.MeshBasicMaterial({ color: shellColorFor(document.documentElement.dataset.theme || 'dark'), wireframe: true, transparent: true, opacity: 0.22 });
+  const shellMesh = new THREE.Mesh(shellGeo, shellMaterial);
+  Graph.scene().add(shellMesh);
+
+  function refreshShell() {
     if (!allNodes.length) return;
     let cx = 0, cy = 0, cz = 0;
     allNodes.forEach((n) => { cx += n.x; cy += n.y; cz += n.z; });
     cx /= allNodes.length; cy /= allNodes.length; cz /= allNodes.length;
     let maxR = 40;
     allNodes.forEach((n) => { maxR = Math.max(maxR, Math.hypot(n.x - cx, n.y - cy, n.z - cz)); });
-    adaptRadius = maxR + 30;
+    const R = maxR + 26;                              // a little breathing room
+    adaptRadius = R;
+    const scale = R / 100;
+    shellMesh.scale.set(scale, scale, scale);
+    shellMesh.position.set(cx, cy, cz);
   }
-  refreshExtent();
-  setInterval(refreshExtent, 900);
-
-  // ---- Always moving ----
-  // A permanent low simmer instead of periodic full reheats: alpha never
-  // decays to zero, so the web never settles into a frozen sculpture — it
-  // just keeps drifting, breathing, and slowly re-forming, forever.
-  Graph.d3AlphaTarget(0.02);
-  Graph.d3ReheatSimulation();
+  refreshShell();
+  // Re-shape as the layout settles and as new memories fly in from thoughts.
+  setInterval(refreshShell, 2500);
 
   Graph.controls().autoRotate = true;
-  Graph.controls().autoRotateSpeed = 0.65;
+  Graph.controls().autoRotateSpeed = 0.5;
+  Graph.onEngineStop(() => Graph.zoomToFit(600, 170));
 
   startBreathingLoop();
 }
@@ -3189,20 +3070,12 @@ function initThinkingWatcher() {
 // its own step so a whole batch from extractMemories() can land one at a
 // time instead of all popping in at once.
 function landMemoryNode(node) {
-  // Snapshot the existing web first so we don't mutate while iterating.
-  const others = allNodes.slice();
   allNodes.push(node);
-  const TAG = (n) => (n.tags && n.tags.length ? n.tags : []);
-  // Rank the existing memories by tag overlap; connect the new one to its top
-  // partners so it always joins the connected neural web (≥1 guaranteed link),
-  // not just the tag-shared pairs.
-  const ranked = others
-    .map((o, j) => ({ o, s: TAG(node).filter((t) => TAG(o).includes(t)).length + (j / 1000) }))
-    .sort((a, b) => b.s - a.s);
-  const wanted = Math.min(3, ranked.length);
-  for (let k = 0; k < wanted; k++) {
-    const { o, s } = ranked[k];
-    allLinks.push({ source: node.id, target: o.id, value: Math.max(1, Math.round(s)), neural: true });
+  // mirror the server's link logic: connect to any existing memory sharing a tag
+  for (const other of allNodes) {
+    if (other.id === node.id) continue;
+    const shared = node.tags.filter((t) => other.tags.includes(t));
+    if (shared.length > 0) allLinks.push({ source: node.id, target: other.id, value: shared.length });
   }
 
   if (Graph) {
