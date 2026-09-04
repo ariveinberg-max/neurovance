@@ -2786,11 +2786,14 @@ function initGraph(data) {
     }, 650);
   }, 1200);
 
-  // ---- A packed round ball, held together whether linked or not ----
-  // Weak repulsion + short link distances keep everything close regardless
-  // of connection; a firm round-up force actively pulls every node toward
-  // the cloud's radius (not just outliers past it), so unconnected dots get
-  // pulled in by proximity to the group instead of drifting off alone.
+  // ---- Round silhouette, but dots stay individually visible ----
+  // Pulling every node toward the radius constantly (not just outliers)
+  // packed everything so tight the opaque dots overlapped in screen space
+  // and read as one solid blob again — same failure as the very first
+  // "solid sphere" complaint, just from density instead of a drawn shell.
+  // Charge/link now keep real separation between dots; the round force
+  // only reins in outliers past the edge, so it shapes the silhouette
+  // without collapsing the interior spacing.
 
   let adaptRadius = 60 + Math.cbrt(neuralData.nodes.length) * 42;
 
@@ -2803,7 +2806,8 @@ function initGraph(data) {
         n.vz += (Math.random() - 0.5) * 0.02;
         const r = Math.hypot(n.x, n.y, n.z) || 0.01;
         const R = radiusFn();
-        const k = (R - r) * Math.max(alpha, 0.06) * 0.09;
+        if (r < R) continue;
+        const k = (R - r) * Math.max(alpha, 0.06) * 0.06;
         n.vx += (n.x / r) * k;
         n.vy += (n.y / r) * k;
         n.vz += (n.z / r) * k;
@@ -2814,15 +2818,16 @@ function initGraph(data) {
   }
   Graph.d3Force('drift', livingRound(() => adaptRadius));
 
-  // Force tuning: weak repulsion + short link distances pack everything
-  // close together; the round-up force above does the shaping.
+  // Force tuning: moderate repulsion + moderate link distance — enough
+  // separation to tell dots apart, not so much it reads as spread-out
+  // Obsidian-style sparseness.
   try {
     const charge = Graph.d3Force('charge');
-    if (charge) charge.strength(-70).distanceMax(900);
+    if (charge) charge.strength(-130).distanceMax(1200);
     const link = Graph.d3Force('link');
-    if (link) link.distance((l) => (l.neural ? 32 : 24)).iterations(2);
+    if (link) link.distance((l) => (l.neural ? 46 : 34)).iterations(2);
     const center = Graph.d3Force('center');
-    if (center) center.strength(0.04);
+    if (center) center.strength(0.03);
   } catch (e) { console.warn('Force tuning skipped:', e); }
 
   // No shell, no wireframe, no imposed boundary geometry — the memories and
