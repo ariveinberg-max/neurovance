@@ -1,16 +1,19 @@
 {
   "name": "agent-brain",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
+  "author": "Neurovance",
   "type": "module",
   "description": "A general-purpose agent brain: persistent memory + autonomous task planning",
-  "main": "src/index.js",
+  "main": "desktop/main.cjs",
   "scripts": {
     "start": "node src/index.js",
     "graph": "node src/server.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "desktop": "electron .",
+    "desktop:package": "electron-builder --mac --publish never"
   },
-"dependencies": {
+  "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "dotenv": "^16.4.5",
     "firebase-admin": "^14.2.0",
@@ -20,5 +23,33 @@
   },
   "overrides": {
     "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "dev.neurovance.desktop",
+    "productName": "Neurovance",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json",
+      "!node_modules/**/*",
+      "!memory/**/*",
+      "!video-capture/**/*",
+      "!.env"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "extendInfo": { "NSMicrophoneUsageDescription": "Neurovance uses your microphone for voice conversations when you enable voice." },
+      "icon": "desktop/icons/Neurovance.icns",
+      "target": [
+        "dmg"
+      ]
+    }
   }
 }

@@ -5,3 +5,7 @@ video-capture/
 memory/
 .DS_Store
 .claude/
+release/
+outputs/
+work/
+desktop/icons/*.iconset/
