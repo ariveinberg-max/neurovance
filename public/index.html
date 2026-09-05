@@ -2319,7 +2319,7 @@
       <div id="code-panel-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></svg></div>
       <div id="code-panel-titles">
         <div id="code-panel-title">Code workspace</div>
-        <div id="code-panel-subtitle">full access on your real files</div>
+        <div id="code-panel-subtitle">Checking workspace access…</div>
         <div id="code-provider-chip" hidden></div>
       </div>
     </div>
@@ -4148,8 +4148,23 @@ function initCodePanel() {
     try {
       const res = await fetch('/api/code/files', { credentials: 'same-origin' });
       const data = await res.json();
+      if (!res.ok) {
+        const localRequired = data.code === 'LOCAL_WORKSPACE_REQUIRED';
+        document.getElementById('code-panel-subtitle').textContent = localRequired ? 'A trusted local workspace is required' : 'Workspace unavailable';
+        document.getElementById('code-empty-state-title').textContent = localRequired ? 'Your files stay on your computer' : 'Could not load your files';
+        document.getElementById('code-empty-state-hint').textContent = data.error || 'Please reload and try again.';
+        document.getElementById('code-empty-state-actions').hidden = true;
+        [newFileBtn, promptInput, promptSend, searchInput, runBtn].forEach(el => { el.disabled = true; });
+        files = []; renderFileList();
+        return;
+      }
       files = data.files || [];
       workspaceRoot = data.workspaceRoot || '';
+      document.getElementById('code-panel-subtitle').textContent = 'Local files on your trusted server';
+      document.getElementById('code-empty-state-title').textContent = 'Nothing open yet';
+      document.getElementById('code-empty-state-hint').textContent = 'Create a file and start writing, or ask the agent to build something for you.';
+      document.getElementById('code-empty-state-actions').hidden = false;
+      [newFileBtn, promptInput, promptSend, searchInput, runBtn].forEach(el => { el.disabled = false; });
     } catch (e) {
       files = [];
     }

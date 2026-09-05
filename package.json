@@ -7,6 +7,7 @@
   "description": "A general-purpose agent brain: persistent memory + autonomous task planning",
   "main": "desktop/main.cjs",
   "scripts": {
+    "test": "node --test scripts/test_codefiles.mjs scripts/test_spend_guardrail.mjs scripts/test_providers.mjs scripts/test_workspace_regressions.mjs",
     "start": "node src/index.js",
     "graph": "node src/server.js",
     "seed": "node src/seed.js",

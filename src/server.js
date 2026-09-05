@@ -822,6 +822,12 @@ async function handleRequest(req, res) {
     const { user } = await getSessionAndUser(req);
     if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
 
+    // These tools operate on real disk paths, not isolated per-user storage.
+    // Never expose the host filesystem or code-agent tools on shared hosting.
+    if (req.url.startsWith('/api/code/') && (process.env.RENDER || !codeExecution.isExecutionEnabled())) {
+      return sendJson(res, 403, { error: 'Direct file access requires a trusted local Neurovance server. It is unavailable on the hosted app.', code: 'LOCAL_WORKSPACE_REQUIRED' });
+    }
+
     // Lost from this file somewhere in the uncommitted changes this session
     // found sitting in the working tree (buildGraph() itself was untouched
     // and still exported correctly — only the route binding it to a URL was
@@ -859,9 +865,9 @@ async function handleRequest(req, res) {
         if (!Number.isInteger(budget) || budget < 0) {
           return sendJson(res, 400, { error: 'Budget must be a non-negative integer.' });
         }
-        const user = await auth.findUserById(user.id);
-        user.tokenBudget = budget;
-        await auth.saveUser(user);
+        const freshUser = await auth.findUserById(user.id);
+        freshUser.tokenBudget = budget;
+        await auth.saveUser(freshUser);
         return sendJson(res, 200, { ok: true, budget });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
@@ -874,9 +880,9 @@ async function handleRequest(req, res) {
         if (typeof enabled !== 'boolean') {
           return sendJson(res, 400, { error: 'enabled must be true or false.' });
         }
-        const user = await auth.findUserById(user.id);
-        user.strictModeEnabled = enabled;
-        await auth.saveUser(user);
+        const freshUser = await auth.findUserById(user.id);
+        freshUser.strictModeEnabled = enabled;
+        await auth.saveUser(freshUser);
         return sendJson(res, 200, { ok: true, enabled });
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
